@@ -1,13 +1,24 @@
 {
   "permissions": {
     "allow": [
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(npm run:*)",
+      "Bash(npm install:*)",
       "Bash(npm test *)",
-      "Bash(npm run check *)",
       "Bash(npm view *)",
+      "Bash(python3:*)",
+      "Bash(pytest:*)",
       "mcp__claude_ai_Windsor_ai__get_data",
       "mcp__claude_ai_Windsor_ai__get_fields",
       "mcp__claude_ai_Windsor_ai__get_connectors",
       "mcp__claude_ai_Windsor_ai__get_options"
+    ],
+    "deny": [
+      "Bash(rm -rf:*)",
+      "Read(.env)",
+      "Read(**/*credentials*)"
     ]
   }
 }
