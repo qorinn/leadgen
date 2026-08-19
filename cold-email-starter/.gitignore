@@ -1,0 +1,14 @@
+# Titkok: SOHA ne kerüljön be
+.env
+
+# Éles adat: leadek, küldés-napló, tiltólista, bounce-ok
+data/*.csv
+data/*.json
+data/*.log
+
+# ...de a példa-lead lista kell
+!data/leads.example.csv
+
+__pycache__/
+*.pyc
+.DS_Store
