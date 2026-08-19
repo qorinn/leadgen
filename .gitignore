@@ -1,0 +1,26 @@
+# ─── Titkok ────────────────────────────────────────────────────────────────
+# A scraper sajat .env-je. (A kuldoe: cold-email-starter/.gitignore vedi.)
+.env
+.env.local
+*.key
+
+# ─── Python ────────────────────────────────────────────────────────────────
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# ─── Scraper munkaadat (nyers, ujratermelheto) ─────────────────────────────
+# FIGYELEM: a .gitignore NEM tamogat sor vegi kommentet -- a "/cache/  # x"
+# alakban az egesz sor a minta lenne, es sosem illeszkedne. A magyarazat
+# ezert mindig KULON sorban all.
+#
+# /cache/ : letoltott nyers HTML, az evidence grounding utolagos ellenorzesehez
+/cache/
+# /data/  : a scraper sajat kimeneti fajljai, ha lesznek
+/data/
+# a scrapelt seed-listak nyers formaban
+/seeds/*.csv
+
+# ─── macOS ─────────────────────────────────────────────────────────────────
+.DS_Store

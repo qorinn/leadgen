@@ -1,0 +1,6 @@
+# A scraper fuggosegei. A KULDO (cold-email-starter/) tovabbra is stdlib-only,
+# ide semmit ne szivarogtass at.
+psycopg[binary]==3.2.*     # Postgres kliens (Supabase session pooler)
+httpx==0.28.*              # HTTP kliens az enrichmenthez
+selectolax==0.3.*          # gyors HTML parser
+pytest==8.*                # csak a nema hibak helyere irunk tesztet

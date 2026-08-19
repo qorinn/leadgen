@@ -4,10 +4,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Mi ez a repó
 
-A repó gyökere (`scraper/scraper`) egy **még meg nem írt lead-scraper** munkatere. Jelenleg:
+A repó két rendszert tartalmaz, amiket össze kell hangolni:
 
-- `cold-email-starter/` — a kész, működő cold email küldő motor (Python 3.10+, stdlib-only).
-  Ez az egyetlen kód a repóban; a scraperből még egy sor sem létezik.
+- `cold-email-starter/` — a kész, működő cold email küldő motor (stdlib-only, a gépen
+  a rendszer `python3` 3.9.6-ján fut).
+- `leadgen/` — a **lead-scraper**, épül. Saját venv (Python 3.12), Supabase Postgres.
+  Az 1. szakasz (alapozás) 2026-08-19-én elkészült: séma, migrációk, normalizáló réteg.
+  Üzleti logika még nincs benne.
+- [INTEGRATION-PLAN.md](INTEGRATION-PLAN.md) — **a végrehajtási terv**: a két rendszer
+  közti kontraktus, az eldöntött integrációs kérdések, a szakaszok és az állapotuk.
+  Egy új session ezzel kezdjen — a tetején lévő állapot-blokk megmondja, hol tartunk.
 - [SCRAPER-PLAN.md](SCRAPER-PLAN.md) — **a repó elsődleges követelményrendszere**, 3258 sor.
   Ne olvastasd végig egy sessionben; célzottan olvasd `sed -n`-nel. A load-bearing fejezetek:
 
@@ -29,8 +35,9 @@ A repó gyökere (`scraper/scraper`) egy **még meg nem írt lead-scraper** munk
 
 A scraper feladata: **jelölt** leadeket termelni a `cold-email-starter/data/leads.csv`-be.
 A döntést, hogy tényleg megy-e levél, minden futásnál újra a küldő védelmi rétege hozza meg.
-A részletes rendszerleírás és a nyitott integrációs kérdések:
-[cold-email-starter/SCRAPER_INTEGRATION.md](cold-email-starter/SCRAPER_INTEGRATION.md).
+A küldő részletes rendszerleírása:
+[cold-email-starter/SCRAPER_INTEGRATION.md](cold-email-starter/SCRAPER_INTEGRATION.md)
+(a benne felsorolt „nyitott kérdések" azóta eldőltek — lásd az INTEGRATION-PLAN.md 2. részét).
 
 A `cold-email-starter/AGENTS.md` a küldő motorra vonatkozó kemény szabályokat tartalmazza —
 ezek a lenti "Invariánsok" szakaszban is szerepelnek, és érvényesek maradnak.
@@ -71,6 +78,18 @@ kilép.) Bármilyen küldési-logika módosítás után a `--dry --skip-guards` 
 
 `sender.py --limit N` levágja az adott futás tervét; `deliverability.py` **exit 1-et ad,
 ha riasztás van** — cronban ezt ne értelmezd hibának.
+
+### A scraper parancsai — a repó gyökeréből
+
+A scraper **külön interpreteren fut**: saját venv Python 3.12-vel. A `python3` a gépen
+3.9.6, azon a küldő fut. Ne keverd őket.
+
+```bash
+.venv/bin/python -m leadgen.cli db info        # kapcsolódási adatok, jelszó nélkül
+.venv/bin/python -m leadgen.cli db migrate     # idempotens, bármikor újrafuttatható
+.venv/bin/python -m leadgen.cli db check       # táblák és sorszámok
+.venv/bin/pytest                               # a normalizáló réteg tesztjei
+```
 
 ## Architektúra
 
@@ -141,6 +160,38 @@ Az 5. pont javítása **nem gyengíti** a védelmi réteget: minden válaszoló 
 szabály miatt amúgy is DNC-be kerül, tehát az `UNSUB_PATTERNS` szűkítése nem enged ki
 senkit, csak az *okot* pontosítja.
 
+## A scraper (`leadgen/`) — 1. szakasz óta létezik
+
+Külön rendszer, saját függőségekkel. A teljes terv: [INTEGRATION-PLAN.md](INTEGRATION-PLAN.md).
+
+| | |
+|---|---|
+| Futtatás | `.venv/bin/python -m leadgen.cli ...` a **repó gyökeréből** |
+| Python | 3.12 (Homebrew), saját `.venv`. A küldő a rendszer 3.9.6-ján fut. |
+| Függőségek | `psycopg[binary]`, `httpx`, `selectolax`, `pytest` (`requirements.txt`) |
+| Adatbázis | Supabase Postgres 17, **session pooler** (5432). A 6543-as transaction pooleren a migrációk elhasalnának. |
+| Titkok | a **gyökér** `.env`-ben (`DATABASE_URL`, ...). A küldőé külön: `cold-email-starter/.env`. |
+
+**Modulok és a felelősségük:**
+
+- `leadgen/db.py` — **az egyetlen hely, ahol `psycopg`-t hívunk.** Ha a DB valaha
+  költözik, egy fájl változik. Máshol ne olvasd a connection stringet.
+- `leadgen/normalize.py` — domain / cégnév / telefon / email, tiszta függvények.
+  A `.hu` másodszintű suffixek (`shop.hu`, `co.hu`, ...) be vannak drótozva:
+  e nélkül minden `*.shop.hu` cég egyetlen `shop.hu` kulcsra esne össze.
+- `leadgen/blocklist.py` — platform-domainek + a cégkulcs feloldása
+  (domain → adószám → cégnév+település → telefon).
+- `leadgen/migrations/*.sql` — sima SQL, névsorrendben. **Egy már lefuttatott
+  migrációt soha ne írj át** (checksum védi): vegyél fel újat.
+
+**Miért van itt pytest, ha a küldőben nincs test suite:** a normalizálás hibái némák —
+két cég összeolvad, vagy egy cég kétszer kap levelet, és semmi nem dob hibát. Csak
+ide írunk tesztet, máshova nem.
+
+**A domain lock adatbázis-szinten él:** részleges UNIQUE index az
+`outreach (company_id) WHERE status IN ('queued','sent')` feltétellel. A küldő ezt
+nem tudja kifejezni (`build_plan` email szerint kulcsol), ezért itt kell kikényszeríteni.
+
 ## Invariánsok — ezeket ne törd el
 
 1. **Dry-run az alapértelmezés.** Csak `--live` küld. Ezt a védelmet ne fordítsd meg;
@@ -187,11 +238,19 @@ senkit, csak az *okot* pontosítja.
 - a küldő szekvencia-foka (`cold` / `follow_up_1` / `follow_up_2` / `done`) az **üzenet**
   állapota, és a `sent.csv`-ből származtatott.
 
-**Még nyitott integrációs kérdések** (a fenti ellentmondás-tábla a bemenetük, és külön
-integrációs tervben dőlnek el): egy vagy két igazságforrás; hol fut az email-validáció és
-mi az újravalidálási küszöb; hogyan jut vissza a bounce / leiratkozás / válasz a
-scraperhez és milyen gyakran; ki írhatja a `status`-t; mi a pontos átadási mezőlista és
-melyik oldal indítja a folyamatot; hol fut a válasz-osztályozás.
+**Ezek a kérdések 2026-08-19-én eldőltek** — a válaszok és az indoklásuk az
+[INTEGRATION-PLAN.md](INTEGRATION-PLAN.md) 2. részében (A–F pont) vannak. Röviden:
+
+- **Két tároló, koncernenként egy birtokos.** Supabase = ki a jelölt; CSV = mi ment ki.
+- **Írási jogok:** a scraper a DB-t és a `leads.csv`-t írja; a küldő a `sent.csv`-t,
+  DNC-t, bounce-okat. Egyik sem nyúl a másikéhoz.
+- **Az export teljesen újraírja a `leads.csv`-t** (atomikusan), és tartalmazza a
+  folyamatban lévő leadeket is — különben elmaradnának a follow-upjaik.
+- **A feedback-import kötelező az export előtt**; ha hibára fut, az export exit 1-gyel
+  megáll. Ez a küldő „guards hiba = nem küldünk" invariánsának a párja.
+- **Validáció:** ingyenes szűrő enrichmentkor, Reoon az export kapujában, 90 napos cache.
+- **Válasz-osztályozás a scraperben**, de előbb a `guards.py`-nak meg kell őriznie a
+  válaszok szövegét (`replies.csv`) — ma eldobja őket.
 
 Amiről a küldő oldaláról már most tudni kell: a `leads.csv`-n belül **nincs** dedup (a
 `build_plan` csendben az utolsó sort veszi ismétlődő email esetén), és **nincs** upsert a

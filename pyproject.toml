@@ -1,0 +1,13 @@
+# Szandekosan NINCS [project] tabla: a leadgen nem telepitett csomag, hanem a
+# repo gyokerebol futtatott modul (`python -m leadgen.cli`). Igy nincs build
+# backend, nincs `pip install -e .` lepes, es nem tud elavulni a telepitett
+# masolat a forrashoz kepest. A fuggosegek a requirements.txt-ben vannak.
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+# A `tests/` alatt nincs __init__.py, ezert a pytest alapbol a tests/ mappat
+# teszi a sys.path-ra, a repo gyokeret nem -- es a `from leadgen import ...`
+# elhasalna. A `python -m pytest` veletlenul mukodne (az a cwd-t is felveszi),
+# a `pytest` parancs viszont nem. Ez a sor teszi mindkettot mukodokepesse.
+pythonpath = ["."]

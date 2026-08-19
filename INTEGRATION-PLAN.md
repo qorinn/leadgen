@@ -8,6 +8,77 @@
 
 ---
 
+## 📍 Állapot — 2026-08-19 (szerda), 17:40
+
+| Szakasz | Állapot |
+|---|---|
+| **0. Emberi előfeltételek** | ✅ **KÉSZ** |
+| **1. Alapozás** | ✅ **KÉSZ** |
+| **2. Export (DB → leads.csv)** | ▶️ **KÖVETKEZIK** |
+| 3-13. | ⬜ nem kezdődött el |
+
+**Ellenőrzött tények (nem feltételezés):**
+
+```
+SMTP  balint@paladi-web.hu ........ OK   (Google Workspace, app-jelszó)
+IMAP  imap.gmail.com:993 .......... OK   (INBOX kiválasztva, 0 üzenet, 9 mappa)
+DNS   SPF / DKIM / DMARC .......... OK   (p=quarantine, adkim=s, aspf=s)
+Sablonok ....................... 0 placeholder a három levélben
+
+Python 3.12.14 (Homebrew) + .venv    psycopg 3.2.13, httpx, selectolax, pytest
+DB    PostgreSQL 17.6 @ Supabase .. 7 tábla létrehozva, mind 0 sor
+pytest ......................... 49 teszt zöld
+sender.py --dry --skip-guards .. változatlanul fut
+```
+
+**Élesben ellenőrzött kényszerek** (teszt-sorokkal, mind visszagörgetve):
+azonos `normalized_domain` → ütközik · két platform-only cég megfér egymás mellett ·
+kulcs nélküli cég nem hozható létre · **domain lock: egy cégre egyszerre egy aktív
+outreach** · lezárás után új sequence indítható · ismeretlen suppression `reason`
+elutasítva · ugyanaz a `(source_type, source_url)` páros nem kerül be kétszer ·
+`updated_at` trigger frissít.
+
+**A következő lépés:** 2. szakasz — export DB → `leads.csv`, domain lockkal,
+suppression-joinnal és kampány-választással. Emberi feladat: a szakasz végén át kell
+olvasni a dry-run kimenetét.
+
+**Amit még nem kértünk el a felhasználótól** (nem blokkoló, a saját szakaszánál kell):
+Gemini + Anthropic API kulcs (6. szakasz), Reoon kredit (7. szakasz), Apify token
+(9. szakasz), ügynökség-lista `seeds/agencies.txt` (4. szakasz).
+
+---
+
+## Döntésnapló
+
+Az itt rögzített döntések a szakaszok végrehajtása közben születtek. Ha egy későbbi
+session mást akarna csinálni, előbb ezt olvassa el — mindegyik mögött indoklás van.
+
+### 2026-08-19 — Küldő domain és postafiók
+
+| | |
+|---|---|
+| **Döntés** | Marad a **paladi-web.hu**. Nincs külön „cold email" domain. Egy **új, dedikált** Google Workspace postafiók: `balint@paladi-web.hu`. |
+| **Elvetve** | Külön outreach-domain (pl. `paladiweb.hu`) új szolgáltatóval; a meglévő `hello@` használata; olcsóbb szolgáltató (Zoho/Migadu). |
+| **Indok** | A 8.1 ügynökségi lista **egyszeri és nem pótolható** (Magyarországon reálisan 60-300 cég). Ha egy előélet nélküli domainről megy ki és spam mappába esik, ugyanazoknak nem lehet újraküldeni. A paladi-web.hu évek óta él, hibátlan SPF/DKIM/DMARC-cal — ez a projekt legnagyobb kézbesítési vagyontárgya. **Az első kampány nem volumen-korlátos** (60-150 lead napi 20-szal 3-7 nap), tehát a ramp itt még nem szűk keresztmetszet — az csak a 9-10. szakasztól lesz az. |
+| **Miért nem olcsóbb szolgáltató** | A paladi-web.hu MX-e a Google-re mutat. Egy domainnek egy levelezési szolgáltatója lehet, tehát „olcsóbb postafiók ugyanezen a domainen" nem létező opció — az az összes levelezés migrációját jelentené. Az „olcsóbb szolgáltató" és az „új domain" ugyanaz a kérdés. |
+| **Miért nem a `hello@`** | A `guards.py` minden futásnál a teljes 14 napos INBOX-ot végigolvassa (9. ellentmondás) — forgalmas fő postafiókon lassú; a válaszok elkeverednének; és a `hello@` cégcímnek olvasódik, miközben a levél lényege, hogy egy ember ír személyesen. |
+| **Mikor kell újragondolni** | A 9. szakasznál (Profession engine, nagyobb volumen). Addigra érdemes egy tartalék domaint regisztrálni és **használat nélkül öregíteni**. |
+
+> ⚠️ **Ha valaha második postafiók kerül be:** a `limits.daily_cap()` a per-fiók keretet
+> a fiókok számával szorozza, tehát egy `cap=100`-nál hozzáadott fiók a napi volument
+> egy nap alatt 100-ról 200-ra ugratja. Ilyenkor a `data/ramp_state.json`-ban a `cap`
+> értéket kézzel kell felezni.
+
+### 2026-08-19 — Levélszöveg: ékezet és leiratkozási szó
+
+| | |
+|---|---|
+| **Döntés** | A `templates.py`-ban a **címzettnek menő szöveg ékezetes**; a kommentek és docstringek ASCII-ban maradnak. A leiratkozás hívószava **„stop"**, nem „nem". |
+| **Indok (ékezet)** | Tudatos eltérés a kód-konvenciótól. Ellenőrizve: az `EmailMessage` a tárgyat RFC 2047-tel kódolja, a törzset UTF-8/8bit-tel küldi, a `smtplib.send_message` hibátlanul átviszi (mindkettő letesztelve helyi SMTP szerverrel). Ékezet nélkül a levél igénytelen és gépies benyomást keltene — pont azt rontaná el, amiért a személyre szabás létezik. |
+| **Indok („stop")** | Az 5. ellentmondás megelőzése a forrásnál: ha a saját levelünk kéri, hogy írják vissza, hogy „nem", akkor a `guards.UNSUB_PATTERNS` pontatlansága a mi hibánk. A „stop" ugyanolyan könnyű kilépés (GDPR 6(1)(f) feltétele), de magyar szövegben egyértelmű. |
+
+---
+
 # 1. rész — Felmérés
 
 ## 1.1 A `cold-email-starter` — tények
@@ -393,7 +464,7 @@ igényel (ekkor a `fetch()` mögé kerül be Playwright vagy Scrapling, egy fáj
 
 ---
 
-## 0. szakasz — Emberi előfeltételek `[párhuzamosan fut, MA indul]`
+## ✅ 0. szakasz — Emberi előfeltételek `[KÉSZ: 2026-08-19]`
 
 **Cél:** meglegyen minden, ami nélkül a 5. szakaszban nem lehet éles levelet küldeni.
 **Becsült agent-munkaidő:** 0,5 óra.
@@ -403,33 +474,37 @@ placeholder sem**; a Supabase projekt létezik és a connection string a kezedbe
 
 ### Az ÉN feladataim (ember)
 
-- **MOST, a szakasz előtt** — döntés: hány postafiók, melyik domainen. Ha új domain,
-  a küldés napi 20-ról indul, és **7 hét a plafonig** — ez pont a határidő.
-  Ha van bejáratott domained, azt használd.
-- **MOST** — SPF, DKIM, DMARC beállítása a küldő domainre. Ez nem a scraper feladata,
-  de e nélkül a legjobb lead is spam mappába megy.
-- **MOST** — Supabase projekt létrehozása (Free tier), a `Session pooler` connection
-  string kimásolása. Kb. 10 perc.
-- **A szakasz alatt, ez a legfontosabb** — **írd meg az ügynökségi (8.1) kampány
-  három levelét.** A `SCRAPER-PLAN.md` 8.1 fejezetében a példaszöveg már ott van
-  (*„Sziasztok! Webes és mobilfejlesztéssel foglalkozom..."*) — ebből kell három
-  fok: cold, follow_up_1, follow_up_2. Ez a `templates.py`, ami az invariáns
-  szerint **a tiéd**; az agent csak akkor nyúl hozzá, ha kifejezetten kéred.
-- **A szakasz után** — döntés: legyen-e most Reoon fiók ($11.90 / 10 000 kredit),
-  vagy induljunk `local_only`-val. Javaslat: `local_only`, a Reoon a 7. szakaszban.
-- **A szakasz után** — Gemini API kulcs (Google AI Studio, ingyenes tier is elég a
-  bake-offhoz) és Anthropic API kulcs. Csak a 6. szakaszban kell.
+- ✅ ~~**Döntés: hány postafiók, melyik domainen.**~~ → **paladi-web.hu**, egy új,
+  dedikált postafiók: `balint@paladi-web.hu`. Az indoklás a Döntésnaplóban.
+  (Tartaléknak regisztrálva a `paladiweb.hu`, Netlify DNS-en 301-gyel a fő oldalra;
+  levelezésre a 9. szakasztól használható, addig öregszik.)
+- ✅ ~~**SPF, DKIM, DMARC beállítása.**~~ → Már készen volt, ellenőrizve `dig`-gel:
+  SPF `include:_spf.google.com ~all`, DKIM `google._domainkey` 2048 bit,
+  DMARC `p=quarantine; adkim=s; aspf=s`. Nyitott apróság (nem blokkoló):
+  hiányzik a `rua=`, tehát nem érkeznek DMARC-jelentések.
+- ✅ ~~**Supabase projekt + connection string.**~~ → `aws-1-eu-west-1`, session pooler
+  (5432), TCP kapcsolat ellenőrizve. A `DATABASE_URL` a gyökér `.env`-ben.
+- ✅ ~~**Az ügynökségi (8.1) kampány három levele.**~~ → Megírva a `templates.py`-ba
+  (`agency_cold`, `agency_follow_up_1`, `agency_follow_up_2`). Ékezetes szöveg,
+  tegezés, „stop" leiratkozási szó — mind a Döntésnaplóban indokolva.
+  ⚠️ **Nyitott:** a 3. levél tapasztalata az agenttől származik, a felhasználónak
+  ki kell cserélnie egy valódi sajátra, mielőtt élesben kimegy (5. szakasz).
+- ✅ ~~**Reoon döntés.**~~ → Most nem veszünk kreditet. `EMAIL_VALIDATION=local_only`,
+  a Reoon a 7. szakaszban kapcsolható be.
+- ⬜ **Gemini + Anthropic API kulcs** — a 6. szakaszban kell, nem most.
 
 ### Az agent feladatai
 
-1. `.env` létrehozása a `.env.example`-ből, a felhasználó által megadott értékekkel
-   (a titkokat a felhasználó írja be, az agent nem látja őket — a `.claude/settings.json`
-   `deny` blokkja a `Read(.env)`-t tiltja, ez szándékos).
-2. `cp data/leads.example.csv data/leads.csv` és `store.init_all()` futtatása,
-   hogy a négy CSV létezzen fejléccel.
-3. `mailer.check_accounts()` futtatása, a hibák értelmezése.
-4. Ha a felhasználó kéri: a 8.1 sablonok **vázlatának** megírása a `SCRAPER-PLAN.md`
-   8.1 fejezete alapján — de a végleges szöveg a felhasználóé.
+1. ✅ ~~`.env` létrehozása~~ — **két** `.env` készült: `cold-email-starter/.env`
+   (SMTP/IMAP) és a gyökér `.env` (Supabase). A titkokat a felhasználó írta be;
+   az agent nem olvasta őket.
+2. ✅ ~~`.gitignore` a repó gyökerében~~ — **ez eddig nem létezett.** Előrehozva az
+   1. szakaszból, mert enélkül a gyökérbe írt `.env` a git-be került volna.
+3. ✅ ~~`mailer.check_accounts()` futtatása~~ — `SMTP balint@paladi-web.hu: OK`.
+   Plusz külön IMAP-teszt: bejelentkezés OK, INBOX kiválasztva (0 üzenet).
+4. ✅ ~~A 8.1 sablonok megírása~~ — a felhasználó kifejezett kérésére.
+5. ✅ ~~Ellenőrzés, hogy az ékezetes magyar szöveg átmegy-e a küldőn~~ — helyi SMTP
+   szerverrel letesztelve: tárgy RFC 2047, törzs UTF-8/8bit, mindkettő hibátlan.
 
 ### Ellenőrzés a szakasz végén
 
@@ -441,7 +516,7 @@ python3 sender.py --dry --skip-guards | grep -c "IDE IRD"   # eredmény: 0
 
 ---
 
-## 1. szakasz — Alapozás `[külön session]`
+## ✅ 1. szakasz — Alapozás `[KÉSZ: 2026-08-19]`
 
 **Cél:** működő Python-környezet, projektstruktúra, DB-séma és a determinisztikus
 segédfüggvények — **nulla üzleti logika**.
@@ -519,16 +594,33 @@ segédfüggvények — **nulla üzleti logika**.
 > kap levelet, és ez sehol nem dob hibát. Ez a 15 perc teszt a legjobb ár/érték
 > arányú védelem az egész tervben. A többi modulra nem írunk tesztet.
 
-### Ellenőrzés a szakasz végén
+### Ellenőrzés a szakasz végén — ✅ lefuttatva
 
 ```bash
-.venv/bin/python -m leadgen.cli db migrate
-.venv/bin/python -m leadgen.cli db check     # 6 tábla, mind 0 sor
-.venv/bin/pytest -q                          # zöld
+.venv/bin/python -m leadgen.cli db migrate   # + 001_init.sql, majd idempotens
+.venv/bin/python -m leadgen.cli db check     # 7 tábla, mind 0 sor
+.venv/bin/pytest                             # 49 teszt zöld
 cd cold-email-starter && python3 sender.py --dry --skip-guards   # VÁLTOZATLAN
 ```
 
 Az utolsó sor a lényeg: **az 1. szakasz nem nyúlt a küldőhöz.**
+
+### Amit a szakasz közben tanultunk
+
+- **A teszt azonnal megtérült.** A `normalize_company_name` a többszavas társasági
+  formákat (`nonprofit kft`) sosem vágta volna le, mert a szó szintű szűrő egy
+  két szóból álló bejegyzést nem tud illeszteni. Élesben ez azt jelentette volna, hogy
+  a „Teszt Nonprofit Kft." és a „Teszt Kft." **két külön cégként** kerül be — két levél
+  ugyanannak. Némán. Ezt a `tests/test_normalize.py` találta meg, nem egy code review.
+- **`.venv/bin/pytest` és `python -m pytest` nem ugyanaz.** Az utóbbi a cwd-t is a
+  `sys.path`-ra teszi, az előbbi nem — a `from leadgen import ...` csak az egyikkel
+  működött. Javítva a `pyproject.toml` `pythonpath = ["."]` sorával, hogy mindkettő jó legyen.
+- **Eltérés a tervtől:** a függőségek `requirements.txt`-ben vannak, nem a
+  `pyproject.toml` `[project]` táblájában. Így nincs build backend és nincs
+  `pip install -e .` lépés, tehát nem tud elavulni egy telepített másolat a forráshoz
+  képest. A `pyproject.toml` csak a pytest konfigját tartalmazza.
+- **A `.gitignore` a 0. szakaszban készült el**, előrehozva — enélkül a gyökérbe írt
+  `.env` a git-be került volna.
 
 ---
 
