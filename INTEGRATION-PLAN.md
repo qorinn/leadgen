@@ -8,14 +8,15 @@
 
 ---
 
-## 📍 Állapot — 2026-08-19 (szerda), 17:40
+## 📍 Állapot — 2026-08-20 (csütörtök)
 
 | Szakasz | Állapot |
 |---|---|
 | **0. Emberi előfeltételek** | ✅ **KÉSZ** |
 | **1. Alapozás** | ✅ **KÉSZ** |
-| **2. Export (DB → leads.csv)** | ▶️ **KÖVETKEZIK** |
-| 3-13. | ⬜ nem kezdődött el |
+| **2. Export (DB → leads.csv)** | 🟡 **agent-rész kész, emberi átnézésre vár** |
+| **3. Feedback (CSV → DB)** | ▶️ **KÖVETKEZIK** |
+| 4-13. | ⬜ nem kezdődött el |
 
 **Ellenőrzött tények (nem feltételezés):**
 
@@ -38,9 +39,22 @@ outreach** · lezárás után új sequence indítható · ismeretlen suppression
 elutasítva · ugyanaz a `(source_type, source_url)` páros nem kerül be kétszer ·
 `updated_at` trigger frissít.
 
-**A következő lépés:** 2. szakasz — export DB → `leads.csv`, domain lockkal,
-suppression-joinnal és kampány-választással. Emberi feladat: a szakasz végén át kell
-olvasni a dry-run kimenetét.
+**A 2. szakaszban élesben ellenőrizve** (teszt-cégekkel, `.invalid` domainekkel):
+
+```
+export --dry / export ................. 3 lead, helyes kampány és personalization
+kontakt-választás ..................... personal nyert a generic felett
+DOMAIN LOCK ........................... 2. cím felvétele után is 1 sor a fájlban
+idempotencia .......................... 3 egymás utáni export, azonos md5
+domain-szintű suppression ............. a lead eltűnt a fájlból
+folyamatban lévő lead (sent) .......... BENN MARADT (különben nincs follow-up)
+a küldő do-not-contact.csv-je ......... kihagyva, "kihagyva (DNC): 1"
+sender.py --dry --skip-guards ......... helyes levelek, personalization landol
+pytest ................................ 56 teszt zöld
+```
+
+**A következő lépés:** a **te** átnézésed (lásd a 2. szakasz „Az ÉN feladataim" pontját),
+utána a 3. szakasz — feedback-import, `replies.csv`, és az export kötelező blokkolása.
 
 **Amit még nem kértünk el a felhasználótól** (nem blokkoló, a saját szakaszánál kell):
 Gemini + Anthropic API kulcs (6. szakasz), Reoon kredit (7. szakasz), Apify token
@@ -68,6 +82,16 @@ session mást akarna csinálni, előbb ezt olvassa el — mindegyik mögött ind
 > a fiókok számával szorozza, tehát egy `cap=100`-nál hozzáadott fiók a napi volument
 > egy nap alatt 100-ról 200-ra ugratja. Ilyenkor a `data/ramp_state.json`-ban a `cap`
 > értéket kézzel kell felezni.
+
+### 2026-08-20 — Levélszöveg: felszínesen robotosnak hangzott, átírva
+
+| | |
+|---|---|
+| **Probléma** | A felhasználó a dry-run kimenetet olvasva jelezte: „elég hidegek, nagyon robotosak, nem hiszem, hogy sokan válaszolnának rá". |
+| **Diagnózis** | Három konkrét minta: (1) minden bekezdés önálló kijelentő mondat, kötőszó/gondolatjel nélkül — felsorolásnak hangzik, nem gondolatmenetnek; (2) a `follow_up_1`-ben „nem az a kérdés, hogy X, hanem hogy Y" szimmetrikus ellentétpár — tipikus copywriter/AI-minta, élő beszédben ritkán épül fel spontán így; (3) a `follow_up_2` tipp-felsorolásnak hangzott („Ha X, akkor Y. Ha Z, akkor W."), nem odavetett gondolatnak. |
+| **Javítás** | Mindhárom levél átírva: gondolatjeles, kötőszavas mondatfűzés (`—`, „és", „szóval"), változó mondathossz, feltételes/lágyabb megfogalmazás a kérdéseknél. A tartalmi mag (ki vagyok, mit láttam náluk, mi a kérdés) nem változott — csak a mondatok közti kötés. |
+| **Ellenőrzés** | Teljes lánc újrafuttatva a módosítás után: `pytest` 56/56 zöld (a `test_contract.py` a `"template": "..."` azonosítókra köt, azok nem változtak), `export --dry` + `sender.py --dry --skip-guards` változatlanul helyes kimenetet ad. |
+| **Nyitott** | A tónus szubjektív — ha a felhasználó a következő olvasásnál még mindig nem érzi elégnek, ismételt finomítás várható. Ez nem egyszeri lezárt döntés, hanem a `templates.py` a felhasználóé, bármikor felülírható. |
 
 ### 2026-08-19 — Levélszöveg: ékezet és leiratkozási szó
 
@@ -624,7 +648,7 @@ Az utolsó sor a lényeg: **az 1. szakasz nem nyúlt a küldőhöz.**
 
 ---
 
-## 2. szakasz — A határ, 1. irány: export DB → `leads.csv` `[külön session]`
+## 🟡 2. szakasz — A határ, 1. irány: export DB → `leads.csv` `[agent-rész kész: 2026-08-20]`
 
 **Cél:** a DB-ből ki lehessen írni egy olyan `leads.csv`-t, amiből a küldő helyes
 leveleket tervez — domain lockkal, suppressionnel, kampány-választással.
@@ -644,7 +668,11 @@ ha egy céget suppressionbe teszek, a következő export után eltűnik a fájlb
 - **A szakasz után** — olvasd el a dry-run kimenetét soronként. Ez az utolsó pont,
   ahol olcsó észrevenni, ha valami nem stimmel a levélben.
 
-### Az agent feladatai
+### Az agent feladatai — ✅ mind kész
+
+> A megvalósult modulok: `leadgen/contract.py` (a határ definíciója),
+> `leadgen/export.py` (az exportáló), `leadgen/dev.py` (teszt-adat),
+> `leadgen/migrations/002_export.sql`, `tests/test_contract.py`.
 
 1. **`store.LEADS_HEADER` bővítése** (`store.py:19`) az E) pont mezőivel. Biztonságos:
    minden olvasás `DictReader`, tehát név szerinti.
@@ -673,7 +701,28 @@ ha egy céget suppressionbe teszek, a következő export után eltűnik a fájlb
 6. Seed-script: `leadgen dev seed` — 3 fiktív teszt-cég beszúrása, hogy a szakasz
    újraindítható és tesztelhető legyen valódi scrapelés nélkül.
 
-### Ellenőrzés a szakasz végén
+### Amit a szakasz közben tanultunk
+
+- **Részleges UNIQUE indexnél az `ON CONFLICT`-nak meg kell ismételnie az index
+  feltételét**, különben a Postgres nem találja meg:
+  `on conflict (normalized_domain) where normalized_domain is not null do nothing`.
+  Minden jövőbeli `companies`-upsertre igaz.
+- **A sorrend nem kozmetika.** A `sender.build_plan` a `fresh` listát a fájl
+  sorrendjében veszi, és a napi keret levágja a végét — tehát **a sorrend dönti el,
+  ki kap ma levelet**. Az első verzióban a két lekérdezés máshogy rendezett, és az
+  azonos `queued_at` miatt a sorrend futásonként változott. Most a rendezés egységesen
+  `signal_score desc, email`, és három egymás utáni export bitre azonos fájlt ad.
+- **A `personalization` két helyen él**: `companies` (munkaverzió, a scoring írja) és
+  `outreach` (befagyasztva a sorba állításkor). Enélkül egy újrapontozott cég
+  follow-upja már más bizonyítékra hivatkozna, mint a kiküldött cold email.
+- **Átmeneti megoldás a 3. szakaszig:** az exportáló közvetlenül beolvassa a küldő
+  `do-not-contact.csv`-jét. A teljes, watermarkos feedback-import ezt váltja fel —
+  de a DNC-listára nem várhatunk egy szakaszt.
+- **A teszt-adat `.invalid` domaineket használ** (RFC 2606), tehát egy véletlen
+  `--live` futás sem tudna valakinek ténylegesen levelet küldeni. Az exportáló ezen
+  felül hangosan figyelmeztet, ha ilyen cím van a listában.
+
+### Ellenőrzés a szakasz végén — ✅ lefuttatva
 
 ```bash
 .venv/bin/python -m leadgen.cli dev seed

@@ -1,0 +1,325 @@
+#!/usr/bin/env python3
+"""Export: DB -> cold-email-starter/data/leads.csv
+
+EZ AZ EGYETLEN HELY, AHOL A SCRAPER A KULDO FAJLJAIBA IR. Es pontosan egy
+fajlba ir: a leads.csv-be. A sent.csv / do-not-contact.csv / bounces.csv a
+kuldo tulajdona, azokat sosem modositjuk.
+
+HAROM DONTES, AMIT ERDEMES ERTENI:
+
+1. TELJES UJRAIRAS, NEM APPEND.
+   A store.py-ban nincs upsert es nincs dedup: a build_plan ismetlodo email
+   eseten CSENDBEN az utolso sort veszi. Append mellett minden export
+   duplikalna. Az ujrairas ezen kivul idempotens teszi az exportot: barmikor
+   ujrafuttathato, ugyanaz jon ki.
+
+2. AZ EXPORT UNIOT IR: uj jeloltek + MINDEN FOLYAMATBAN LEVO lead.
+   Ez a legkonnyebben elrontheto pont az egesz integracioban. A
+   sender.build_plan a leads.csv SORABOL indul ki: ha egy mar megkeresett
+   lead kimarad a fajlbol, akkor NEM KAPJA MEG a follow-upjait -- nem hibaval,
+   hanem csendben. Ezert a folyamatban levo (queued/sent) leadek mindig
+   bekerulnek, amig a szekvenciajuk le nem zarul.
+
+3. A DOMAIN-SZINTU TILTAS AZ UJRAIRASBOL VALO KIHAGYASSAL ERVENYESUL.
+   Nem kell a do-not-contact.csv-be irnunk (az marad a guards.py tulajdona):
+   eleg kihagyni a sort, mert a build_plan csak a leads.csv-ben szereplo
+   cimeket veszi figyelembe. A sent.csv-ben az elozmeny igy is megmarad, tehat
+   a guards bounce-parositasa (store.already_contacted) tovabbra is mukodik.
+"""
+from __future__ import annotations
+
+import csv
+import os
+from dataclasses import dataclass, field
+from datetime import date
+from pathlib import Path
+from typing import Any
+
+from . import config, db
+from .contract import LEADS_HEADER
+
+# A suppression a lead kiadasanak LEGELSO lepese, nem az utolso (SCRAPER-PLAN 0.4).
+# Email-szintu ES domain-szintu tiltast is nez.
+_SUPPRESSED = """
+  not exists (
+    select 1 from suppression sp
+     where (sp.email is not null and sp.email = ct.email)
+        or (sp.email is null
+            and sp.normalized_domain is not null
+            and sp.normalized_domain = c.normalized_domain)
+  )
+"""
+
+# Csak olyan cim mehet ki, amit a helyi szuro atengedett, a Reoon nem mondott
+# ervenytelennek, es meg nem pattant vissza veglegesen.
+_CONTACT_USABLE = """
+      ct.local_check is distinct from 'fail'
+  and coalesce(ct.verify_result, '') <> 'invalid'
+  and coalesce(ct.bounce_state, '') <> 'hard_bounce'
+"""
+
+_COMMON_FIELDS = """
+  ct.email                                as email,
+  c.company_name                          as company,
+  ct.name                                 as contact_name,
+  coalesce(c.domain, c.platform_url)      as website,
+  c.industry                              as industry,
+  c.city                                  as city,
+  c.signal_summary                        as notes,
+  c.signal_score                          as signal_score,
+  ct.source_url                           as source_url,
+  c.id                                    as company_id,
+  c.normalized_domain                     as normalized_domain,
+  coalesce(
+    (select max(s.detected_at) from sources s where s.company_id = c.id),
+    c.first_seen_at
+  )                                       as scraped_at
+"""
+
+# 1) Folyamatban levo leadek. Ezek MINDIG bekerulnek, kulonben elmaradnak a
+#    follow-upjaik. A kampany es a personalization az outreach sorbol jon:
+#    ott van BEFAGYASZTVA a sorba allitas pillanataban.
+SQL_INFLIGHT = f"""
+select {_COMMON_FIELDS},
+       o.campaign                         as campaign,
+       o.personalization                  as personalization,
+       o.status                           as outreach_status
+  from outreach o
+  join companies c on c.id = o.company_id
+  join contacts  ct on ct.id = o.contact_id
+ where o.status in ('queued', 'sent')
+   and {_SUPPRESSED}
+"""
+
+# 2) Uj jeloltek. Cegenkent EGY kapcsolat (a domain lock miatt), a legjobb
+#    email-tipus nyer. A rendezes a signal_score szerint megy: a legidoszerubb
+#    leadek kerulnek ki eloszor, ha a `--limit` levagja a listat.
+SQL_NEW = f"""
+with usable as (
+  select ct.*,
+         row_number() over (
+           partition by ct.company_id
+           order by
+             case ct.email_type
+               when 'personal' then 0 when 'generic' then 1
+               when 'role'     then 2 else 3 end,
+             case ct.verify_result
+               when 'valid' then 0 when 'catch_all' then 1
+               when 'unknown' then 2 else 3 end,
+             ct.created_at
+         ) as rn
+    from contacts ct
+   where {_CONTACT_USABLE}
+)
+select {_COMMON_FIELDS},
+       c.campaign        as campaign,
+       c.personalization as personalization,
+       c.best_offer      as best_offer,
+       ct.id             as contact_id
+  from companies c
+  join usable ct on ct.company_id = c.id and ct.rn = 1
+ where c.status = 'ready'
+   and (c.cooldown_until is null or c.cooldown_until <= now())
+   and not exists (
+     select 1 from outreach o
+      where o.company_id = c.id and o.status in ('queued', 'sent')
+   )
+   and {_SUPPRESSED}
+ order by c.signal_score desc nulls last, c.first_seen_at, ct.email
+"""
+
+
+@dataclass
+class ExportStats:
+    inflight: int = 0
+    new_queued: int = 0
+    skipped_dnc: int = 0
+    skipped_no_source: int = 0
+    limited_out: int = 0
+    fake_domains: list[str] = field(default_factory=list)
+
+    @property
+    def written(self) -> int:
+        return self.inflight + self.new_queued
+
+
+def _dnc_emails() -> set[str]:
+    """A kuldo do-not-contact.csv-je, kozvetlenul olvasva.
+
+    ATMENETI MEGOLDAS a 3. szakaszig. Akkor ezt a teljes, watermarkos
+    feedback-import valtja fel, ami a DB suppression tablat is tolti. Addig
+    is helyes: a DNC-lista szent, es nem varhatunk vele egy szakaszt.
+
+    (A kuldo sender.build_plan-je amugy is szur ra minden futasnal, tehat ez
+    nem "vedelem" -- attol viszont megovja a leads.csv-t, hogy mar lezart
+    cimeket hordozzon magaval.)
+    """
+    path = config.SENDER_DATA / "do-not-contact.csv"
+    if not path.exists():
+        return set()
+    with path.open(encoding="utf-8-sig", newline="") as f:
+        return {
+            (row.get("email") or "").strip().lower()
+            for row in csv.DictReader(f)
+            if (row.get("email") or "").strip()
+        }
+
+
+def _to_csv_row(row: dict[str, Any]) -> dict[str, str]:
+    scraped = row.get("scraped_at")
+    return {
+        "email": (row.get("email") or "").strip().lower(),
+        "company": row.get("company") or "",
+        "contact_name": row.get("contact_name") or "",
+        "website": row.get("website") or "",
+        "industry": row.get("industry") or "",
+        "city": row.get("city") or "",
+        "notes": row.get("notes") or "",
+        "campaign": row.get("campaign") or "",
+        "personalization": row.get("personalization") or "",
+        "source_url": row.get("source_url") or "",
+        "scraped_at": scraped.date().isoformat() if hasattr(scraped, "date") else "",
+        "company_id": str(row.get("company_id") or ""),
+    }
+
+
+def _write_csv(rows: list[dict[str, str]], path: Path) -> None:
+    """Atomikus iras: temp fajl + os.replace.
+
+    A store.py-ban nincs lock. Ha az export felbeszakadna iras kozben, egy
+    csonka leads.csv maradna, es a kuldo a kovetkezo futasnal ebbol tervezne.
+    Az os.replace ugyanazon a fajlrendszeren atomikus: vagy a regi fajl van
+    ott, vagy a teljes uj -- felkesz allapot nincs.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    with tmp.open("w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=LEADS_HEADER, extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(rows)
+    os.replace(tmp, path)
+
+
+def collect(limit: int = 0) -> tuple[list[dict[str, str]], ExportStats, list[dict]]:
+    """Osszeszedi az exportalando sorokat. NEM ir sehova.
+
+    Visszaad: (csv sorok, statisztika, sorba allitando uj jeloltek).
+    """
+    stats = ExportStats()
+    dnc = _dnc_emails()
+    out: list[dict[str, str]] = []
+    _score: dict[str, float] = {}
+
+    inflight = db.query(SQL_INFLIGHT)
+    candidates = db.query(SQL_NEW)
+
+    for row in inflight:
+        email = (row.get("email") or "").strip().lower()
+        if email in dnc:
+            stats.skipped_dnc += 1
+            continue
+        out.append(_to_csv_row(row))
+        _score[email] = float(row.get("signal_score") or 0)
+        stats.inflight += 1
+
+    to_queue: list[dict] = []
+    for row in candidates:
+        email = (row.get("email") or "").strip().lower()
+        if email in dnc:
+            stats.skipped_dnc += 1
+            continue
+        if not (row.get("source_url") or "").strip():
+            # 0.4 jogi minimum: forras nelkul nem adunk ki leadet.
+            stats.skipped_no_source += 1
+            continue
+        if limit and stats.new_queued >= limit:
+            stats.limited_out += 1
+            continue
+        out.append(_to_csv_row(row))
+        _score[email] = float(row.get("signal_score") or 0)
+        to_queue.append(row)
+        stats.new_queued += 1
+
+    # DETERMINISZTIKUS SORREND -- ez nem kozmetika.
+    # A sender.build_plan a `fresh` listat a fajl sorrendjeben veszi, es a napi
+    # keret levagja a veget. Tehat a sorrend donti el, KI KAP MA LEVELET.
+    # Ket kovetelmeny:
+    #   1. a legidoszerubb (legmagasabb signal_score) lead legyen elol;
+    #   2. ugyanabbol a DB-allapotbol mindig UGYANAZ a fajl szulessen --
+    #      kulonben ket egymas utani export mas sorrendet adna (az azonos
+    #      queued_at miatt a Postgres sorrendje nem garantalt), es nem lehetne
+    #      megmondani, valtozott-e valojaban valami.
+    # Ezert a rendezes a KOZOS mezokon tortenik, nem lekerdezesenkent kulon.
+    out.sort(key=lambda r: (-_score.get(r["email"], 0.0), r["email"]))
+
+    stats.fake_domains = sorted({
+        r["email"].split("@")[-1] for r in out
+        if r["email"].endswith((".invalid", ".test", ".example"))
+    })
+    return out, stats, to_queue
+
+
+def _queue(to_queue: list[dict]) -> None:
+    """Az uj jeloltek sorba allitasa: outreach sor + companies.status.
+
+    A `status = 'queued'` NEM jelenti, hogy kiment a level -- csak azt, hogy
+    a leads.csv-be bekerult. A 'sent'-et majd a feedback-import allitja a
+    sent.csv alapjan (3. szakasz). Kulonben egy lead, ami kikerult a fajlba,
+    de a napi keret elfogyasa miatt sosem ment ki, hazudna a riportban.
+    """
+    if not to_queue:
+        return
+    with db.connect() as conn, conn.cursor() as cur:
+        for row in to_queue:
+            cur.execute(
+                """
+                insert into outreach (company_id, contact_id, campaign, offer,
+                                      status, personalization)
+                     values (%s, %s, %s, %s, 'queued', %s)
+                """,
+                (row["company_id"], row["contact_id"],
+                 row.get("campaign") or "agency_partner",
+                 row.get("best_offer"), row.get("personalization")),
+            )
+            cur.execute(
+                "update companies set status = 'queued' where id = %s and status = 'ready'",
+                (row["company_id"],),
+            )
+
+
+def run(dry: bool = False, limit: int = 0) -> ExportStats:
+    rows, stats, to_queue = collect(limit=limit)
+    target = config.SENDER_DATA / "leads.csv"
+
+    if dry:
+        print(f"[SZARAZ FUTAS] {len(rows)} sor menne ide: {target}\n")
+        for row in rows:
+            print(f"  {row['email']:<38} {row['campaign']:<16} {row['company']}")
+            if row["personalization"]:
+                print(f"      -> {row['personalization'][:100]}")
+        print()
+    else:
+        _write_csv(rows, target)
+        _queue(to_queue)
+
+    print(f"folyamatban levo : {stats.inflight}")
+    print(f"uj, sorba allitva: {stats.new_queued}")
+    print(f"osszesen a fajlban: {stats.written}")
+    if stats.skipped_dnc:
+        print(f"kihagyva (DNC)   : {stats.skipped_dnc}")
+    if stats.skipped_no_source:
+        print(f"kihagyva (nincs source_url): {stats.skipped_no_source}")
+    if stats.limited_out:
+        print(f"limit miatt varakozik: {stats.limited_out}")
+    if not dry:
+        print(f"\nMegirva: {target}")
+
+    if stats.fake_domains:
+        print(
+            "\n!!! FIGYELEM: teszt-domainek vannak a listaban "
+            f"({', '.join(stats.fake_domains)}).\n"
+            "    Ezek nem letezo cimek: eles kuldesnel hard bounce-t okoznanak,\n"
+            "    ami kozvetlenul rontja a kuldo domain reputaciojat.\n"
+            "    Eles futas elott: leadgen dev clear-seed"
+        )
+    return stats

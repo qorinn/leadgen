@@ -16,7 +16,16 @@ from pathlib import Path
 
 import config
 
-LEADS_HEADER = ["email", "company", "contact_name", "website", "industry", "city", "notes"]
+# A scraper altal irt mezok is itt vannak. Biztonsagos bovites: minden olvasas
+# es iras csv.DictReader/DictWriter, tehat NEV szerinti, nem pozicio szerinti --
+# amig az `email` mezo megvan, egyik modul sem torik el.
+#
+# FIGYELEM: ennek a listanak egyeznie kell a leadgen/contract.py LEADS_HEADER-evel.
+# Ha csak az egyik oldalt irod at, a tests/test_contract.py elhasal.
+LEADS_HEADER = [
+    "email", "company", "contact_name", "website", "industry", "city", "notes",
+    "campaign", "personalization", "source_url", "scraped_at", "company_id",
+]
 SENT_HEADER = ["ts", "email", "domain", "stage", "template", "subject", "account"]
 DNC_HEADER = ["ts", "email", "reason", "notes"]
 BOUNCE_HEADER = ["ts", "email", "reason", "raw_subject"]

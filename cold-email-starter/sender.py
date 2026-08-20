@@ -72,17 +72,21 @@ def build_plan(limit: int) -> list[tuple[dict, str, callable]]:
 
         stage, original_date = _stage_of(addr, sent_rows)
 
+        # A sablonkeszlet a lead `campaign` mezojebol jon (a scraper irja ki).
+        # Ismeretlen/ures ertek eseten az alapertelmezett kampanyra esik vissza.
+        cold_tpl, fu1_tpl, fu2_tpl = templates.for_campaign(lead.get("campaign"))
+
         if stage is None:
-            fresh.append((lead, "cold", templates.cold))
+            fresh.append((lead, "cold", cold_tpl))
             continue
         if stage == "done" or original_date is None:
             continue
 
         age = (today - original_date).days
         if stage == "cold" and age >= config.FU1_DELAY_DAYS:
-            followups.append((lead, "follow_up_1", templates.follow_up_1))
+            followups.append((lead, "follow_up_1", fu1_tpl))
         elif stage == "follow_up_1" and age >= config.FU2_DELAY_DAYS:
-            followups.append((lead, "follow_up_2", templates.follow_up_2))
+            followups.append((lead, "follow_up_2", fu2_tpl))
 
     return (followups + fresh)[:limit]
 

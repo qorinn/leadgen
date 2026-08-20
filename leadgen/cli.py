@@ -8,14 +8,17 @@ Ez a modul SZANDEKOSAN vekony: csak argumentumot elemez es kiir. Minden
 uzleti logika a tobbi modul fuggvenyeiben van, hogy a 13. szakasz webes
 felulete ugyanazokat hivhassa -- a CLI ne legyen zsakutca.
 
-Az 1. szakaszban csak a `db` parancscsoport letezik. Uzleti logika nincs.
+Parancscsoportok:
+    db      -- migracio, allapot, kapcsolodasi adatok
+    export  -- DB -> cold-email-starter/data/leads.csv
+    dev     -- fejlesztoi teszt-adat (sosem eles)
 """
 from __future__ import annotations
 
 import argparse
 import sys
 
-from . import config, db
+from . import config, db, dev, export
 
 
 def _cmd_db_migrate(_args: argparse.Namespace) -> int:
@@ -65,6 +68,23 @@ def _cmd_db_info(_args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_export(args: argparse.Namespace) -> int:
+    export.run(dry=args.dry, limit=args.limit)
+    return 0
+
+
+def _cmd_dev_seed(_args: argparse.Namespace) -> int:
+    created = dev.seed()
+    print(f"Teszt-cegek: {created} uj, a tobbi mar letezett.")
+    print("Torles: leadgen dev clear-seed")
+    return 0
+
+
+def _cmd_dev_clear_seed(_args: argparse.Namespace) -> int:
+    print(f"Torolve: {dev.clear_seed()} teszt-ceg.")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="leadgen", description="Lead-scraper")
     sub = parser.add_subparsers(dest="group", required=True)
@@ -77,6 +97,20 @@ def build_parser() -> argparse.ArgumentParser:
         func=_cmd_db_check)
     db_sub.add_parser("info", help="kapcsolodasi adatok (jelszo nelkul)").set_defaults(
         func=_cmd_db_info)
+
+    exp = sub.add_parser("export", help="leadek kiirasa a kuldonek")
+    exp.add_argument("--dry", action="store_true",
+                     help="csak megmutatja, mit irna ki -- nem ir es nem allit sorba")
+    exp.add_argument("--limit", type=int, default=0,
+                     help="ennyi UJ leadnel tobbet ne allitson sorba (adagolas)")
+    exp.set_defaults(func=_cmd_export)
+
+    dev_parser = sub.add_parser("dev", help="fejlesztoi eszkozok")
+    dev_sub = dev_parser.add_subparsers(dest="action", required=True)
+    dev_sub.add_parser("seed", help="teszt-cegek beszurasa (.invalid domainek)").set_defaults(
+        func=_cmd_dev_seed)
+    dev_sub.add_parser("clear-seed", help="teszt-cegek torlese").set_defaults(
+        func=_cmd_dev_clear_seed)
 
     return parser
 

@@ -118,14 +118,19 @@ def _unsubscribe() -> str:
 # kerdesre konnyu valaszolni, egy ajanlatra donteni kell.
 
 def agency_cold(lead: dict) -> dict:
-    """1. level. Egy tagmondat rolad, utana rolunk, a vegen egy kerdes."""
+    """1. level. Egy tagmondat rolad, utana rolunk, a vegen egy kerdes.
+
+    A mondatok kotoszoval es gondolatjellel fuznek ossze (nem kulon
+    bekezdesenkent kijelentes), mert ember igy ir egy idegennek -- a
+    felsorolas-szeru, izolalt mondatok a leggyorsabb ut a robot-benyomashoz.
+    """
     body = f"""{_greeting_informal(lead)}
 
-Webes és mobilfejlesztéssel foglalkozom, jellemzően ügynökségek mögött dolgozom kivitelezőként.
+Fejlesztő vagyok, és sokat dolgozom ügynökségek mögött alvállalkozóként — ők viszik a stratégiát, a hirdetést, a kreatívot, én meg a kódot.
 
-{_personalization(lead, "Láttam, hogy nálatok a hirdetés és a stratégia az erősség, fejlesztést viszont nem hirdettek szolgáltatásként.")}
+{_personalization(lead, "Körülnéztem nálatok, és a hirdetéskezelés meg a stratégia a fő erősségetek — fejlesztést viszont nem láttam a szolgáltatások közt.")}
 
-Kivel dolgoztok most, ha egy ügyfélnek weboldal vagy egyedi fejlesztés kell?
+Szóval inkább csak rákérdeznék: van most olyan fejlesztő partneretek, akit be tudtok vonni, ha egy ügyfélnek weboldal vagy egyedi rendszer kell?
 
 {_unsubscribe()}
 
@@ -137,14 +142,17 @@ def agency_follow_up_1(lead: dict) -> dict:
     """2. level, az eredeti utan FU1_DELAY_DAYS nappal.
 
     ONALLO level: NE hivatkozz az elozore ("ahogy irtam"), mert a cimzett
-    tobbnyire NEM latta (spam, szures). Ugy fogalmazz, mintha ez lenne az elso.
-    Uj szog: nem a partner LETE a kerdes, hanem a kapacitasa.
+    tobbnyire NEM latta (spam, szures). Ugy fogalmazz, mintha ez lenne az elso
+    -- ezert van ujra bemutatkozas, nem "megint en vagyok" nyitas.
+    Uj szog: nem a partner LETE a kerdes, hanem a kapacitasa. A "nem X, hanem Y"
+    szembeallitas helyett szemelyes megfigyeleskent fogalmazva ("amit latok"),
+    mert a puszta ellentetpar tipikus copywriter-minta, nem elo beszed.
     """
     body = f"""{_greeting_informal(lead)}
 
-A legtöbb ügynökségnél nem az a kérdés, van-e fejlesztő partner, hanem hogy éppen ráér-e. Amikor nem, az ügyfél vagy vár, vagy elviszi a munkát máshova.
+Fejlesztő vagyok, és gyakran találkozom ezzel a helyzettel ügynökségeknél: nem az a baj, hogy nincs fejlesztő partnerük, hanem hogy épp nem ér rá senki. Ilyenkor az ügyfél vagy vár, vagy máshova viszi a projektet.
 
-Előfordul ez nálatok?
+Nálatok is előfordul ez?
 
 {_unsubscribe()}
 
@@ -164,11 +172,11 @@ def agency_follow_up_2(lead: dict) -> dict:
     """
     body = f"""{_greeting_informal(lead)}
 
-Egy tapasztalat ügynökségi projektekből, ami akkor is hasznos, ha sosem dolgozunk együtt: a fejlesztések nálam a leggyakrabban nem technikai okból csúsznak, hanem azért, mert a tartalom (szövegek, képek, adatlisták) később készül el, mint a felület.
+Fejlesztőként ez a leggyakoribb tapasztalatom ügynökségi projekteknél: a munka szinte sosem technikai okból csúszik, hanem mert a tartalom — szövegek, képek, adatok — mindig később készül el, mint maga a felület.
 
-Ha az ügyfélnek már a projekt legelején adtok egy konkrét tartalomlistát határidővel, az általában többet ment a határidőből, mint bármelyik technikai döntés.
+Ha ezt előre jelzitek az ügyfeleknek, és kértek tőlük egy konkrét tartalomlistát határidővel már a projekt legelején, azzal többet nyertek, mint bármelyik technikai döntéssel.
 
-Ha bármikor aktuális lesz egy fejlesztő partner, keressetek nyugodtan.
+Ha valaha aktuális lesz egy fejlesztő partner, szóljatok nyugodtan.
 
 {_unsubscribe()}
 
@@ -176,12 +184,38 @@ Ha bármikor aktuális lesz egy fejlesztő partner, keressetek nyugodtan.
     return {"subject": "Egy tapasztalat ügynökségi projektekről", "body": body, "template": "follow_up_2"}
 
 
-# ─── Az aktiv keszlet ──────────────────────────────────────────────────────
-# A 2. szakaszban ezek helyere egy CAMPAIGNS dict kerul, es a sender a lead
-# `campaign` mezoje alapjan valaszt. Addig az ugynoksegi kampany az aktiv.
-cold = agency_cold
-follow_up_1 = agency_follow_up_1
-follow_up_2 = agency_follow_up_2
+# ─── Kampanyok ─────────────────────────────────────────────────────────────
+# A terv "Offer arbitration" fejezete szerint egy ceg EGYETLEN kampanyba kerul,
+# es engine-enkent mas a CTA. A sender.build_plan a lead `campaign` mezoje
+# alapjan valaszt innen sablonkeszletet.
+#
+# FONTOS: minden kampany ugyanazt a harom `template` azonositot adja vissza
+# ("cold" / "follow_up_1" / "follow_up_2"), mert a sender._stage_of ezekbol
+# vezeti le a szekvencia-fokot. Ez helyes: egy cim egy kampanyhoz tartozik,
+# tehat nincs utkozes. Uj kampanyhoz UJ FUGGVENYEK kellenek, nem uj azonositok.
+#
+# Uj kampany felvetele: irj harom fuggvenyt, es vedd fel ide egy sorral.
+CAMPAIGNS: dict[str, tuple] = {
+    "agency_partner": (agency_cold, agency_follow_up_1, agency_follow_up_2),
+}
+
+DEFAULT_CAMPAIGN = "agency_partner"
+
+
+def for_campaign(name: str | None) -> tuple:
+    """(cold, follow_up_1, follow_up_2) az adott kampanyhoz.
+
+    Ismeretlen vagy ures ertek eseten a DEFAULT_CAMPAIGN-re esik vissza --
+    NEM dob hibat. Indok: egy elgepelt kampanynev miatt ne alljon meg a
+    kikuldes, es ne maradjon ki egy lead. A visszaeses a naploban latszik
+    (a sender kiirja, melyik sablont hasznalja).
+    """
+    return CAMPAIGNS.get((name or "").strip(), CAMPAIGNS[DEFAULT_CAMPAIGN])
+
+
+# Visszafele kompatibilitas: a modul szintu nevek az alapertelmezett kampanyra
+# mutatnak, hogy a LADDER es barmely kulso hivas valtozatlanul mukodjon.
+cold, follow_up_1, follow_up_2 = CAMPAIGNS[DEFAULT_CAMPAIGN]
 
 
 # A letra sorrendje. Uj fokot ide vegy fel, es allitsd be a napokat a
