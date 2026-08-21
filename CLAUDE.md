@@ -249,6 +249,27 @@ Ez azért van, mert a kulcsszó gyakran ügyfél-referenciából vagy blogcikkb�
 nem a cég saját szolgáltatás-listájából — és egy jó lead elvesztése drágább, mint
 egy félrement levél.
 
+**Az AI réteg két tieres, és a provider a modellnévből derül ki.**
+A [leadgen/llm.py](leadgen/llm.py) `bulk()` (Gemini, olcsó, nagy volumen) és
+`quality()` (Claude, jobb magyar) függvényt ad; a `call(model, ...)` bármelyik
+modellel megy, ezért tud a bake-off ugyanazon a kódon több modellt mérni.
+A promptok egy helyen vannak ([leadgen/prompts.py](leadgen/prompts.py)), mert a
+prompt caching **stabil prefixet** kíván — a változó lead-adat mindig külön
+paraméter, sosem a rendszer-prompthoz fűzve.
+
+**A `temperature` nem küldhető minden modellnek.** A `claude-haiku-4-5` még
+elfogadja, az Opus 5 / Sonnet 5 / Fable 5 viszont **400-zal elutasítja**. Mivel
+a modellnév `.env`-ből jön, egy modellváltás enélkül minden hívást eltörne —
+ezért van az `llm._SAMPLING_TILTVA` lista. Új modell felvételekor ellenőrizd.
+
+**A válasz-osztályozás az egyetlen visszafordíthatatlan AI-döntés.**
+Az `unsubscribe` és a `negative` címke suppressionbe teszi a céget. Három
+védelmi réteg van egymáson, és **mindhárom kell**: (1) a prompt bizonytalanság
+esetén `other`-t kér; (2) a **bizalmi kapu** — 0.70 alatti bizonyosságnál a
+visszafordíthatatlan címke `other` lesz; (3) a `--dry` az alapértelmezett
+munkamódszer. A `not_now` és az `auto_reply` **nem** suppression, hanem
+cooldown (90 / 14 nap) — ezeket soha ne told át a visszafordíthatatlanok közé.
+
 **A leiratkozás linken keresztül megy, és a link nem ír a küldő fájljaiba.**
 A `contacts.unsub_token` a címhez tartozik (nem a kampányhoz), tehát egy régi
 levélben lévő link egy év múlva is működik. A weboldal két `security definer`

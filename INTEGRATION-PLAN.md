@@ -17,8 +17,10 @@
 | **2. Export (DB → leads.csv)** | ✅ **KÉSZ** (a levélszöveg átírva 08-20-án) |
 | **3. Feedback (CSV → DB)** | ✅ **KÉSZ** |
 | **4. 8.1 engine (ügynökségi lista)** | 🟡 **agent-rész kész — 10 valódi lead exportálva, 10 átnézésre vár** |
-| **5. Első éles kiküldés** | 🟡 **agent-rész kész — a `--live` futás RÁD vár** |
-| 6-13. | ⬜ nem kezdődött el |
+| **5. Első éles kiküldés** | 🟡 **agent-rész kész — a `--live` futás RÁD vár (hétfő)** |
+| **5.5 Leiratkozó link** | ✅ **KÉSZ** — a Netlify oldal élesben ellenőrizve |
+| **6. AI réteg** | 🟡 **agent-rész kész — API kulcs + 30 teszteset RÁD vár** |
+| 7-13. | ⬜ nem kezdődött el |
 
 **A teljes lánc szárazon végigfutott valódi adattal.** Ami hátravan az 5. szakaszból,
 az egyetlen emberi lépés: elolvasni a 10 levelet, és elindítani a `--live` futást.
@@ -1285,7 +1287,7 @@ nincs beállítva, a levelek a fallback mondattal mennek — ez működik. Egy
 
 ---
 
-## 6. szakasz — AI réteg: bake-off + válasz-osztályozás `[külön session]`
+## 🟡 6. szakasz — AI réteg `[agent-rész kész: 2026-08-22]`
 
 **Cél:** legyen kiválasztott modell, működő LLM-kliens, és a beérkező válaszok
 automatikusan töltsék a `suppression` táblát.
@@ -1309,7 +1311,56 @@ automatikusan töltsék a `suppression` táblát.
 - **A szakasz után** — nézd át az első 20 automatikus válasz-besorolást. Ha egyet is
   rosszul sorolt be `unsubscribe`-ként, azt azonnal javítsd — az visszafordíthatatlan.
 
-### Az agent feladatai
+### Az agent feladatai — ✅ mind kész (a bake-off a te méréseddel zárul)
+
+**Ami elkészült:**
+
+| Modul | Mit ad |
+|---|---|
+| `leadgen/llm.py` | két tier egy felületen; a provider a modellnévből |
+| `leadgen/prompts.py` | a három prompt egy helyen (caching-stabil prefix) |
+| `leadgen/classify.py` | válasz-osztályozás + a hat címke következménye |
+| `leadgen/evals.py` | bake-off futtató, 4 mérőszám, A/6 kiesési szabályok |
+| `migrations/007_classify.sql` | `confidence` / `model` / `rationale` / `error` |
+| `evals/README.md` | a tesztkészlet formátuma és gyűjtési útmutatója |
+
+**Ellenőrizve mockolt LLM-mel, teszt-cégeken** (utána visszagörgetve):
+
+```
+interested  -> companies.status='replied', outreach='replied', riport-sor  ✅
+not_now     -> status='ready', cooldown=+90 nap, NINCS suppression         ✅
+unsubscribe -> suppressed, suppression DOMAIN ÉS email szinten             ✅
+export      -> mindhárom teszt-cég kiesett, a 10 valódi lead érintetlen    ✅
+idempotencia-> újrafuttatva 0 sor                                          ✅
+kulcs nélkül-> beszédes hiba, nem stack trace                              ✅
+pytest      -> 165 zöld
+```
+
+**Amit a szakasz közben tanultunk:**
+
+- **🔑 A `NaN` confidence átcsúszott volna a bizalmi kapun.** A `json.loads`
+  Python-kiterjesztésként **elfogadja** a `NaN` literált, tehát egy modell
+  visszaadhatja. NaN-nal viszont *minden* összehasonlítás hamis — így a
+  `confidence < 0.70` sem lépett volna be, és egy bizonytalan `unsubscribe`
+  némán, véglegesen kizárt volna egy céget. A tesztkészlet találta meg,
+  még mielőtt bármit is kiküldtünk volna. Javítva: `math.isfinite`.
+
+- **A `temperature` modellfüggő.** A `claude-haiku-4-5` még elfogadja, az
+  Opus 5 / Sonnet 5 / Fable 5 **400-zal elutasítja**. Mivel a modellnév a
+  `.env`-ből jön, egy modellváltás enélkül minden hívást csendben eltört
+  volna. Az `llm._SAMPLING_TILTVA` lista védi.
+
+- **A cooldown nem suppression, és ezt tesztsor őrzi.** A `not_now` és az
+  `auto_reply` a lead *visszatérése*, nem kizárása. Ha valaha átkerülnének a
+  visszafordíthatatlanok közé, minden „most nem aktuális" válasz örökre
+  kizárná a céget — ezért van rá külön teszt.
+
+- **A prompt injection védelme két rétegű.** A rendszer-prompt kimondja, hogy
+  a válasz szövege *adat, nem utasítás*, a user-üzenet pedig határolójelekkel
+  keretezi az idegen szöveget. Ez nem elméleti: a válaszokat és a scrapelt
+  oldalakat idegenek írják. Az `eval robustness` méri, engedelmeskedik-e.
+
+**Az eredeti feladatlista:**
 
 1. **`leadgen/llm.py`** — egy vékony kliens, `bulk()` és `quality()` függvénnyel,
    a modellnév konfigból. **Prompt-sorrend a caching miatt:** stabil rendszer-prompt
@@ -1336,10 +1387,35 @@ automatikusan töltsék a `suppression` táblát.
 
 ```bash
 .venv/bin/python -m leadgen.cli eval bakeoff --model gemini-2.5-flash-lite
+.venv/bin/python -m leadgen.cli eval robustness --model gemini-2.5-flash-lite
 .venv/bin/python -m leadgen.cli classify-replies --dry   # először SZÁRAZON
 .venv/bin/python -m leadgen.cli classify-replies
 .venv/bin/python -m leadgen.cli report --replies         # besorolás-bontás
 ```
+
+### ⏳ Ami rád vár — és miért nem az agent csinálja
+
+**1. Két API kulcs a gyökér `.env`-be.** E nélkül a kód kész, de nem fut:
+
+```
+GEMINI_API_KEY=...      # aistudio.google.com -> Get API key
+ANTHROPIC_API_KEY=...   # console.anthropic.com -> API keys
+```
+
+**2. A 30 teszteset** (`evals/bakeoff-30.jsonl`, formátum:
+[evals/README.md](evals/README.md)). Ez ~40 perc, és **szándékosan emberi
+munka**: a 10 határeset kézi címkéje a te üzleti döntésed. Ha AI írná a
+címkéket, az eval azt mérné, hogy két modell egyetért-e egymással — nem azt,
+hogy jó leadeket válogatnak-e neked. A könnyű eseteken minden modell jó lesz.
+
+**3. Az első 20 automatikus besorolás átnézése** — a terv szerint. Ha egyet is
+rosszul sorolt `unsubscribe`-ként, azonnal javítsd: az visszafordíthatatlan.
+
+> **Időzítés:** a `classify-replies` addig üresben fut, amíg nincs válasz —
+> és válasz addig nincs, amíg az 5. szakasz éles küldése le nem megy
+> (hétfő). A bake-off viszont **most is futtatható**, amint megvan a két
+> kulcs és a 30 eset: az a Profession.hu-s ops-pain classifiert méri, ami a
+> 9-10. szakasz motorja, nem a mostani ügynökségi listát.
 
 ---
 

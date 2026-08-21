@@ -19,7 +19,8 @@ from __future__ import annotations
 import argparse
 import sys
 
-from . import config, db, dev, engines, export, feedback, pipeline, report
+from . import (classify, config, db, dev, engines, evals, export, feedback,
+               llm, pipeline, report)
 from .sources import maps
 
 
@@ -124,7 +125,49 @@ def _cmd_qualify(args: argparse.Namespace) -> int:
 
 
 def _cmd_report(args: argparse.Namespace) -> int:
+    if args.replies:
+        return report.replies()
     return report.run(daily_view=args.daily)
+
+
+def _cmd_classify_replies(args: argparse.Namespace) -> int:
+    if not llm.available()["quality"]:
+        print("HIBA: nincs ANTHROPIC_API_KEY a gyoker .env-ben.")
+        print("  console.anthropic.com -> API keys")
+        return 1
+    classify.run(limit=args.limit, dry=args.dry)
+    return 0
+
+
+def _cmd_eval_bakeoff(args: argparse.Namespace) -> int:
+    esetek = evals.betolt()
+    csoportok: dict[str, int] = {}
+    for e in esetek:
+        csoportok[e.get("csoport", "?")] = csoportok.get(e.get("csoport", "?"), 0) + 1
+    print(f"Tesztkeszlet: {len(esetek)} eset  {csoportok}")
+    if csoportok.get("hatareset", 0) < 5:
+        print("\nFIGYELEM: 5-nel kevesebb hatareset van a keszletben. A terv szerint")
+        print("a dontest EZEK adjak -- a konnyu eseteken minden modell jo lesz.\n")
+
+    eredmenyek = []
+    for model in args.model:
+        print(f"\n{'=' * 60}\n{model}\n{'=' * 60}")
+        eredmenyek.append(evals.futtat(model, esetek))
+    evals.tablazat(eredmenyek)
+
+    for r in eredmenyek:
+        if r.tevedesek:
+            print(f"\n--- {r.model}: ahol maskepp dontott, mint te ---")
+            for t in r.tevedesek:
+                print(f"  {t}")
+    return 0
+
+
+def _cmd_eval_robustness(args: argparse.Namespace) -> int:
+    for model in args.model:
+        print(f"\n{'=' * 60}\n{model} -- robusztussagi teszt (terv C)\n{'=' * 60}")
+        evals.robusztussag(model)
+    return 0
 
 
 def _cmd_engines(_args: argparse.Namespace) -> int:
@@ -261,7 +304,25 @@ def build_parser() -> argparse.ArgumentParser:
     rp = sub.add_parser("report", help="hol tart a tolcser, es mi tortenik ma")
     rp.add_argument("--daily", action="store_true",
                     help="csak a mai kep: napi keret vs. sorbanallas")
+    rp.add_argument("--replies", action="store_true",
+                    help="a valaszok besorolas szerinti bontasa")
     rp.set_defaults(func=_cmd_report)
+
+    cr = sub.add_parser("classify-replies", help="AI valasz-osztalyozas (6. szakasz)")
+    cr.add_argument("--dry", action="store_true",
+                    help="csak megmutatja a besorolast -- SEMMIT nem ir")
+    cr.add_argument("--limit", type=int, default=50)
+    cr.set_defaults(func=_cmd_classify_replies)
+
+    ev = sub.add_parser("eval", help="modell-ertekeles (bake-off)")
+    ev_sub = ev.add_subparsers(dest="action", required=True)
+    bo = ev_sub.add_parser("bakeoff", help="a 30 eset vegigfuttatasa")
+    bo.add_argument("--model", action="append", default=None,
+                    help="tobbszor is megadhato -- egymas mellett meri oket")
+    bo.set_defaults(func=_cmd_eval_bakeoff)
+    rb = ev_sub.add_parser("robustness", help="tamado bemenetek (terv C)")
+    rb.add_argument("--model", action="append", default=None)
+    rb.set_defaults(func=_cmd_eval_robustness)
 
     sub.add_parser("engines", help="elerheto lead engine-ek").set_defaults(func=_cmd_engines)
 
@@ -313,6 +374,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    # A --model alapertelmezese a configbol jon, nem a parserbol: igy a
+    # .env-ben beallitott modell szamit alapnak, es nem kell ket helyen irni.
+    if "model" in vars(args) and args.model is None:
+        args.model = [config.LLM_BULK_MODEL]
     return args.func(args)
 
 

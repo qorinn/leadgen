@@ -224,6 +224,75 @@ def daily() -> int:
     return 0
 
 
+# ─── Valaszok ──────────────────────────────────────────────────────────────
+
+# A besorolasok sorrendje UZLETI fontossag szerint, nem abc-ben: az elso sor
+# az, amire ma lepned kell.
+_REPLY_ORDER = ("interested", "other", "not_now", "auto_reply",
+                "negative", "unsubscribe")
+
+_REPLY_LABEL = {
+    "interested": "ERDEKLODIK -- valaszolj neki",
+    "other": "bizonytalan -- nezd at",
+    "not_now": "most nem aktualis (90 nap cooldown)",
+    "auto_reply": "automatikus valasz (14 nap cooldown)",
+    "negative": "elutasitas -> tiltolistan",
+    "unsubscribe": "leiratkozas -> tiltolistan (domain szinten)",
+}
+
+
+def replies() -> int:
+    """A valaszok besorolas szerinti bontasa (`report --replies`)."""
+    osszes = _counts("""
+        select coalesce(classification, '(meg nincs osztalyozva)') as k,
+               count(*) as n
+          from reply_events group by 1
+    """)
+    if not osszes:
+        print("Meg nem erkezett valasz.")
+        print("  A guards.py irja a replies.csv-t, a `feedback` olvassa be ide.")
+        return 0
+
+    print(f"VALASZOK ({sum(osszes.values())})")
+    width = max(len(_REPLY_LABEL.get(k, k)) for k in osszes) + 2
+    for k in _REPLY_ORDER:
+        if osszes.pop(k, 0):
+            n = _counts("select classification as k, count(*) as n from reply_events "
+                        "where classification = %s group by 1", (k,)).get(k, 0)
+            print(f"  {_REPLY_LABEL.get(k, k):<{width}} {n:>4}")
+    for k, n in sorted(osszes.items()):
+        print(f"  {k:<{width}} {n:>4}")
+
+    hibas = db.query("select count(*) as n from reply_events where error is not null")
+    if hibas and hibas[0]["n"]:
+        print(f"\n  {hibas[0]['n']} valasz osztalyozasa HIBARA futott.")
+        print("  Ezek ujrafuttathatok: a classified_at nullazasa utan a")
+        print("  `classify-replies` ujra nekimegy.")
+
+    # A bizonytalanok es az erdeklodok KIIRVA, nem csak megszamolva: ezekre
+    # ember kell, es egy szam onmagaban nem cselekvesre hivo.
+    for cimke, cim in (("interested", ">>> ERDEKLODOK -- 24 oran belul valaszolj"),
+                       ("other", "BIZONYTALAN -- ezeket nezd at kezzel")):
+        rows = db.query("""
+            select r.email, r.subject, r.confidence, r.rationale, c.company_name
+              from reply_events r
+         left join contacts ct on ct.email = r.email
+         left join companies c on c.id = ct.company_id
+             where r.classification = %s
+          order by r.received_at desc nulls last limit 20
+        """, (cimke,))
+        if not rows:
+            continue
+        print(f"\n{cim}")
+        for r in rows:
+            print(f"  {(r['company_name'] or '?')}  <{r['email']}>")
+            if r.get("subject"):
+                print(f"    targy: {r['subject'][:70]}")
+            if r.get("rationale"):
+                print(f"    {r['rationale'][:100]}")
+    return 0
+
+
 def run(daily_view: bool = False) -> int:
     if daily_view:
         return daily()

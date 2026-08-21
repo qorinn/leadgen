@@ -90,12 +90,37 @@ mutatja, hogy fogy a sor:
 > Az `export` **mindig lefuttatja a `feedback`-et először**. Ha az hibára fut,
 > az export megáll, és a `leads.csv` érintetlen marad.
 
+## AI réteg (6. szakasz)
+
+| Parancs | Mit csinál |
+|---|---|
+| `classify-replies --dry` | megmutatja a besorolást — **semmit nem ír** |
+| `classify-replies` | besorol és átvezeti a következményeket |
+| `classify-replies --limit 20` | egyszerre csak ennyit |
+| `eval bakeoff --model <modell>` | a 30 teszteset végigfuttatása |
+| `eval bakeoff --model A --model B` | két modell egymás mellett, egy táblázatban |
+| `eval robustness --model <modell>` | támadó bemenetek (üres, hosszú, angol, HTML, **prompt injection**) |
+| `report --replies` | a válaszok besorolás szerint + akire lépned kell |
+
+> **A `--dry` itt nem formalitás.** Az `unsubscribe` és a `negative` címke
+> véglegesen kizárja a céget. Első futtatáskor és minden prompt-módosítás
+> után nézd át szárazon.
+
+> **Bizalmi kapu:** ha a modell `unsubscribe`-ot vagy `negative`-ot javasol
+> **0.70 alatti** bizonyossággal, a rendszer `other`-re teszi, és ember dönt.
+> A modell eredeti javaslata megmarad a `rationale` mezőben.
+
+> A `bakeoff` tesztkészlet **emberi munka**: [evals/README.md](evals/README.md).
+> A 10 határeset kézi címkéje a te üzleti döntésed — a könnyű eseteken minden
+> modell jó lesz.
+
 ## Áttekintés
 
 | Parancs | Mit csinál |
 |---|---|
 | `report` | **a teljes tölcsér** + a mai kép egyben |
 | `report --daily` | csak a mai kép: napi keret vs. sorbanállás |
+| `report --replies` | a válaszok besorolás szerint |
 | `engines` | milyen iparágak vannak, melyik aktív |
 | `db check` | táblák és sorszámok |
 | `db info` | kapcsolódási adatok (jelszó nélkül) |
