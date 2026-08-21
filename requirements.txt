@@ -4,3 +4,6 @@ psycopg[binary]==3.2.*     # Postgres kliens (Supabase session pooler)
 httpx==0.28.*              # HTTP kliens az enrichmenthez
 selectolax==0.3.*          # gyors HTML parser
 pytest==8.*                # csak a nema hibak helyere irunk tesztet
+anthropic==1.*             # a QUALITY tier hivatalos SDK-ja (leadgen/llm.py)
+                           # A BULK tier (Gemini) a meglevo httpx-en megy: egy
+                           # REST hivas nem indokol egy masodik nagy SDK-t.

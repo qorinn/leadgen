@@ -65,6 +65,19 @@ LLM_QUALITY_MODEL = os.environ.get("LLM_QUALITY_MODEL", "claude-haiku-4-5").stri
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "").strip()
 
+# ─── Leiratkozo link ───────────────────────────────────────────────────────
+# A leiratkozo oldal cime, token NELKUL. Az export ehhez fuzi hozza a
+# contacts.unsub_token erteket:  <base>/<token>
+#
+# HA EZ URES, A LEVEL VISSZAESIK a "valaszolj, hogy stop" mondatra -- a
+# leiratkozas lehetosege tehat SOHA nem tunik el, csak kenyelmetlenebb lesz.
+# Ez szandekos: egy torott vagy hianyzo link rosszabb, mint egy regimodi mondat.
+#
+# A cim SAJAT DOMAINEN legyen, ugyanazon, ahonnan a level megy. Idegen
+# domainre mutato leiratkozo link emberileg gyanus (adathalasznak nez ki),
+# es a szuroknek is rosszabb jel.
+UNSUB_BASE_URL = os.environ.get("UNSUB_BASE_URL", "").strip()
+
 # ─── Forrasok (9. szakasztol) ──────────────────────────────────────────────
 APIFY_TOKEN = os.environ.get("APIFY_TOKEN", "").strip()
 

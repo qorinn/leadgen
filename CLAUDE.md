@@ -249,6 +249,17 @@ Ez azért van, mert a kulcsszó gyakran ügyfél-referenciából vagy blogcikkb�
 nem a cég saját szolgáltatás-listájából — és egy jó lead elvesztése drágább, mint
 egy félrement levél.
 
+**A leiratkozás linken keresztül megy, és a link nem ír a küldő fájljaiba.**
+A `contacts.unsub_token` a címhez tartozik (nem a kampányhoz), tehát egy régi
+levélben lévő link egy év múlva is működik. A weboldal két `security definer`
+függvényt hívhat (`unsub_lookup` / `unsub_confirm`), semmi mást — **a táblákon
+RLS van, nulla policy-vel**, mert a Supabase `anon` szerep alapból mindenre
+kapna jogot, az anon kulcs pedig szándékosan publikus. A scrapert ez nem
+érinti: `postgres` szerepkörrel csatlakozik, ami a táblák tulajdonosa.
+A leiratkozás érvényesítése az exportnál történik (a lead kimarad a
+`leads.csv`-ből, az `outreach` sora `stopped` lesz) — **a `do-not-contact.csv`
+marad a `guards.py` tulajdona.**
+
 **A domain lock adatbázis-szinten él:** részleges UNIQUE index az
 `outreach (company_id) WHERE status IN ('queued','sent')` feltétellel. A küldő ezt
 nem tudja kifejezni (`build_plan` email szerint kulcsol), ezért itt kell kikényszeríteni.

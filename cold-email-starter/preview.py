@@ -44,6 +44,29 @@ def _leads(limit: int) -> list[dict]:
     return out
 
 
+# A teszt-kuldesnel hasznalt, ARTALMATLAN leiratkozo cim. Nem letezo utvonal:
+# ha rakattintasz, a weboldal 404-et ad, es NEM tortenik semmi.
+TESZT_UNSUB = "https://paladi-web.hu/leiratkozas/TESZT-EZ-A-LINK-NEM-MUKODIK"
+
+
+def _semlegesitett(lead: dict) -> dict:
+    """A teszt-levelbol kiveszi a VALODI leiratkozo tokent.
+
+    MIERT KELL: a --send-to a valodi lead szovegét kuldi el neked, es abban
+    benne van az O szemelyes leiratkozo linkje. Ha teszt kozben rakattintasz
+    -- ami pont az, amit egy teszteles soran az ember tenni akar --, akkor egy
+    VALODI ceget iratsz le, veglegesen, es a kovetkezo export csendben kihagyja
+    a listabol. Semmi nem jelezne, hogy ez tortent.
+
+    A masolat miatt az eredeti lead dict erintetlen marad.
+    """
+    if not (lead.get("unsub_url") or "").strip():
+        return lead
+    masolat = dict(lead)
+    masolat["unsub_url"] = TESZT_UNSUB
+    return masolat
+
+
 def _render(lead: dict, stage: str) -> dict:
     cold, fu1, fu2 = templates.for_campaign(lead.get("campaign"))
     return {"cold": cold, "follow_up_1": fu1, "follow_up_2": fu2}[stage](lead)
@@ -87,11 +110,12 @@ def main() -> int:
 
     print(f"TESZT-KULDES -> {args.send_to}")
     print(f"  {len(leads)} minta, fok: {args.stage}")
-    print("  A valodi cimzettek NEM kapnak semmit, es a sent.csv sem valtozik.\n")
+    print("  A valodi cimzettek NEM kapnak semmit, es a sent.csv sem valtozik.")
+    print("  A leiratkozo link teszt-cimre mutat -- nyugodtan rakattinthatsz.\n")
 
     kuldve = 0
     for lead in leads:
-        msg = _render(lead, args.stage)
+        msg = _render(_semlegesitett(lead), args.stage)
         # A targyba jelolest teszunk, hogy a postafiokodban azonnal lasd,
         # melyik teszt-level melyik ceghez tartozott.
         targy = f"[TESZT: {lead.get('company') or lead.get('email')}] {msg['subject']}"

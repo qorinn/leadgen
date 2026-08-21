@@ -111,21 +111,44 @@ def _signature_informal() -> str:
     return _signature_lines("Üdv,")
 
 
-def _unsubscribe() -> str:
+def _unsubscribe(lead: dict) -> str:
     """Kotelezo kilepesi lehetoseg. Ne rejtsd el, ne tedd korulmenyesse.
 
     Az EU-ban a hideg B2B megkereses jogalapja jellemzoen a jogos erdek
     (GDPR 6(1)(f)), aminek FELTETELE a konnyu tiltakozas. Ez a mondat nem
-    opcionalis, es a rendszer automatikusan DNC-be teszi, aki valaszol ra.
+    opcionalis.
 
-    MIERT "stop" ES NEM "nem": a guards.UNSUB_PATTERNS a valasz szovegen
-    illeszt. A puszta "nem" szo magyar szovegben szinte minden valaszban
-    elofordul, ezert egy erdeklodo valasz is veglegesen leiratkozaskent
-    kerulne suppressionbe. A "stop" egyertelmu es ritka -- a leiratkozas
-    ugyanolyan konnyu marad, de a jelzes nem tevesztheto ossze mas
-    tartalommal. (Integracios terv, 5. ellentmondas.)
+    KET VALTOZAT VAN, ES A FALLBACK NEM DISZ:
+
+    1. LINK (2026-08-21 ota ez az alap). Egy kattintas, semmit nem kell
+       begepelni, es a leiratkozas azonnal az adatbazisba kerul -- nem kell
+       megvarni, amig a guards legkozelebb beolvassa a postafiokot.
+
+    2. "Valaszolj, hogy stop" -- ha az `unsub_url` mezo URES. Ez akkor fordul
+       elo, ha a lead kezzel kerult a leads.csv-be, vagy ha az UNSUB_BASE_URL
+       nincs beallitva. Ilyenkor a level NEM marad kilepesi lehetoseg nelkul.
+       Egy hianyzo mezo miatt sosem mehet ki olyan level, amibol nem lehet
+       kiszallni -- ugyanaz az elv, mint a _greeting()-nel: inkabb gyengebb
+       megoldas, mint torott.
+
+    MIERT "stop" ES NEM "nem" a fallbackben: a guards.UNSUB_PATTERNS a valasz
+    szovegen illeszt. A puszta "nem" szo magyar szovegben szinte minden
+    valaszban elofordul, ezert egy erdeklodo valasz is veglegesen
+    leiratkozaskent kerulne suppressionbe. A "stop" egyertelmu es ritka.
+    (Integracios terv, 5. ellentmondas.)
     """
-    return "Ha nem szeretnél több levelet, írd vissza, hogy „stop”, és töröllek a listáról."
+    url = (lead.get("unsub_url") or "").strip()
+    if url:
+        # A LINK KULON SORBAN VAN, es ez nem tipografia.
+        # A torzs quoted-printable kodolassal megy (mailer.send), ami 76
+        # karakterenkent lagy sortorest tesz. Merve: egy mondat vegere fuzott
+        # URL a KOZEPEN torik el ("https://palad=" / "i-web.hu/..."). A
+        # szabvanykoveto kliensek ezt helyesen osszerakjak, de a linkszkennerek
+        # es a leegyszerusitett szoveg-megjelenitok gyakran csak az elso
+        # darabot linkelik -- a cimzett pedig egy torott linket lat.
+        # Onallo sorban a 70 karakteres URL bele fer a 76-os keretbe.
+        return f"Ha nem szeretnél több levelet, itt tudsz leiratkozni:\n{url}"
+    return "Ha nem szeretnél több levelet, írd vissza, hogy „stop”, és többet nem írok."
 
 
 # ─── Ugynoksegi partner kampany (8.1) ──────────────────────────────────────
@@ -148,7 +171,7 @@ Fejlesztő vagyok, és sokat dolgozom ügynökségek mögött alvállalkozókén
 
 Szóval inkább csak rákérdeznék: van most olyan fejlesztő partneretek, akit be tudtok vonni, ha egy ügyfélnek weboldal vagy egyedi rendszer kell?
 
-{_unsubscribe()}
+{_unsubscribe(lead)}
 
 {_signature_informal()}"""
     return {"subject": "Kivel fejlesztetek?", "body": body, "template": "cold"}
@@ -170,7 +193,7 @@ Fejlesztő vagyok, és gyakran találkozom ezzel a helyzettel ügynökségeknél
 
 Nálatok is előfordul ez?
 
-{_unsubscribe()}
+{_unsubscribe(lead)}
 
 {_signature_informal()}"""
     return {"subject": "Amikor nincs szabad fejlesztő", "body": body, "template": "follow_up_1"}
@@ -194,7 +217,7 @@ Ha ezt előre jelzitek az ügyfeleknek, és kértek tőlük egy konkrét tartalo
 
 Ha valaha aktuális lesz egy fejlesztő partner, szóljatok nyugodtan.
 
-{_unsubscribe()}
+{_unsubscribe(lead)}
 
 {_signature_informal()}"""
     return {"subject": "Egy tapasztalat ügynökségi projektekről", "body": body, "template": "follow_up_2"}

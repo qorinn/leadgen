@@ -159,6 +159,14 @@ ugyanabban a napi keretben, tehát egy nagy export nem gyorsítja a kiküldést,
 csak várakozó sort épít. A napi keret a kézbesítési jelekből emelkedik
 (`deliverability.py`), nem a leadek számától.
 
+**A leiratkozó link csak akkor jelenik meg a levélben, ha az `UNSUB_BASE_URL`
+be van állítva** a gyökér `.env`-ben. Amíg nincs, a levél a *„írd vissza, hogy
+stop"* mondattal megy ki — az is működik. **Csak akkor állítsd be, ha a
+leiratkozó oldal már él**: egy 404-re mutató link rosszabb, mint a mondat.
+
+**A `preview.py --send-to` teszt-levelében a leiratkozó link szándékosan nem
+működik.** Enélkül a saját tesztelésed egy valódi céget iratna le.
+
 **Minden parancs újrafuttatható.** Egyik sem duplikál: az `ingest` a már ismert
 cégeket kihagyja, az `enrich` a `status` oszlopból tudja, hol tart, az `export`
 ugyanabból az állapotból mindig ugyanazt a fájlt írja.

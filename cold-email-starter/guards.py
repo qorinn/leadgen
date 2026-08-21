@@ -54,13 +54,25 @@ SOFT_BOUNCE_PATTERNS = (r"mailbox full", r"quota", r"4\.2\.2", r"over quota", r"
 #    volt a `nem erdekel` es a `torol.*listar` minden ekezetes szovegre.
 #    Ezert a _fold() ekezet-hajtogatast vegez az illesztes ELOTT.
 #
-# A lista tovabbra is szandekosan befogado: inkabb egy folosleges
-# leiratkozas, mint egy duhos cimzett.
+# 2026-08-21: A LISTA LESZUKITVE, amikor a leveleket atallitottuk leiratkozo
+# LINKRE. Innentol ez a szabaly a masodlagos ut -- aki kattint, az mar nem is
+# jut el idaig.
+#
+# Ami kikerult: "not interested", "koszonom, nem", "nem erdekel", "nem kerem",
+# "nem kivanok". Ezek NEM leiratkozasi kerelmek, hanem ELUTASITASOK, es a
+# kettot kar osszemosni: az elutasito valasz kesobb ujra megkeresheto (mas
+# ajanlattal, fel ev mulva), a leiratkozas viszont VEGLEGES.
+#
+# A szukites SENKIT nem enged ki: aki valaszol, azt a fuggveny vegen levo
+# `replied` szabaly amugy is DNC-be teszi. Csak az OK lesz pontosabb -- es a
+# 6. szakasz AI-osztalyozoja ezt fogja rendesen szetvalasztani.
+#
+# Ami bent maradt: csak az EGYERTELMU keresek. A lista itt szandekosan
+# szigoru, mert a hamis pozitiv ara nagy (egy erdeklodo veglegesen kiesik).
 UNSUB_PATTERNS = (
     r"\bne kuldj", r"\bne kuldjon", r"\bne irj", r"leiratkoz", r"tavolits",
     r"torol.*listar", r"\bunsubscribe\b", r"remove me", r"\bstop\b",
-    r"not interested", r"koszonom, nem", r"nem erdekel", r"nem kerem",
-    r"nem kivanok", r"kerem.*torol",
+    r"kerem.*torol",
 )
 
 EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")

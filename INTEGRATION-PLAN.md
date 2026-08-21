@@ -1203,6 +1203,88 @@ cd .. && .venv/bin/python -m leadgen.cli feedback && .venv/bin/python -m leadgen
 
 ---
 
+## 🟡 5.5 szakasz — Leiratkozó link `[scraper-oldal kész: 2026-08-21]`
+
+**Miért került be soron kívül:** az első éles próbalevél után. A „írd vissza,
+hogy stop" megoldás két sebből vérzett: a címzettnek dolgoznia kell a
+kilépésért, és a *„töröllek a listáról"* mondat maga is Promóciók-jel.
+
+**Ami ebben a repóban elkészült** (a weboldal oldala külön repó, lásd lent):
+
+| Elem | Hol |
+|---|---|
+| `contacts.unsub_token` (UUID, címhez kötve, örökre él) | `migrations/006_unsubscribe.sql` |
+| **RLS bekapcsolás minden táblán** | ugyanott — lásd a biztonsági jegyzetet |
+| `unsub_lookup()` / `unsub_confirm()` `security definer` függvények | ugyanott |
+| `UNSUB_BASE_URL` konfiguráció | `leadgen/config.py` |
+| `unsub_url` oszlop a `leads.csv`-ben | `contract.py` + `store.py` |
+| URL-építés validációval | `export.unsub_url()` |
+| Link **és fallback** a levélben | `templates._unsubscribe(lead)` |
+| A teszt-küldés semlegesíti a valódi tokent | `preview._semlegesitett()` |
+
+### 🔒 Amit közben találtam: az `anon` kulcs a teljes adatbázist látta
+
+A táblákon **nem volt bekapcsolva az RLS**, viszont az `anon` és
+`authenticated` szerepnek `SELECT/INSERT/UPDATE/DELETE/TRUNCATE` joga volt
+**minden táblára** — ezeket a Supabase alapértelmezésben adja, és RLS nélkül
+nincs mögöttük semmi.
+
+Az anon kulcs **szándékosan publikus** (böngészőbe való). Eddig ez csak latens
+kockázat volt, mert a kulcs sehol nem szerepelt — **de a leiratkozó oldal
+pontosan egy ilyen kulcsot állítana munkába.** A funkció a migráció nélkül
+tehát nem hozzáadott volna egy kockázatot, hanem **élesítette volna** azt.
+
+Javítva: RLS bekapcsolva mindenhol, nulla policy-vel (= teljes tiltás), és a
+weboldal csak a két `security definer` függvényt hívhatja. Ellenőrizve: az
+`anon` szerep mind a 4 fő táblán `0 sor`-t lát, a `DELETE` 0 sort érint.
+A scrapert nem érinti: `postgres` szerepkörrel csatlakozik, ami a táblák
+**tulajdonosa**, a tulajdonos pedig megkerüli az RLS-t.
+
+### Amit a szakasz közben tanultunk
+
+- **A quoted-printable a hosszú URL közepén tört sort.** A törzs 76
+  karakterenként lágy sortörést kap. Mérve: mondat végére fűzött linknél
+  `https://palad=` / `i-web.hu/...` lett belőle. A dekódolás helyreállítja
+  (ellenőrizve), de a linkszkennerek és az egyszerűbb megjelenítők gyakran
+  csak az első darabot linkelik. **A link ezért önálló sorban van** — 70
+  karakter, belefér a keretbe.
+
+- **A `preview.py --send-to` a valódi lead tokenjét küldte volna el.**
+  Teszteléskor az ember rákattint a linkre — ez a teszt lényege —, és ezzel
+  egy **valódi céget** iratott volna le véglegesen, némán. A teszt-küldés
+  most lecseréli a tokent egy nem működő címre.
+
+- **A link nem ír a `do-not-contact.csv`-be, és ez helyes.** A suppression
+  érvényesítése az exportnál történik (kihagyás a `leads.csv`-ből) — ez a
+  mechanizmus a 2. szakasz óta létezik. A leiratkozott lead `outreach` sora
+  `stopped` lesz, tehát a folyamatban lévő lekérdezésből is kiesik: **a
+  follow-upjai is elmaradnak.** Ellenőrizve végponttól végpontig.
+
+- **Marad egy ismert időablak.** Ha valaki 10:00-kor iratkozik le, de az
+  export 09:00-kor futott, a 11:00-s küldés még a régi `leads.csv`-ből
+  dolgozhat. A napi rutin ezt percekre szűkíti (`export` közvetlenül a
+  `sender.py` előtt). Élő DB-lekérdezés a küldőből megszüntetné, de az a
+  stdlib-only invariánst sértené.
+
+- **A `guards.UNSUB_PATTERNS` leszűkítve.** Kikerült az öt *elutasítás*-minta
+  (`nem érdekel`, `köszönöm, nem`, ...). Ezek nem leiratkozások: az elutasított
+  lead fél év múlva újra megkereshető, a leiratkozás viszont végleges. Senki
+  nem esik ki a védelmi hálón — aki válaszol, azt a `replied` szabály úgyis
+  DNC-be teszi.
+
+### Ami hátravan — a weboldal repója
+
+A `paladi-web.hu` Netlify-on van. Egy függvény kell hozzá, `GET` megerősítő
+oldallal és `POST` végrehajtással. **A `GET` nem írhat**: a Gmail, az Outlook
+ATP és a céges proxyk automatikusan letöltik a linkeket, tehát egy író `GET`
+esetén a címzettek egy részét egy robot iratná le, némán.
+
+**Az `UNSUB_BASE_URL`-t csak akkor állítsd be, ha az oldal már él.** Amíg
+nincs beállítva, a levelek a fallback mondattal mennek — ez működik. Egy
+404-re mutató leiratkozó link viszont rosszabb, mint a régimódi mondat.
+
+---
+
 ## 6. szakasz — AI réteg: bake-off + válasz-osztályozás `[külön session]`
 
 **Cél:** legyen kiválasztott modell, működő LLM-kliens, és a beérkező válaszok
@@ -1716,6 +1798,7 @@ keret" arányt, és a lista adagolva menjen. Ha mégis kell felülbírálás, az
 | **Teljes test suite** | a küldőben szándékosan nincs; a scraperben csak a néma hibák helyére írunk tesztet (normalizálás, Reoon-cache) | ha egy második ember is dolgozni kezd a kódon |
 | **A `guards.py` IMAP-teljesítménye** (14 napos teljes újraolvasás) | napi 20 levélnél észrevehetetlen | ha a `--live` futás percekbe kezd telni, vagy óránkénti cronra váltunk (12. szakasz) |
 | **Deliverability finomhangolás** | külön projekt; az SPF/DKIM/DMARC alap viszont a 0. szakaszban KÖTELEZŐ | az első bounce-riasztás után |
+| **Inbox placement mérés** (seed-lista: melyik fülbe esik a levél) | 2026-08-21: a szerkezeti javítások (nincs `List-Unsubscribe`, quoted-printable) után a próbalevél a **Primary fülbe** érkezett — nincs mit mérni | ha a válaszarány indokolatlanul leesik, vagy új sablon/kampány indul. **Eszközök:** GlockApps (van API-ja), MailReach, Inbox Monster, Mailtrap — ezek *mérnek* (valódi seed-fiókokba küldenek és megnézik a fület), nem jósolnak. **Előrejelző API nem létezik:** a Promóciók-besorolás feladó–címzett engagement-előzményt is használ. A lexikális ellenőrzők (Mailsuite, mail-tester) a mi két valódi okunkat — base64 kódolás, `List-Unsubscribe` fejléc — **nem találták volna meg**. Ingyenes változat: ugyanaz a levél egy privát Gmailre, egy céges Workspace-címre és egy outlook.com-ra |
 
 **Amit NEM áldozunk fel**, mert olcsó most és utólag napokba kerül — pontosan úgy,
 ahogy a `SCRAPER-PLAN.md` írja:

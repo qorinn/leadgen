@@ -68,6 +68,7 @@ _COMMON_FIELDS = """
   c.signal_summary                        as notes,
   c.signal_score                          as signal_score,
   ct.source_url                           as source_url,
+  ct.unsub_token                          as unsub_token,
   c.id                                    as company_id,
   c.normalized_domain                     as normalized_domain,
   coalesce(
@@ -165,6 +166,37 @@ def _dnc_emails() -> set[str]:
         }
 
 
+def unsub_url(token: Any) -> str:
+    """A szemelyre szolo leiratkozo link. Ures string, ha nem epitheto fel.
+
+    HAROM DOLOG MIATT VAN SAJAT FUGGVENYE, ES NEM EGY f-string a hivo helyen:
+
+    1. HIBAS KONFIGURACIO ESETEN INKABB NE LEGYEN LINK, mint torott link.
+       Egy "http://localhost:8888/..." cimre mutato leiratkozo gomb rosszabb,
+       mint a regimodi "valaszolj, hogy stop" mondat: a cimzett rakattint,
+       nem tortenik semmi, es jogosan gondolja, hogy atvertek. Ezert csak
+       https:// cimet fogadunk el.
+
+    2. A TOKEN NELKULI URL ERTELMETLEN. Ha valamiert nincs token (kezzel
+       felvett kapcsolat egy regi sorbol), ures stringet adunk -- a sablon
+       ilyenkor visszaesik a fallback mondatra.
+
+    3. EGY HELYEN LEGYEN AZ OSSZEFUZES. A base URL vegen levo per-jel megy
+       vagy nem megy -- ez pontosan az a reszlet, amit ket helyen ketfelekeppen
+       irnank meg.
+    """
+    base = (config.UNSUB_BASE_URL or "").strip()
+    if not base or not token:
+        return ""
+    if not base.startswith("https://"):
+        # Nem dobunk kivetelt: az export ne alljon meg egy alairas-reszlet
+        # miatt. De legyen zajos, mert ez konfiguracios hiba.
+        print(f"!!! UNSUB_BASE_URL nem https:// cimmel kezdodik ({base!r}) "
+              f"-> a levelek a 'valaszolj, hogy stop' mondatra esnek vissza.")
+        return ""
+    return f"{base.rstrip('/')}/{token}"
+
+
 def _to_csv_row(row: dict[str, Any]) -> dict[str, str]:
     scraped = row.get("scraped_at")
     return {
@@ -180,6 +212,7 @@ def _to_csv_row(row: dict[str, Any]) -> dict[str, str]:
         "source_url": row.get("source_url") or "",
         "scraped_at": scraped.date().isoformat() if hasattr(scraped, "date") else "",
         "company_id": str(row.get("company_id") or ""),
+        "unsub_url": unsub_url(row.get("unsub_token")),
     }
 
 

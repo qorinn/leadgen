@@ -34,6 +34,11 @@ _ADDED = [
     # Hibakereseshez viszont aranyat er: egy leads.csv sorbol azonnal
     # megtalalhato a ceg a DB-ben.
     "company_id",
+    # A szemelyre szolo leiratkozo link, TELJES URL-kent (nem csak token).
+    # Miert a teljes URL: igy a templates.py-nak nem kell tudnia sem a
+    # domaint, sem az utvonalat -- egyszeruen kiirja, amit kap. Ha a mezo
+    # URES, a sablon a "valaszolj, hogy stop" mondatra esik vissza.
+    "unsub_url",
 ]
 
 LEADS_HEADER = _ORIGINAL + _ADDED

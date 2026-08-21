@@ -25,6 +25,7 @@ import config
 LEADS_HEADER = [
     "email", "company", "contact_name", "website", "industry", "city", "notes",
     "campaign", "personalization", "source_url", "scraped_at", "company_id",
+    "unsub_url",
 ]
 SENT_HEADER = ["ts", "email", "domain", "stage", "template", "subject", "account"]
 DNC_HEADER = ["ts", "email", "reason", "notes"]
