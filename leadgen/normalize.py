@@ -172,10 +172,24 @@ def normalize_phone(raw: str) -> str | None:
 
 
 # ─── Email ─────────────────────────────────────────────────────────────────
-# FONTOS: pontosan ugyanaz a szabaly, mint a kuldoben (.strip().lower()).
-# A ket rendszer email alapjan joinol; ha a normalizalas elter, a feedback
-# csendben nem talal ra a leadre.
-_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[a-z]{2,}$")
+# FONTOS: a NORMALIZALAS pontosan ugyanaz, mint a kuldoben (.strip().lower()).
+# A ket rendszer email alapjan joinol; ha ez elterne, a feedback csendben nem
+# talalna ra a leadre.
+#
+# A MINTA viszont szigorubb, mint a kuldoe, es ez SZANDEKOS. Valos hiba a
+# 4. szakasz exportjaban: egy `mailto:%20peter@mpmarketing.hu` linkbol
+# `%20peter@mpmarketing.hu` cim kerult a leads.csv-be. A korabbi minta
+# ([^@\s]+) ezt atengedte, mert csak szokozt es kukacot tiltott. Eles kuldesnel
+# ez BIZTOS hard bounce lett volna -- es a hard bounce az egyetlen hiba a
+# rendszerben, ami visszamenoleg is kart okoz: rontja a kuldo domain
+# reputaciojat, tehat utana a JO leadeknek sem erkezik meg a level.
+#
+# Amit a szigoritas kizar: `%`, szokoz, vezeto/zaro pont, ketto pont egymas
+# utan, ekezet, alahuzas a domain-reszben. Amit tovabbra is atenged: `+`, `-`,
+# `_`, `'` a lokalis reszben (ezek valodi, letezo cimekben elofordulnak).
+_LOCAL = r"[a-z0-9!#$&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$&'*+/=?^_`{|}~-]+)*"
+_HOST = r"(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}"
+_EMAIL_RE = re.compile(rf"^{_LOCAL}@{_HOST}$")
 
 
 def normalize_email(raw: str) -> str | None:

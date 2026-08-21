@@ -33,10 +33,26 @@ def next_account() -> dict | None:
 def send(to_email: str, subject: str, body: str, account: dict) -> tuple[bool, str]:
     """Egy plain-text level. (siker, hibauzenet) parost ad vissza.
 
-    A List-Unsubscribe fejlec nem kozvetlenul javitja a kezbesitest, de a
-    fogadok pozitivan ertekelik, es a felhasznalonak konnyebb kilepni, mint
-    spamnek jelolni. Ez utobbi a fontos: egy spam-jeloles sokkal tobbet art,
-    mint egy leiratkozas.
+    KET FEJLEC-DONTES, AMI A GMAIL "PROMOCIOK" FULERE VONATKOZIK. Mindketto
+    meres utan szuletett: az elso eles proba-level a Promociok fulben landolt.
+
+    1. NINCS List-Unsubscribe FEJLEC.
+       Korabban volt. A fejlec a BULK kuldoknek valo: ott csokkenti a
+       spam-jeloleseket, mert konnyebb kilepni, mint panaszt tenni. Csakhogy
+       ezzel a level KIMONDJA magarol, hogy levelezolista -- es a Gmail
+       pontosan ezt a jelet hasznalja a Promociok fulhoz. Egy napi 20 darabos,
+       1:1-nek szant megkeresesnel a csere rossz uzlet: a bulk-elonyert cserebe
+       feladjuk a Primary fulet. (A Gmail 2024-es "bulk sender" eloirasai
+       naponta 5000 level felett kotelezik a fejlecet -- ott vissza kell tenni.)
+       A kilepesi lehetoseg NEM tunt el: a level torzse tartalmazza.
+
+    2. QUOTED-PRINTABLE, NEM BASE64.
+       A set_content() alapertelmezesben base64-be kodolja az ekezetes UTF-8
+       torzset. Ember altal irt levelben ez gyakorlatilag sosem fordul elo --
+       a Gmail es az Outlook quoted-printable-t hasznal --, viszont a bulk
+       mailerek tipikus jegye, es a torzset atlatszatlanna teszi a szurok
+       szamara. A `cte` parameter egy szo, es a level ettol ugy nez ki a
+       gepnek is, mint amit egy ember irt.
     """
     msg = EmailMessage()
     msg["From"] = formataddr((config.FROM_NAME, account["user"])) if config.FROM_NAME else account["user"]
@@ -46,8 +62,7 @@ def send(to_email: str, subject: str, body: str, account: dict) -> tuple[bool, s
     msg["Message-ID"] = make_msgid(domain=account["user"].split("@")[-1])
     if config.REPLY_TO:
         msg["Reply-To"] = config.REPLY_TO
-    msg["List-Unsubscribe"] = f"<mailto:{config.REPLY_TO or account['user']}?subject=unsubscribe>"
-    msg.set_content(body)
+    msg.set_content(body, cte="quoted-printable")
 
     try:
         ctx = ssl.create_default_context()

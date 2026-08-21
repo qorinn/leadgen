@@ -79,20 +79,36 @@ def _personalization(lead: dict, fallback: str) -> str:
     return text or fallback
 
 
+def _signature_lines(greeting: str) -> str:
+    """Alairas a .env-bol. Ami nincs beallitva, az a SORAVAL EGYUTT kimarad.
+
+    Miert nem drotozzuk be: a nev, a cim, a telefonszam es a weboldal
+    peldany-specifikus adat. A .env-ben van a helyuk (az nincs commitolva),
+    nem egy verziokezelt forrasfajlban.
+
+    A telefonszam es a weboldal 2026-08-21-en kerult be, felhasznaloi kerésre:
+    egy elerheto ember levele hitelesebb, mint egy ceg nevtelen megkeresese.
+    """
+    lines = [
+        greeting,
+        config.FROM_NAME or "<A TE NEVED>",
+        config.REPLY_TO or "<EMAIL>",
+    ]
+    if config.SIGNATURE_PHONE:
+        lines.append(config.SIGNATURE_PHONE)
+    if config.SIGNATURE_URL:
+        # Sema nelkul: a levelezok igy is kattinthatova teszik, viszont a
+        # "https://" nelkuli alak emberi alairasnak nez ki, nem hirdetesnek.
+        lines.append(config.SIGNATURE_URL.replace("https://", "").replace("http://", "").rstrip("/"))
+    return "\n".join(lines)
+
+
 def _signature() -> str:
-    return (
-        f"Üdvözlettel,\n"
-        f"{config.FROM_NAME or '<A TE NEVED>'}\n"
-        f"{config.REPLY_TO or '<EMAIL>'}"
-    )
+    return _signature_lines("Üdvözlettel,")
 
 
 def _signature_informal() -> str:
-    return (
-        f"Üdv,\n"
-        f"{config.FROM_NAME or '<A TE NEVED>'}\n"
-        f"{config.REPLY_TO or '<EMAIL>'}"
-    )
+    return _signature_lines("Üdv,")
 
 
 def _unsubscribe() -> str:

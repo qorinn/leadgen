@@ -11,6 +11,7 @@ felulete ugyanazokat hivhassa -- a CLI ne legyen zsakutca.
 Parancscsoportok:
     db      -- migracio, allapot, kapcsolodasi adatok
     export  -- DB -> cold-email-starter/data/leads.csv
+    report  -- hol tart a tolcser, es mi fer bele a mai keretbe
     dev     -- fejlesztoi teszt-adat (sosem eles)
 """
 from __future__ import annotations
@@ -18,7 +19,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from . import config, db, dev, engines, export, feedback, pipeline
+from . import config, db, dev, engines, export, feedback, pipeline, report
 from .sources import maps
 
 
@@ -122,6 +123,10 @@ def _cmd_qualify(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_report(args: argparse.Namespace) -> int:
+    return report.run(daily_view=args.daily)
+
+
 def _cmd_engines(_args: argparse.Namespace) -> int:
     print(f"{'kulcs':22} {'allapot':10} {'kampany':18} nev")
     print("-" * 80)
@@ -173,17 +178,38 @@ def _cmd_review(args: argparse.Namespace) -> int:
             print(f"    cim: {(r['title'] or '')[:88]}\n")
         return 0
     if args.reject:
+        # MIERT NEM CSAK `review` ALLAPOTBOL: az 5. szakasz emberi feladata az,
+        # hogy a kikuldes elott VEGIGOLVASD a dry-run kimenetet -- "ez az utolso
+        # visszafordithato pont". Csakhogy amit ott latsz, az mar `queued`:
+        # exportalva van a leads.csv-be. Ha innen nem lehetne kihuzni egy ceget,
+        # a felulvizsgalatnak nem lenne eszkoze. A `sent` is benne van: onnan a
+        # kihuzas a MEG HATRALEVO follow-upokat allitja le.
+        reason = args.reason or "manual_block"
         with db.connect() as conn, conn.cursor() as cur:
-            cur.execute("update companies set status = 'suppressed', "
-                        "status_note = 'kezi elutasitas: versenytars' "
-                        "where normalized_domain = %s and status = 'review'", (args.reject,))
-            n = cur.rowcount
-            if n:
+            cur.execute("select id from companies where normalized_domain = %s "
+                        "and status in ('review','queued','sent','ready','enriched','new')",
+                        (args.reject,))
+            hit = cur.fetchone()
+            n = 1 if hit else 0
+            if hit:
+                cur.execute("update companies set status = 'suppressed', status_note = %s "
+                            "where id = %s",
+                            (f"kezi elutasitas: {reason}", hit["id"]))
                 cur.execute("insert into suppression (normalized_domain, reason, note) "
-                            "values (%s, 'competitor', 'kezi elutasitas') "
+                            "values (%s, %s, 'kezi elutasitas') "
                             "on conflict (normalized_domain) where normalized_domain is not null "
-                            "and email is null do nothing", (args.reject,))
-        print(f"Elutasitva: {n} ceg -> suppressed" if n else "Nincs ilyen ceg `review` allapotban.")
+                            "and email is null do nothing", (args.reject, reason))
+                # A folyamatban levo megkereses lezarasa. Enelkul a domain lock
+                # reszleges indexe szerint a szekvencia orokre "aktiv" maradna.
+                cur.execute("update outreach set status = 'stopped' "
+                            "where company_id = %s and status in ('queued','sent')",
+                            (hit["id"],))
+        if n:
+            print(f"Elutasitva: {args.reject} -> suppressed ({reason})")
+            print("A leads.csv-bol a kovetkezo exportnal tunik el:")
+            print("  ./leadgen.sh export")
+        else:
+            print("Nincs ilyen ceg (vagy mar tiltolistan van).")
         return 0
 
     rows = db.query("""
@@ -232,11 +258,21 @@ def build_parser() -> argparse.ArgumentParser:
     fb = sub.add_parser("feedback", help="a kuldo CSV-inek beolvasasa a DB-be")
     fb.set_defaults(func=_cmd_feedback)
 
+    rp = sub.add_parser("report", help="hol tart a tolcser, es mi tortenik ma")
+    rp.add_argument("--daily", action="store_true",
+                    help="csak a mai kep: napi keret vs. sorbanallas")
+    rp.set_defaults(func=_cmd_report)
+
     sub.add_parser("engines", help="elerheto lead engine-ek").set_defaults(func=_cmd_engines)
 
     rv = sub.add_parser("review", help="emberi dontesre varo cegek")
     rv.add_argument("--approve", metavar="DOMAIN", help="jo lead -> ready")
-    rv.add_argument("--reject", metavar="DOMAIN", help="versenytars -> suppressed")
+    rv.add_argument("--reject", metavar="DOMAIN",
+                    help="ne keressuk meg -> suppressed (mar exportalt leadre is)")
+    rv.add_argument("--reason", metavar="OK", default=None,
+                    choices=("manual_block", "competitor", "existing_client",
+                             "negative_reply", "unsubscribe"),
+                    help="a tiltas oka (alapertelmezes: manual_block)")
     rv.add_argument("--suppressed", action="store_true",
                     help="az AUTOMATIKUSAN kizart cegek (felulbirlhatod oket)")
     rv.set_defaults(func=_cmd_review)

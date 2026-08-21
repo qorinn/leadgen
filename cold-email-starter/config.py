@@ -63,6 +63,18 @@ IMAP_PORT = _int("IMAP_PORT", 993)
 FROM_NAME = os.environ.get("FROM_NAME", "")
 REPLY_TO = os.environ.get("REPLY_TO", "")
 
+# ─── Alairas ───────────────────────────────────────────────────────────────
+# Ami nincs kitoltve, az KIMARAD az alairasbol -- nem lesz belole ures sor es
+# nem lesz belole "<TELEFON>" placeholder. Ugyanaz a szabaly, mint a
+# templates._greeting()-nel: nyers placeholder SOHA ne menjen ki.
+#
+# A telefonszam es a weboldal a hitelesseget noveli (egy ember irja, akit el
+# lehet erni), es a Gmail Promociok-besorolasat NEM rontja: egyetlen sajat
+# domainre mutato link egy alairasban a normalis emberi level jegye.
+# Marketing-URL-t, kovetokodot, UTM-parametert viszont NE tegyel ide.
+SIGNATURE_PHONE = os.environ.get("SIGNATURE_PHONE", "").strip()
+SIGNATURE_URL = os.environ.get("SIGNATURE_URL", "").strip()
+
 # ─── Volumen es utemezes ───────────────────────────────────────────────────
 # FONTOS: uj domainnel/postafiokkal NE indulj magas szammal. A limits.py
 # fokozatosan emeli, ha a kezbesitesi jelek tisztak.

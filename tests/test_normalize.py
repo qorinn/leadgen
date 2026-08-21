@@ -85,6 +85,30 @@ class TestNormalizeEmail:
     def test_ervenytelen(self, raw):
         assert normalize.normalize_email(raw) is None
 
+    @pytest.mark.parametrize("raw", [
+        "%20peter@mpmarketing.hu",   # URL-kodolt szokoz egy mailto: linkbol
+        ".peter@pelda.hu",           # vezeto pont (a regexp elotte alloszoveget kapott)
+        "peter.@pelda.hu",           # zaro pont
+        "pe..ter@pelda.hu",          # ketto pont egymas utan
+        "peter@pelda_hu.hu",         # alahuzas a domainben
+        "peter@-pelda.hu",           # kotojellel kezdodo cimke
+        "árvíz@pelda.hu",            # ekezet
+    ])
+    def test_biztos_bounce_alaku_cimek(self, raw):
+        # Ezek mind ATMENTEK a korabbi ([^@\s]+) mintan. Eles kuldesnel hard
+        # bounce-t okoztak volna, az pedig VISSZAMENOLEG rontja a kuldo domain
+        # reputaciojat -- utana a jo leadeknek sem erkezik meg a level.
+        assert normalize.normalize_email(raw) is None
+
+    @pytest.mark.parametrize("raw", [
+        "kis.eszter@pelda.hu", "peter+cimke@pelda.hu", "info@al.pelda.co.uk",
+        "b_a-lint@pelda.hu",
+    ])
+    def test_valodi_cimek_atmennek(self, raw):
+        # A szigoritas masik oldala: egy JO cim elvesztese dragabb, mint egy
+        # felrement level, mert a celcsoport veges.
+        assert normalize.normalize_email(raw) == raw
+
 
 class TestPlatformBlocklist:
     @pytest.mark.parametrize("raw", [

@@ -8,7 +8,7 @@
 
 ---
 
-## 📍 Állapot — 2026-08-20 (csütörtök)
+## 📍 Állapot — 2026-08-21 (péntek)
 
 | Szakasz | Állapot |
 |---|---|
@@ -16,11 +16,20 @@
 | **1. Alapozás** | ✅ **KÉSZ** |
 | **2. Export (DB → leads.csv)** | ✅ **KÉSZ** (a levélszöveg átírva 08-20-án) |
 | **3. Feedback (CSV → DB)** | ✅ **KÉSZ** |
-| **4. 8.1 engine (ügynökségi lista)** | 🟡 **agent-rész kész — 10 valódi lead exportálva, 19 átnézésre vár** |
-| **5. Első éles kiküldés** | ▶️ **KÖVETKEZIK** |
+| **4. 8.1 engine (ügynökségi lista)** | 🟡 **agent-rész kész — 10 valódi lead exportálva, 10 átnézésre vár** |
+| **5. Első éles kiküldés** | 🟡 **agent-rész kész — a `--live` futás RÁD vár** |
 | 6-13. | ⬜ nem kezdődött el |
 
-**A rendszerhatár mindkét iránya kész és tesztelt — valódi scrapelés nélkül.**
+**A teljes lánc szárazon végigfutott valódi adattal.** Ami hátravan az 5. szakaszból,
+az egyetlen emberi lépés: elolvasni a 10 levelet, és elindítani a `--live` futást.
+
+```
+export ......................... 10 sor, 0 új sorba állítva (mind folyamatban lévő)
+guards.py (önállóan) ........... IMAP OK, 0 üzenet, 0 hiba
+sender.py --dry (guards-szal) .. 10 levél a tervben, mai keret 20, 0 placeholder
+preview.py --limit 1 ........... teljes levél átnézve, aláírás + leiratkozás rendben
+pytest ......................... 103 teszt zöld
+```
 
 ### ⏩ Módosított cél (2026-08-20, felhasználói döntés)
 
@@ -1095,7 +1104,7 @@ Ha ötből egy is hibás, a kulcsszólistát kell javítani, nem továbbmenni.
 
 ---
 
-## 5. szakasz — Az első éles kiküldés `[külön session, rövid]`
+## 🟡 5. szakasz — Az első éles kiküldés `[agent-rész kész: 2026-08-21]`
 
 **Cél:** menjen ki az első valódi levél. **Ez a terv legfontosabb mérföldköve.**
 **Becsült agent-munkaidő:** 1 óra.
@@ -1106,32 +1115,89 @@ ezt visszavezette a DB-be, és a `deliverability.py` lefutott riasztás nélkül
 
 - **A szakasz előtt** — olvasd el a **teljes** dry-run kimenetet. Minden levelet.
   Ez 10 perc, és ez az utolsó visszafordítható pont.
-- **A szakasz előtt** — küldj magadnak egy próbalevelet: tegyél be egy saját címet
-  a `leads.csv`-be és futtass `--live --limit 1`-et. Nézd meg egy Gmailben és egy
-  céges postafiókban is: **spam mappa? formázás? aláírás? leiratkozási mondat?**
+- **A szakasz előtt** — küldj magadnak egy próbalevelet. **Ne a `leads.csv`-be
+  írd be a saját címed** (az `export` felülírja a fájlt, és a `sent.csv`-be is
+  bekerülnél): erre való a `preview.py --send-to`, ami valódi levelet küld, de
+  **nem ír a `sent.csv`-be**, tehát a valódi lead sorban marad.
+
+  ```bash
+  cd cold-email-starter
+  python3 preview.py --send-to sajat@cimem.hu --limit 1
+  ```
+
+  Nézd meg egy Gmailben és egy céges postafiókban is:
+  **spam mappa? formázás? aláírás? leiratkozási mondat?**
 - **A szakasz alatt** — indítsd te a `--live` futást. Az agent ne küldjön élesben.
 - **A szakasz után, naponta** — **olvasd a postafiókot.** Egy ügynökségi válasz
   24 órán belül megérdemel egy emberi választ. Ez a leggyakoribb pont, ahol a
   rendszer működik, de az ügyfél mégis elveszik.
 
-### Az agent feladatai
+### Az agent feladatai — ✅ mind kész (a 4. pont a `--live` futásra vár)
 
-1. `export` futtatása, a kimenet ellenőrzése.
-2. `guards.py` **önálló** futtatása először (`python3 guards.py`) — így derül ki
+1. ✅ `export` futtatása, a kimenet ellenőrzése.
+2. ✅ `guards.py` **önálló** futtatása először (`python3 guards.py`) — így derül ki
    IMAP-probléma **anélkül**, hogy közben küldenénk.
-3. `sender.py --dry` (guards-szal, `--skip-guards` nélkül) — teljes lánc szárazon.
-4. A felhasználó `--live --limit 10` futása után: `feedback` import, `report`,
+3. ✅ `sender.py --dry` (guards-szal, `--skip-guards` nélkül) — teljes lánc szárazon.
+4. ⏳ A felhasználó `--live --limit 10` futása után: `feedback` import, `report`,
    `deliverability.py`.
-5. A napi rutin leírása a `CLAUDE.md`-be (a cron csak a 12. szakaszban jön).
+5. ✅ A napi rutin leírása a `CLAUDE.md`-be (a cron csak a 12. szakaszban jön).
+
+Menet közben **három hiba javítva**, mindhárom a kiküldés előtti utolsó
+ellenőrzésen bukott ki (lásd lent).
+
+### Amit a szakasz közben tanultunk
+
+- **🔑 Egy `mailto:` link URL-kódolása hard bounce-t okozott volna.** A 4. szakasz
+  exportjában szerepelt egy `%20peter@mpmarketing.hu` cím. A forrás egy
+  `mailto:%20peter@mpmarketing.hu` link volt: az oldal készítője szóközzel kezdte
+  a címet, a böngésző `%20`-ként kódolta, a kinyerő regexp (`[A-Za-z0-9._%+-]+@`)
+  pedig a `%`-ot engedélyezett karakternek látta.
+
+  **Miért ez a legdrágább hibatípus a rendszerben:** a hard bounce az egyetlen
+  hiba, ami **visszamenőleg** is kárt okoz — rontja a küldő domain reputációját,
+  és onnantól a *jó* leadeknek sem érkezik meg a levél. Egy rossz cím tehát nem
+  egy elveszett leadbe kerül, hanem az összes többibe.
+
+  Két helyen javítva: az `enrich._clean_emails` most **URL-dekódol** kinyerés
+  előtt, a `normalize._EMAIL_RE` pedig szigorúbb lett (nem enged `%`-ot, szóközt,
+  vezető/záró pontot, dupla pontot, ékezetet). Regressziós teszt mindkettőre.
+  *(Mellékhatás: kiderült, hogy a helyes `peter@mpmarketing.hu` cím is benne volt
+  a DB-ben — csak a hibás verzió volt régebbi, és a `created_at` szerinti
+  rendezés miatt az nyert.)*
+
+- **A `press@` / `karrier@` / `allas@` címek „személyes"-nek minősültek.** A
+  `classify_email` csak azt nézte, hogy a prefix szerepel-e a role/generic
+  listákon — ami nem szerepelt, az `personal` lett. Így a `press@mito.group`
+  a legjobb minőségű címként nyert. Ezek nem döntéshozói címek: sajtókapcsolat,
+  illetve álláspályázat. Oda küldött ajánlat a legjobb esetben elvész, a
+  legrosszabban spamnek jelölik. A `ROLE_PREFIXES` bővítve, a meglévő 46
+  kapcsolat újraosztályozva (3 változott).
+
+- **Nem volt eszköz arra, hogy egy már exportált leadet kihúzz.** A szakasz
+  emberi feladata az, hogy a kiküldés előtt végigolvasd a dry-run kimenetet —
+  „ez az utolsó visszafordítható pont". Csakhogy amit ott látsz, az már
+  `queued` állapotú, a `review --reject` pedig csak `review` állapotból működött.
+  A felülvizsgálatnak tehát nem volt eszköze. Javítva: a `--reject` most
+  `queued` és `sent` állapotból is kihúz, lezárja az outreach sort (különben a
+  domain lock miatt a cég soha többé nem kaphatna új sequence-t), és `--reason`
+  kapcsolót is kapott.
+
+- **Az új `report` parancs.** Az ellenőrző listák eddig is hivatkoztak rá, de
+  nem létezett. Két nézete van: a tölcsér (`report`) és a mai kép
+  (`report --daily`). Utóbbi azt a számot mutatja, amit az „A 5. szakaszban"
+  kockázat kért: **hány napra elég a sorban álló lead a jelenlegi napi keret
+  mellett.** A küldő oldali számokat (napi keret, ma kiküldve, maradék) nem
+  számolja újra, hanem **megkérdezi a küldőt a saját interpreterén** — így nem
+  keletkezik második igazság a napi keretre.
 
 ### Ellenőrzés a szakasz végén
 
 ```bash
 cd cold-email-starter
-python3 guards.py                      # önállóan, IMAP-teszt
-python3 sender.py --dry                # teljes lánc szárazon
-python3 sender.py --live --limit 10    # EZT TE INDÍTOD
-python3 deliverability.py              # exit 1 = riasztás, nem hiba
+python3 guards.py                      # önállóan, IMAP-teszt          ✅ 0 hiba
+python3 sender.py --dry                # teljes lánc szárazon          ✅ 10 levél
+python3 sender.py --live --limit 10    # EZT TE INDÍTOD                ⏳
+python3 deliverability.py              # exit 1 = riasztás, nem hiba   ⏳
 cd .. && .venv/bin/python -m leadgen.cli feedback && .venv/bin/python -m leadgen.cli report
 ```
 

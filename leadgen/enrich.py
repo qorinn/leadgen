@@ -25,7 +25,7 @@ import time
 import urllib.robotparser
 from dataclasses import dataclass, field
 from pathlib import Path
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import unquote, urljoin, urlsplit
 
 import httpx
 from selectolax.parser import HTMLParser
@@ -327,6 +327,12 @@ ROLE_PREFIXES = {
     "abuse", "postmaster", "noreply", "no-reply", "donotreply", "spam",
     "webmaster", "hostmaster", "root", "admin", "administrator", "privacy",
     "gdpr", "adatvedelem", "billing", "szamlazas", "support", "help",
+    # Nem dontéshozo, es nem is ajanlat-fogado cimek. A `press@mito.group`
+    # az elso eles exportban `personal`-kent minosult, holott sajtokapcsolati
+    # cim: oda kuldott ajanlat a legjobb esetben elvesz, a legrosszabban
+    # spamnek jelolik.
+    "press", "sajto", "media", "pr", "kommunikacio",
+    "karrier", "career", "allas", "jobs", "job", "hr", "toborzas",
 }
 GENERIC_PREFIXES = {
     "info", "hello", "kapcsolat", "iroda", "office", "contact", "mail",
@@ -362,7 +368,12 @@ def pick_contacts(extract: SiteExtract, domain: str) -> list[tuple[str, str]]:
 def _clean_emails(blob: str, domain: str) -> list[str]:
     seen: list[str] = []
     for raw in EMAIL_RE.findall(blob):
-        addr = raw.strip().lower().rstrip(".")
+        # A blob HTML-t is tartalmaz, tehat nyers `mailto:` hrefek is benne
+        # vannak, URL-kodolva. Valos eset: `mailto:%20peter@mpmarketing.hu`
+        # (az oldal keszitoje szokozzel kezdte a cimet) -- dekodolas nelkul
+        # `%20peter@...` kerult volna a leads.csv-be, es hard bounce lett volna
+        # belole. A dekodolas utan a strip() viszi el a szokozt.
+        addr = unquote(raw).strip().lower().strip(" .")
         if EMAIL_JUNK.search(addr):
             continue
         if not normalize.normalize_email(addr):

@@ -10,16 +10,26 @@
 ## A napi rutin (ez a rövid válasz)
 
 ```bash
-./leadgen.sh ingest maps --engine agency_partner --max-results 100   # új cégek
-./leadgen.sh enrich                                                  # weboldalak
-./leadgen.sh qualify                                                 # minősítés
-./leadgen.sh review                                                  # ← TE döntesz
-./leadgen.sh export                                                  # átadás a küldőnek
+./leadgen.sh report                   # ← hol tartunk, mi vár rám
+./leadgen.sh review                   # ← TE döntesz (ha van átnézendő)
+./leadgen.sh export                   # átadás a küldőnek (feedback-et is futtat)
 
 cd cold-email-starter
-python3 preview.py                    # ← MI MEGY KI? (teljes levelek)
+python3 sender.py --dry               # ← MI MEGY KI MA? (utolsó ellenőrzés)
 python3 sender.py --live              # ← éles küldés
-python3 deliverability.py             # napi jelentés
+
+# este, a küldési ablak (17:00) után:
+python3 deliverability.py             # napi jelentés + a holnapi keret
+cd .. && ./leadgen.sh feedback        # a nap eredménye vissza a DB-be
+```
+
+**Új cégek gyűjtése** nem napi feladat — akkor futtasd, ha a `report` azt
+mutatja, hogy fogy a sor:
+
+```bash
+./leadgen.sh ingest maps --engine agency_partner --max-results 100
+./leadgen.sh enrich
+./leadgen.sh qualify
 ```
 
 ---
@@ -50,12 +60,23 @@ python3 deliverability.py             # napi jelentés
 |---|---|
 | `review` | kilistázza a bizonytalan cégeket, domainnel és indokkal |
 | `review --approve bda.hu` | jó lead → `ready` |
-| `review --reject amarketingese.hu` | versenytárs → `suppressed` |
+| `review --reject amarketingese.hu` | ne keressük meg → `suppressed` |
+| `review --reject mito.group --reason competitor` | ugyanaz, megadott okkal |
 | `review --suppressed` | **amit a gép automatikusan kizárt** — indoklással |
 | `review --approve <domain>` | visszahozza az automatikusan kizártat is |
 
 > Az `--approve` `review`, `suppressed` és `rejected` állapotból is visszahoz.
 > Így a rendszer automatikus döntései **nem véglegesek** — bármikor felülbírálhatod.
+
+> A `--reject` **már exportált (`queued`) és megkeresett (`sent`) leadre is
+> működik.** Ez az 5. szakasz óta fontos: az utolsó visszafordítható pont a
+> `sender.py --dry` kimenete, és amit ott meglátsz, azt innen tudod kihúzni.
+> A parancs lezárja a folyamatban lévő outreach sort is, a `leads.csv`-ből
+> pedig a következő `export` veszi ki. `sent` állapotú leadnél ez a még
+> hátralévő follow-upokat állítja le.
+>
+> A `--reason` értékei: `manual_block` (alapértelmezés), `competitor`,
+> `existing_client`, `negative_reply`, `unsubscribe`.
 
 ## Átadás és visszacsatolás
 
@@ -73,6 +94,8 @@ python3 deliverability.py             # napi jelentés
 
 | Parancs | Mit csinál |
 |---|---|
+| `report` | **a teljes tölcsér** + a mai kép egyben |
+| `report --daily` | csak a mai kép: napi keret vs. sorbanállás |
 | `engines` | milyen iparágak vannak, melyik aktív |
 | `db check` | táblák és sorszámok |
 | `db info` | kapcsolódási adatok (jelszó nélkül) |
@@ -129,6 +152,12 @@ mintát, a valódi lead attól még várakozik, és később megkapja a rendes l
 az a mi rendszerünkben **nem számít bele** — a Google viszont valódi levélnek
 számolja (a Workspace napi limitje ~2000 külső címzett, tehát pár teszt-levél
 érdektelen).
+
+**A `report` megmondja, hány napra elég a sor.** Ha ez 5 nap fölé megy,
+adagolj (`export --limit 20`): a follow-up **mindig veri** a friss cold-ot
+ugyanabban a napi keretben, tehát egy nagy export nem gyorsítja a kiküldést,
+csak várakozó sort épít. A napi keret a kézbesítési jelekből emelkedik
+(`deliverability.py`), nem a leadek számától.
 
 **Minden parancs újrafuttatható.** Egyik sem duplikál: az `ingest` a már ismert
 cégeket kihagyja, az `enrich` a `status` oszlopból tudja, hol tart, az `export`

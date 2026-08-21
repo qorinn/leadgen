@@ -93,8 +93,51 @@ A scraper **külön interpreteren fut**: saját venv Python 3.12-vel. A `python3
 .venv/bin/python -m leadgen.cli db info        # kapcsolódási adatok, jelszó nélkül
 .venv/bin/python -m leadgen.cli db migrate     # idempotens, bármikor újrafuttatható
 .venv/bin/python -m leadgen.cli db check       # táblák és sorszámok
+.venv/bin/python -m leadgen.cli report         # hol tart a tölcsér + a mai keret
 .venv/bin/pytest                               # a normalizáló réteg tesztjei
 ```
+
+## A napi rutin — 5. szakasz óta ez a rendszer üzemmódja
+
+Cron **nincs** (az a 12. szakasz). A rendszer napi kézi futtatásra van tervezve:
+minden lépés rövid, batch-elt és újrafuttatható, tehát egy kihagyott nap nem
+borít fel semmit — a következő futás onnan folytatja.
+
+```bash
+# ── reggel, 5 perc ────────────────────────────────────────────────────────
+./leadgen.sh report                   # mi vár rám, és mi fér a mai keretbe
+./leadgen.sh review                   # ha van átnézendő: TE döntesz
+./leadgen.sh export                   # feedback-import + leads.csv újraírás
+
+cd cold-email-starter
+python3 sender.py --dry               # a mai terv, guards-szal (utolsó ellenőrzés)
+python3 sender.py --live              # ÉLES — ezt EMBER indítja, agent soha
+
+# ── este, a küldési ablak (17:00) után ────────────────────────────────────
+python3 deliverability.py             # napi jelentés + a holnapi keret
+cd .. && ./leadgen.sh feedback        # a nap eredménye vissza a DB-be
+```
+
+**Amit egy agentnek tudnia kell erről a rutinról:**
+
+- **A `--live` futást soha nem az agent indítja.** Ez nem technikai korlát,
+  hanem munkamegosztás: a kiküldés visszafordíthatatlan, és a levél a
+  felhasználó nevében megy ki. Az agent előkészít és ellenőriz.
+- **A `deliverability.py` exit 1-et ad, ha riasztás van** — ez nem hiba,
+  ez a jelzés. A `--live` után futtatva a ramp-értékelést is elvégzi, és az
+  a `last_eval` mező miatt **naponta csak egyszer** hat.
+- **A sorrend nem cserélhető fel:** az `export` maga futtatja a `feedback`-et
+  első lépésként, és ha az elszáll, nem ír semmit. Az esti `feedback` külön
+  futtatása azért kell, hogy a nap eredménye (kiment levelek, válaszok,
+  bounce-ok) még aznap átvezetődjön — nem másnap reggel derüljön ki.
+- **A `report --daily` a „hány napra elég a sor" számot mutatja.** Ha ez 5 nap
+  fölé megy, adagolni kell (`export --limit 20`): a follow-up mindig veri a
+  friss cold-ot ugyanabban a napi keretben, tehát egy nagy export nem gyorsít,
+  csak várakozó sort épít.
+- **Az utolsó visszafordítható pont a `sender.py --dry`.** Amit ott látsz, az
+  megy ki. Ha egy lead mégsem kell, `./leadgen.sh review --reject <domain>` —
+  ez már exportált (`queued`) leadre is működik, lezárja az outreach sort, és
+  a következő export kiveszi a `leads.csv`-ből.
 
 ## Architektúra
 
