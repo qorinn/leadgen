@@ -81,6 +81,11 @@ ha riasztás van** — cronban ezt ne értelmezd hibának.
 
 ### A scraper parancsai — a repó gyökeréből
 
+> **Teljes parancs-referencia: [PARANCSOK.md](PARANCSOK.md)** — ott minden
+> funkció szerepel, magyarázattal. Az alábbi csak a leggyakoribbak.
+>
+> A `./leadgen.sh` indító bárhonnan működik (megkeresi a venv-et és a gyökeret).
+
 A scraper **külön interpreteren fut**: saját venv Python 3.12-vel. A `python3` a gépen
 3.9.6, azon a küldő fut. Ne keverd őket.
 
@@ -187,6 +192,19 @@ Külön rendszer, saját függőségekkel. A teljes terv: [INTEGRATION-PLAN.md](
 **Miért van itt pytest, ha a küldőben nincs test suite:** a normalizálás hibái némák —
 két cég összeolvad, vagy egy cég kétszer kap levelet, és semmi nem dob hibát. Csak
 ide írunk tesztet, máshova nem.
+
+**Az iparág adat, nem kód.** A [leadgen/engines.py](leadgen/engines.py) `EngineDef`
+blokkjai írják le, hogy egy vertikum mit keres a Google Mapsen, milyen kulcsszó
+minősít, mi zár ki, és melyik kampány sablonjai renderelnek. Új iparág = új blokk
+ott + sablonok a `templates.py`-ban. **A scrapelés, enrichment, export és feedback
+kódja változatlan marad** — azok forrástól és iparágtól függetlenek. Van egy kész,
+`enabled=False` példa-definíció (`field_service`), ami megmutatja a mintát.
+
+**A kizárás két szintű** (`exclude_hard` / `exclude_soft`): az erős jel azonnal
+versenytárs-suppressionbe visz, a gyenge jel `review` állapotba, emberi döntésre.
+Ez azért van, mert a kulcsszó gyakran ügyfél-referenciából vagy blogcikkből jön,
+nem a cég saját szolgáltatás-listájából — és egy jó lead elvesztése drágább, mint
+egy félrement levél.
 
 **A domain lock adatbázis-szinten él:** részleges UNIQUE index az
 `outreach (company_id) WHERE status IN ('queued','sent')` feltétellel. A küldő ezt

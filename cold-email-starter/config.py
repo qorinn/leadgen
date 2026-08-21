@@ -92,5 +92,9 @@ LEADS_CSV = DATA / "leads.csv"
 SENT_CSV = DATA / "sent.csv"
 DNC_CSV = DATA / "do-not-contact.csv"
 BOUNCE_CSV = DATA / "bounces.csv"
+# A beerkezo valaszok szovege. A guards.py irja, a scraper olvassa
+# (AI valasz-osztalyozas). Enelkul a valasz szovege eldobodna: eddig csak
+# egy DNC-sor maradt belole, ok-koddal.
+REPLIES_CSV = DATA / "replies.csv"
 RAMP_JSON = DATA / "ramp_state.json"
 LOG_FILE = DATA / "sender.log"

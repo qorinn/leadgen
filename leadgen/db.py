@@ -17,6 +17,7 @@ from typing import Any, Iterator
 
 import psycopg
 from psycopg.rows import dict_row
+from psycopg.types.json import Json  # noqa: F401  (a hivo oldalak db.Json-kent hasznaljak)
 
 from . import config
 

@@ -12,6 +12,7 @@ egyszeruen None-t ad a hianyzo mezore, es a level csendben rosszul renderelodik
 ami ezt eszreveszi -- ezert olvassa be a store.py-t szovegkent es AST-vel.
 """
 import ast
+import re
 from pathlib import Path
 
 import pytest
@@ -57,6 +58,29 @@ def test_a_kuldo_eredeti_mezoi_megvannak():
 
 def test_nincs_ismetlodo_mezo():
     assert len(contract.LEADS_HEADER) == len(set(contract.LEADS_HEADER))
+
+
+def test_a_dnc_okok_le_vannak_kepezve():
+    """A guards.py minden DNC-okara legyen szabaly a contract.DNC_REASON_MAP-ben.
+
+    Ha a kuldoben megjelenik egy uj ok (pl. "spam_complaint"), a
+    feedback-import az `else` again landolna es `manual_block`-kent tiltana
+    -- lehet, hogy tul szigoruan. Jobb, ha ez a teszt szol elobb.
+    """
+    guards_src = (REPO / "cold-email-starter" / "guards.py").read_text(encoding="utf-8")
+    used = set(re.findall(r'add_to_dnc\(\s*[^,]+,\s*"([a-z_]+)"', guards_src))
+    assert used, "nem talaltam add_to_dnc hivast a guards.py-ban"
+    hianyzo = used - set(contract.DNC_REASON_MAP)
+    assert not hianyzo, (
+        f"a guards.py hasznalja ezeket az okokat, de a contract.DNC_REASON_MAP "
+        f"nem ismeri: {sorted(hianyzo)}"
+    )
+
+
+def test_a_replies_header_egyezik():
+    """A guards.py replies.csv-t ir, a feedback-import ezt olvassa."""
+    vart = {"ts", "msg_id", "email", "subject", "body", "classified"}
+    assert set(_literal_from_store("REPLIES_HEADER")) == vart
 
 
 @pytest.mark.parametrize("stage", contract.STAGES)

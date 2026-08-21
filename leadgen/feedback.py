@@ -1,0 +1,363 @@
+#!/usr/bin/env python3
+"""Feedback-import: a kuldo CSV-i -> DB.
+
+    sent.csv            -> outreach.status / stage / sent_at, companies.status
+    do-not-contact.csv  -> suppression, companies.status
+    bounces.csv         -> contacts.bounce_state
+    replies.csv         -> reply_events   (osztalyozatlanul, a 6. szakasz tolti)
+
+MIERT EZ A LEGFONTOSABB MODUL AZ EGESZ INTEGRACIOBAN: e nelkul a scraper
+holnap ujra kiadja azt a leadet, aki ma nemet mondott. A kuldo tudja, ki
+valaszolt es ki pattant vissza -- a scraper nem. Ez a fajl az egyetlen ut
+visszafele.
+
+HAROM TERVEZESI DONTES:
+
+1. FAJL-OLVASAS, NEM API. Ugyanaz a gep, ugyanaz a repo. A CSV-k append-only,
+   idobelyegzett naplok: pontosan az az adatstruktura, amit inkrementalisan
+   olvasni a legegyszerubb. Egy webhook-reteg futo szolgaltatast igenyelne --
+   pont azt az uzemeltetesi terhet, amit a terv kerulni akar.
+
+2. WATERMARK = FELDOLGOZOTT SOROK SZAMA. A fajlok csak nonek, tehat a
+   sorszam megbizhato jelolo. Ha megis rovidebb lett a fajl (kezi
+   szerkesztes, rotalas), a watermark nullazodik es ujra feldolgozunk
+   mindent -- ez biztonsagos, mert minden iras upsert.
+
+3. MINDEN EGY TRANZAKCIOBAN. Ha barmelyik fajl feldolgozasa elszall, a
+   watermarkok sem lepnek elore. Igy nincs olyan allapot, hogy "a felet
+   beolvastuk, de nem tudjuk, melyik felet".
+"""
+from __future__ import annotations
+
+import csv
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+from . import config, db
+from .normalize import normalize_email
+
+# A cegek allapota, amit a feedback NEM irhat felul. Ha valaki mar valaszolt
+# vagy tiltva van, egy kesobb feldolgozott sent.csv sor ne huzza vissza
+# 'sent'-be. (A CSV-k sorrendje a feldolgozas sorrendje, nem az esemenyeke.)
+_TERMINAL = ("replied", "suppressed", "rejected")
+
+
+@dataclass
+class FeedbackStats:
+    sent_rows: int = 0
+    sent_matched: int = 0
+    sequences_done: int = 0
+    dnc_rows: int = 0
+    replied: int = 0
+    suppressed: int = 0
+    bounce_rows: int = 0
+    reply_rows: int = 0
+    unknown_emails: set[str] = field(default_factory=set)
+    reset_files: list[str] = field(default_factory=list)
+
+    @property
+    def total(self) -> int:
+        return self.sent_rows + self.dnc_rows + self.bounce_rows + self.reply_rows
+
+
+class FeedbackError(RuntimeError):
+    """A kuldo allapota nem olvashato. A hivo oldal ilyenkor NE exportaljon."""
+
+
+def _read_new(cur, path: Path, required: bool = True) -> tuple[list[dict[str, Any]], int, bool]:
+    """A watermark ota keletkezett sorok. Hianyzo fajl eseten hibat dob.
+
+    Miert hiba a hianyzo fajl es nem ures lista: pontosan ugyanaz a logika,
+    mint a kuldo mailer.fetch_recent()-jenel. A "nem tudom" soha nem lehet
+    egyenlo azzal, hogy "nem tortent semmi" -- kulonben ugy exportalnank,
+    hogy fogalmunk sincs, ki iratkozott le kozben.
+    """
+    if not path.exists():
+        if required:
+            raise FeedbackError(
+                f"nem talalhato: {path}\n"
+                "  A kuldo meg nem futott le, vagy rossz a SENDER_DIR."
+            )
+        return [], 0, False
+
+    with path.open(encoding="utf-8-sig", newline="") as f:
+        all_rows = list(csv.DictReader(f))
+
+    cur.execute("select last_row from feedback_watermark where file = %s", (path.name,))
+    row = cur.fetchone()
+    watermark = int(row["last_row"]) if row else 0
+
+    was_reset = watermark > len(all_rows)
+    if was_reset:
+        # A fajl megrovidult -> ujra feldolgozunk mindent. Biztonsagos, mert
+        # minden iras upsert; a hivo oldal viszont lassa, hogy ez tortent.
+        watermark = 0
+
+    return all_rows[watermark:], len(all_rows), was_reset
+
+
+def _set_watermark(cur, path: Path, processed_total: int) -> None:
+    cur.execute(
+        """
+        insert into feedback_watermark (file, last_row, updated_at)
+             values (%s, %s, now())
+        on conflict (file) do update
+                set last_row = excluded.last_row, updated_at = now()
+        """,
+        (path.name, processed_total),
+    )
+
+
+def _contact(cur, email: str) -> dict | None:
+    cur.execute("select id, company_id from contacts where email = %s", (email,))
+    return cur.fetchone()
+
+
+# ─── sent.csv ──────────────────────────────────────────────────────────────
+
+def _import_sent(cur, rows: list[dict], stats: FeedbackStats) -> None:
+    for row in rows:
+        stats.sent_rows += 1
+        email = normalize_email(row.get("email") or "")
+        if not email:
+            continue
+        contact = _contact(cur, email)
+        if contact is None:
+            # Kezzel felvett lead, vagy mar torolt ceg. Nem hiba.
+            stats.unknown_emails.add(email)
+            continue
+
+        template = (row.get("template") or "").strip()
+        ts = (row.get("ts") or "").strip() or None
+        finished = template == "follow_up_2"
+
+        cur.execute(
+            """
+            update outreach
+               set status         = %s,
+                   stage          = %s,
+                   -- az ELSO kikuldes ideje szamit (a cold email datuma),
+                   -- mert a follow-up utemezes ahhoz kepest megy
+                   sent_at        = coalesce(sent_at, %s::timestamptz),
+                   sender_account = coalesce(%s, sender_account)
+             where contact_id = %s and status in ('queued', 'sent')
+            """,
+            ("done" if finished else "sent", template or None, ts,
+             (row.get("account") or "").strip() or None, contact["id"]),
+        )
+        if cur.rowcount:
+            stats.sent_matched += 1
+
+        if finished:
+            stats.sequences_done += 1
+            # A szekvencia valasz nelkul ert veget -> 90 napos ceg-cooldown
+            # (SCRAPER-PLAN "Cooldown"). Ha kozben megis valaszol, a DNC-import
+            # 'replied'-re allitja, es az felulirja ezt.
+            cur.execute(
+                """
+                update companies
+                   set status = 'done',
+                       cooldown_until = coalesce(%s::timestamptz, now()) + interval '90 days'
+                 where id = %s and status <> all(%s)
+                """,
+                (ts, contact["company_id"], list(_TERMINAL)),
+            )
+        else:
+            cur.execute(
+                "update companies set status = 'sent' where id = %s and status <> all(%s)",
+                (contact["company_id"], list(_TERMINAL)),
+            )
+
+
+# ─── do-not-contact.csv ────────────────────────────────────────────────────
+
+def _import_dnc(cur, rows: list[dict], stats: FeedbackStats) -> None:
+    for row in rows:
+        stats.dnc_rows += 1
+        email = normalize_email(row.get("email") or "")
+        if not email:
+            continue
+        reason = (row.get("reason") or "").strip()
+        ts = (row.get("ts") or "").strip() or None
+        contact = _contact(cur, email)
+
+        if reason == "replied":
+            # NEM suppression. A valaszolo forro lead lehet -- csak EMBER
+            # valaszoljon neki, ne a robot. (INTEGRATION-PLAN 4. ellentmondas.)
+            stats.replied += 1
+            if contact:
+                cur.execute(
+                    """
+                    update outreach set status = 'replied',
+                                        replied_at = coalesce(replied_at, %s::timestamptz)
+                     where contact_id = %s and status in ('queued', 'sent')
+                    """,
+                    (ts, contact["id"]),
+                )
+                cur.execute(
+                    "update companies set status = 'replied' where id = %s and status <> 'suppressed'",
+                    (contact["company_id"],),
+                )
+            continue
+
+        if reason == "unsubscribe_request":
+            _suppress(cur, email, "unsubscribe", "a kuldo DNC-jebol")
+            stats.suppressed += 1
+            if contact:
+                # Az outreach sort is le KELL zarni, kulonben a domain lock
+                # reszleges indexe szerint a szekvencia orokre "aktiv" marad,
+                # es a ceg sosem kaphatna uj outreach sort. (Ezt a hibat a
+                # 3. szakasz eletciklus-tesztje talalta meg.)
+                cur.execute(
+                    "update outreach set status = 'stopped' where contact_id = %s and status in ('queued','sent')",
+                    (contact["id"],),
+                )
+                cur.execute(
+                    "update companies set status = 'suppressed' where id = %s",
+                    (contact["company_id"],),
+                )
+            continue
+
+        if reason == "hard_bounce":
+            # KONZERVATIV VISELKEDES (felhasznaloi dontes, 2026-08-20):
+            # hard bounce utan a ceget NEM probaljuk ujra masik cimmel.
+            # A bounce az egyetlen hiba a rendszerben, ami VISSZAMENOLEG is
+            # kart okoz: rontja a kuldo domain reputaciojat, es onnantol a
+            # JO leadeknek sem erkezik meg a level. Egyetlen ceg megmentese
+            # nem eri meg ezt a kockazatot -- foleg ugy, hogy a masodik cim
+            # ugyanabbol a (nyilvanvaloan elavult) forrasbol szarmazik.
+            #
+            # MIKOR TERJUNK VISSZA RA: ha mar van ugyfel es a lead-utanpotlas
+            # valik szuk keresztmetszette. Akkor a 'rejected' helyett
+            # 'ready' + cooldown johet, de csak olyan masodik cimre, amit a
+            # Reoon 'valid'-nak mert. Reszletek: INTEGRATION-PLAN.md Dontesnaplo.
+            _suppress(cur, email, "manual_block", "hard bounce")
+            stats.suppressed += 1
+            if contact:
+                cur.execute(
+                    """
+                    update contacts set verify_result = 'invalid',
+                                        bounce_state = 'hard_bounce'
+                     where id = %s
+                    """,
+                    (contact["id"],),
+                )
+                cur.execute(
+                    "update outreach set status = 'stopped' where contact_id = %s and status in ('queued','sent')",
+                    (contact["id"],),
+                )
+                cur.execute(
+                    """
+                    update companies
+                       set status = 'rejected',
+                           status_note = 'hard bounce: ' || %s
+                                         || ' -- ujraprobalas kikapcsolva (reputacio-vedelem)'
+                     where id = %s and status <> all(%s)
+                    """,
+                    (email, contact["company_id"], list(_TERMINAL)),
+                )
+            continue
+
+        # Ismeretlen ok -> nem talalgatunk, de naplozzuk.
+        _suppress(cur, email, "manual_block", f"ismeretlen DNC ok: {reason}")
+        stats.suppressed += 1
+
+
+def _suppress(cur, email: str, reason: str, note: str) -> None:
+    cur.execute(
+        """
+        insert into suppression (email, reason, note) values (%s, %s, %s)
+        on conflict (email) where email is not null do nothing
+        """,
+        (email, reason, note),
+    )
+
+
+# ─── bounces.csv ───────────────────────────────────────────────────────────
+
+def _import_bounces(cur, rows: list[dict], stats: FeedbackStats) -> None:
+    for row in rows:
+        stats.bounce_rows += 1
+        email = normalize_email(row.get("email") or "")
+        reason = (row.get("reason") or "").strip()
+        if not email or not reason:
+            continue
+        # A soft bounce NEM zar ki senkit (atmeneti hiba: tele a postafiok).
+        # Csak jelolunk, hogy a kesobbi ujravalidalas lassa.
+        cur.execute("update contacts set bounce_state = %s where email = %s", (reason, email))
+
+
+# ─── replies.csv ───────────────────────────────────────────────────────────
+
+def _import_replies(cur, rows: list[dict], stats: FeedbackStats) -> None:
+    for row in rows:
+        stats.reply_rows += 1
+        email = normalize_email(row.get("email") or "")
+        if not email:
+            continue
+        cur.execute(
+            """
+            insert into reply_events (msg_id, email, received_at, subject, body)
+                 values (%s, %s, %s::timestamptz, %s, %s)
+            on conflict (msg_id) where msg_id is not null do nothing
+            """,
+            ((row.get("msg_id") or "").strip() or None, email,
+             (row.get("ts") or "").strip() or None,
+             row.get("subject") or "", row.get("body") or ""),
+        )
+
+
+# ─── Fo belepesi pont ──────────────────────────────────────────────────────
+
+_FILES = (
+    ("sent.csv", _import_sent, True),
+    ("bounces.csv", _import_bounces, True),
+    ("do-not-contact.csv", _import_dnc, True),
+    ("replies.csv", _import_replies, False),   # csak a 3. szakasz ota letezik
+)
+
+
+def run(verbose: bool = True) -> FeedbackStats:
+    """Minden uj sor beolvasasa. Idempotens: ujra futtatva 0 sort dolgoz fel."""
+    stats = FeedbackStats()
+
+    with db.connect() as conn, conn.cursor() as cur:
+        for name, handler, required in _FILES:
+            path = config.SENDER_DATA / name
+            rows, total, was_reset = _read_new(cur, path, required=required)
+            if not path.exists():
+                continue
+            if was_reset:
+                stats.reset_files.append(name)
+            handler(cur, rows, stats)
+            _set_watermark(cur, path, total)
+
+    if verbose:
+        _report(stats)
+    return stats
+
+
+def _report(stats: FeedbackStats) -> None:
+    print(f"feldolgozott uj sor: {stats.total}")
+    if stats.sent_rows:
+        print(f"  sent.csv           : {stats.sent_rows} "
+              f"({stats.sent_matched} parositva, {stats.sequences_done} szekvencia lezarult)")
+    if stats.bounce_rows:
+        print(f"  bounces.csv        : {stats.bounce_rows}")
+    if stats.dnc_rows:
+        print(f"  do-not-contact.csv : {stats.dnc_rows}")
+    if stats.reply_rows:
+        print(f"  replies.csv        : {stats.reply_rows}")
+
+    if stats.replied:
+        print(f"\n>>> {stats.replied} VALASZ erkezett -- ezeket EMBER kezelje, "
+              f"a robot innentol nem ir nekik.")
+    if stats.suppressed:
+        print(f"    {stats.suppressed} cim suppressionbe kerult.")
+    if stats.unknown_emails:
+        sample = ", ".join(sorted(stats.unknown_emails)[:3])
+        print(f"\nFIGYELEM: {len(stats.unknown_emails)} cim nincs a DB-ben "
+              f"(kezzel felvett lead?): {sample}")
+    if stats.reset_files:
+        print(f"\nFIGYELEM: rovidebb lett, ujra feldolgozva: {', '.join(stats.reset_files)}")

@@ -115,6 +115,13 @@ def fetch_recent(account: dict, days: int = 14, folder: str = "INBOX") -> list[d
                 "subject": _decode(msg.get("Subject", "")),
                 "body": body,
                 "uid": uid.decode(),
+                # A Message-ID globalisan egyedi, es a szerver adja. Ez a
+                # dedup kulcs a valasz-naplohoz: mivel ez a fuggveny MINDEN
+                # hivasnal ujraolvassa a teljes 14 napos ablakot, ugyanaz a
+                # level tobbszor is visszajon. Az `uid` erre nem jo, mert
+                # postafiokonkent kulon szamozodik (es UIDVALIDITY-valtasnal
+                # ujraindul), a Message-ID viszont a levelhez tartozik.
+                "message_id": (msg.get("Message-ID") or "").strip(),
             })
     return out
 

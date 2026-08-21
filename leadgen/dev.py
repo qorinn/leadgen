@@ -120,11 +120,23 @@ def seed() -> int:
 
 
 def clear_seed() -> int:
-    """Minden teszt-ceg torlese. A kapcsolodo sorok ON DELETE CASCADE-del mennek."""
-    return db.execute(
+    """Minden teszt-ceg torlese -- TISZTA LAPPAL.
+
+    A cegek sorai ON DELETE CASCADE-del mennek, DE a suppression es a
+    reply_events NEM kapcsolodik cegekhez (szandekosan: egy tiltas akkor is
+    ervenyes marad, ha a ceg kikerul az adatbazisbol). Emiatt egy korabbi
+    teszt leiratkozasa vagy bounce-a NEMAN blokkolna az ujra beszurt
+    teszt-cegeket -- ami fejlesztes kozben nagyon zavarba ejto.
+    Ezert itt a `.invalid` cimekhez tartozo tiltasokat is takaritjuk.
+    Eles adatot ez nem erinthet: a `.invalid` TLD (RFC 2606) sosem letezik.
+    """
+    removed = db.execute(
         """
         delete from companies
          where id in (select company_id from sources where source_type = %s)
         """,
         (SEED_SOURCE_TYPE,),
     )
+    db.execute("delete from suppression where email like %s", ("%.invalid",))
+    db.execute("delete from reply_events where email like %s", ("%.invalid",))
+    return removed

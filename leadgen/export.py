@@ -35,7 +35,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from . import config, db
+from . import config, db, feedback
 from .contract import LEADS_HEADER
 
 # A suppression a lead kiadasanak LEGELSO lepese, nem az utolso (SCRAPER-PLAN 0.4).
@@ -287,7 +287,29 @@ def _queue(to_queue: list[dict]) -> None:
             )
 
 
-def run(dry: bool = False, limit: int = 0) -> ExportStats:
+def run(dry: bool = False, limit: int = 0, skip_feedback: bool = False) -> ExportStats:
+    # ═══ A FEEDBACK-IMPORT KOTELEZO ELSO LEPES ════════════════════════════
+    # Ez a kuldo "guards hiba = nem kuldunk semmit" invariansanak a parja.
+    # Ha nem tudjuk, ki valaszolt vagy iratkozott le, akkor nem tudjuk, kit
+    # szabad kiadni -- tehat inkabb semmit nem irunk. A "nem tudom" itt sem
+    # lehet egyenlo azzal, hogy "senki".
+    if skip_feedback:
+        print("!!! A feedback-import KIHAGYVA (--skip-feedback).\n"
+              "    Ez csak fejlesztes kozben megengedett: a DB nem tud a\n"
+              "    kozben erkezett valaszokrol es leiratkozasokrol.\n")
+    else:
+        try:
+            print("Feedback-import (kotelezo lepes az export elott)")
+            feedback.run(verbose=True)
+            print()
+        except Exception as exc:
+            raise SystemExit(
+                f"\nHIBA: a feedback-import elszallt -> NEM EXPORTALUNK.\n"
+                f"  {type(exc).__name__}: {exc}\n\n"
+                "  A leads.csv erintetlen maradt. Amig nem tudjuk, ki valaszolt\n"
+                "  vagy iratkozott le, addig nem adhatunk ki uj leadet."
+            ) from exc
+
     rows, stats, to_queue = collect(limit=limit)
     target = config.SENDER_DATA / "leads.csv"
 

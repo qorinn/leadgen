@@ -13,6 +13,7 @@ A harom szabaly, amit soha ne kapcsolj ki:
 from __future__ import annotations
 
 import re
+import unicodedata
 
 import config
 import mailer
@@ -35,15 +36,45 @@ HARD_BOUNCE_PATTERNS = (
 )
 SOFT_BOUNCE_PATTERNS = (r"mailbox full", r"quota", r"4\.2\.2", r"over quota", r"try again")
 
-# Leiratkozasi szandek. Szandekosan befogado: inkabb egy folosleges
-# leiratkozas, mint egy dühos cimzett.
+# Leiratkozasi szandek.
+#
+# KET JAVITAS TORTENT ITT, MERT A MINTAK KETIRANYBAN IS HIBAZTAK (merve):
+#
+# 1. HAMIS POZITIV -- torolve a nyers r"\bnem\b" minta.
+#    Magyar szovegben a "nem" szo szinte minden valaszban elofordul. A
+#    "Most nem aktualis, de jovore kerdezz ra!" valasz emiatt VEGLEGESEN
+#    leiratkozaskent kerult volna suppressionbe -- vagyis pont egy erdeklodo
+#    lead veszett volna el, csendben.
+#    Ez NEM gyengiti a vedelmet: aki valaszol, az a lenti `replied` szabaly
+#    miatt amugy is DNC-be kerul. Csak az OK lesz pontos.
+#
+# 2. HAMIS NEGATIV -- a mintak ASCII-ban vannak, a magyar valaszok viszont
+#    ekezetesek. A "Kerlek tavolits el a listarol" illeszkedett, a
+#    "Kerlek tavolits el a listarol" ekezetes valtozata NEM. Ugyanigy halott
+#    volt a `nem erdekel` es a `torol.*listar` minden ekezetes szovegre.
+#    Ezert a _fold() ekezet-hajtogatast vegez az illesztes ELOTT.
+#
+# A lista tovabbra is szandekosan befogado: inkabb egy folosleges
+# leiratkozas, mint egy duhos cimzett.
 UNSUB_PATTERNS = (
-    r"\bnem\b", r"\bne kuldj", r"\bne kuldjon", r"leiratkoz", r"tavolits",
-    r"torol.*listar", r"\bunsubscribe\b", r"remove me", r"stop\b", r"not interested",
-    r"koszonom, nem", r"nem erdekel",
+    r"\bne kuldj", r"\bne kuldjon", r"\bne irj", r"leiratkoz", r"tavolits",
+    r"torol.*listar", r"\bunsubscribe\b", r"remove me", r"\bstop\b",
+    r"not interested", r"koszonom, nem", r"nem erdekel", r"nem kerem",
+    r"nem kivanok", r"kerem.*torol",
 )
 
 EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
+
+
+def _fold(text: str) -> str:
+    """Kisbetusites + ekezet-eltavolitas, a mintaillesztes elott.
+
+    "Kerlek tavolits el a listarol" es a ekezetes valtozata igy ugyanarra a
+    szovegre illeszkedik. E nelkul az osszes ASCII-ban irt minta halott volt
+    minden ekezetes magyar valaszra -- es magyar valaszok jellemzoen ekezetesek.
+    """
+    decomposed = unicodedata.normalize("NFKD", (text or "").lower())
+    return "".join(ch for ch in decomposed if not unicodedata.combining(ch))
 
 
 def _extract_email(raw_from: str) -> str:
@@ -67,7 +98,7 @@ def _bounced_address(msg: dict) -> tuple[str, str] | None:
     a torzsbol kell kibanyaszni, kulonben a daemon cime kerulne DNC-be.
     """
     body = (msg.get("body") or "") + " " + (msg.get("subject") or "")
-    low = body.lower()
+    low = _fold(body)   # a "nincs ilyen felhasznalo" minta is ASCII-ban van
 
     kind = ""
     if any(re.search(p, low) for p in HARD_BOUNCE_PATTERNS):
@@ -92,7 +123,10 @@ def run(days: int = 14) -> dict:
     ilyenkor NE kuldjon follow-upot (lasd mailer.fetch_recent doksijat).
     """
     replied: set[str] = set()
-    stats = {"scanned": 0, "replies": 0, "unsubscribes": 0, "hard_bounces": 0, "soft_bounces": 0}
+    stats = {"scanned": 0, "replies": 0, "replies_logged": 0,
+             "unsubscribes": 0, "hard_bounces": 0, "soft_bounces": 0}
+    # Egyszer olvassuk be, nem valaszonkent -- kulonben O(n^2) fajlolvasas.
+    seen_replies = store.reply_msg_ids()
 
     accounts = config.smtp_accounts()
     if not accounts:
@@ -124,7 +158,20 @@ def run(days: int = 14) -> dict:
             replied.add(sender)
             stats["replies"] += 1
 
-            body_low = (msg.get("body") or "").lower()[:600]
+            # A valasz SZOVEGET is megorizzuk. Eddig itt eldobtuk: csak egy
+            # DNC-sor maradt belole, tehat az AI valasz-osztalyozasnak
+            # (erdeklodik / nem / leiratkozas / automatikus valasz) nem volt
+            # bemenete. A dedup a Message-ID-n all, mert ez a fuggveny minden
+            # futasnal ujraolvassa a teljes 14 napos ablakot.
+            msg_id = (msg.get("message_id") or "").strip()
+            dedup_key = msg_id or f"{sender}|{msg.get('subject', '')[:120]}"
+            if dedup_key not in seen_replies:
+                store.record_reply(dedup_key, sender, msg.get("subject", ""),
+                                   msg.get("body", ""))
+                seen_replies.add(dedup_key)
+                stats["replies_logged"] += 1
+
+            body_low = _fold(msg.get("body") or "")[:600]
             if any(re.search(p, body_low) for p in UNSUB_PATTERNS):
                 if store.add_to_dnc(sender, "unsubscribe_request", "automatikus: valaszban jelezte"):
                     stats["unsubscribes"] += 1

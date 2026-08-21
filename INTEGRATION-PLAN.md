@@ -14,9 +14,36 @@
 |---|---|
 | **0. Emberi előfeltételek** | ✅ **KÉSZ** |
 | **1. Alapozás** | ✅ **KÉSZ** |
-| **2. Export (DB → leads.csv)** | 🟡 **agent-rész kész, emberi átnézésre vár** |
-| **3. Feedback (CSV → DB)** | ▶️ **KÖVETKEZIK** |
-| 4-13. | ⬜ nem kezdődött el |
+| **2. Export (DB → leads.csv)** | ✅ **KÉSZ** (a levélszöveg átírva 08-20-án) |
+| **3. Feedback (CSV → DB)** | ✅ **KÉSZ** |
+| **4. 8.1 engine (ügynökségi lista)** | 🟡 **agent-rész kész — 10 valódi lead exportálva, 19 átnézésre vár** |
+| **5. Első éles kiküldés** | ▶️ **KÖVETKEZIK** |
+| 6-13. | ⬜ nem kezdődött el |
+
+**A rendszerhatár mindkét iránya kész és tesztelt — valódi scrapelés nélkül.**
+
+### ⏩ Módosított cél (2026-08-20, felhasználói döntés)
+
+*„Jövő héten minden egyes scraper kész kell legyen és működjön az automatizált
+(személyre szabott) email küldés."*
+
+Ez felgyorsítja az eredeti szakasz-sorrendet. Ami emiatt változik:
+
+- a 4. szakasz **kézi seed-gyűjtés helyett Apify-alapú** lett (lásd ott);
+- a 6. (AI réteg) és a 10. (classifier + personalization) **előrébb kerül**, mert
+  ezek adják a „személyre szabott" részt — e nélkül a küldés automatizált ugyan,
+  de sablonos;
+- a 12. (cron) is bekerül a hétbe, mert e nélkül nem „működik automatikusan".
+
+**Reális becslés:** ~20 óra agent-munka, 7 nap alatt kb. napi 3 óra. Megvalósítható,
+de két külső függés blokkolhatja, és ezek nem agent-munkával oldódnak meg:
+API-kulcsok (Apify, Gemini, Anthropic) és a 0.3 szerinti Actor-előtesztek.
+
+> **Ami ettől nem változik:** a napi küldési keret. A `DAILY_CAP_START=20` a
+> kézbesítési jelekből emelkedik, nem a leadek számától. Tehát „minden scraper kész"
+> és „napi 20 levél" egyszerre igaz lesz — a rendszer teljessége és a kiküldött
+> volumen két külön dolog. Ez nem ellenérv a gyorsítás ellen, csak azt jelenti,
+> hogy a lead-utánpótlás rövid távon nem szűk keresztmetszet.
 
 **Ellenőrzött tények (nem feltételezés):**
 
@@ -82,6 +109,46 @@ session mást akarna csinálni, előbb ezt olvassa el — mindegyik mögött ind
 > a fiókok számával szorozza, tehát egy `cap=100`-nál hozzáadott fiók a napi volument
 > egy nap alatt 100-ról 200-ra ugratja. Ilyenkor a `data/ramp_state.json`-ban a `cap`
 > értéket kézzel kell felezni.
+
+### 2026-08-21 — Kizárás: mi globális és mi kampány-specifikus
+
+| | |
+|---|---|
+| **A kérdés** | A felhasználó vetette fel: *„lehet, hogy vannak olyan scraperek, ahol az egyik scraperben rossz lead, de a másikban jó lead, ugyanaz a cég."* |
+| **Ellenőrizve** | Igaz volt. A `rejected` státusz **véglegesen** kizárta a céget minden jövőbeli engine elől, mert az `ingest` ON CONFLICT ága nem állította vissza a státuszt, a `qualify` pedig `campaign` szerint szűr — vagyis az első engine, ami megtalálta a céget, „lefoglalta" örökre. |
+| **Döntés** | Kétféle kizárás van, és **csak az egyik globális**: |
+
+```
+GLOBÁLIS, végleges — a CÉG tulajdonsága, nem a kampányé
+  suppression tábla:  unsubscribe · negative_reply · manual_block
+                      competitor · existing_client · hard_bounce
+  → domain- vagy email-szinten, minden engine előtt zárva
+
+KAMPÁNY-SPECIFIKUS — csak ehhez az ajánlathoz nem illik
+  companies.status = 'rejected'
+  → ha egy MÁSIK engine találja meg, visszaáll 'new'-ra és újraértékelődik
+```
+
+**Indoklás:** a „nincs marketing kulcsszó" azt jelenti, hogy *ehhez a kampányhoz*
+nem illik — nem azt, hogy a cég sosem lehet lead. Egy könyvelőcég, amit az
+ügynökségi engine elutasít, kiváló lead lehet az álláshirdetés-engine-nek.
+A leiratkozás és a versenytárs-státusz viszont a cég tulajdonsága, azt semmilyen
+engine nem írhatja felül.
+
+**Ellenőrizve** (szimulált forgatókönyvvel): ugyanaz az engine újra megtalálja →
+marad `rejected`; másik engine megtalálja → `new`, új kampánnyal; `suppressed`
+cég másik engine-nél → marad `suppressed`.
+
+### 2026-08-20 — Hard bounce: nincs újrapróbálás ⏳ VISSZATÉRÉSRE JELÖLVE
+
+| | |
+|---|---|
+| **Döntés** | Hard bounce után a cég `rejected` státuszba kerül, és **nem próbálkozunk másik címmel ugyanannál a cégnél**. A cím `manual_block` suppressionbe kerül, a kapcsolat `invalid` lesz, az outreach `stopped`. |
+| **Elvetve** | A megengedőbb változat (`ready` + 30 napos cooldown), ami egy másik címmel újrapróbálkozott volna. |
+| **Indok** | A felhasználó döntése: *„Ne rontsuk a domain reputációt."* A bounce az egyetlen hiba a rendszerben, ami **visszamenőleg** is kárt okoz — rontja a küldő domain hírnevét, és onnantól a jó leadeknek sem érkezik meg a levél. Egyetlen cég megmentése nem éri meg ezt, főleg úgy, hogy a második cím ugyanabból a nyilvánvalóan elavult forrásból származik. |
+| **Ára** | Egy elavult `info@` cím miatt elveszíthetünk egy egyébként jó céget. Ez magyar KKV-knál nem ritka. |
+| **⏳ MIKOR TÉRJÜNK VISSZA RÁ** | **Ha már van ügyfél, ÉS a lead-utánpótlás válik szűk keresztmetszetté** (a `report` azt mutatja, hogy a napi keret nem telik be lead hiányában). A felhasználó szó szerint: *„Később ha lesz ügyfelem módosíthatjuk."* |
+| **Hogyan** | `leadgen/feedback.py`, a `_import_dnc()` `hard_bounce` ága. A visszatéréskor ne egyszerűen `ready` legyen: csak olyan **második címre** szabad újrapróbálni, amit a Reoon `valid`-nak mért (tehát `EMAIL_VALIDATION=full` kell hozzá, 7. szakasz), és akkor is cooldownnal. |
 
 ### 2026-08-20 — Levélszöveg: felszínesen robotosnak hangzott, átírva
 
@@ -743,7 +810,9 @@ grep <az_a_cim> cold-email-starter/data/leads.csv    # nincs találat
 
 ---
 
-## 3. szakasz — A határ, 2. irány: feedback-import `[külön session]`
+## ✅ 3. szakasz — A határ, 2. irány: feedback-import `[KÉSZ: 2026-08-20]`
+
+<!-- 4. szakasz allapota lentebb -->
 
 **Cél:** a küldő eredménye (küldés, bounce, leiratkozás, válasz) visszakerüljön a DB-be,
 és az export enélkül ne is induljon el.
@@ -781,7 +850,62 @@ nem olvasható, az `export` **exit 1**-gyel megáll és nem ír fájlt.
    hiányzó fájl, vagy elavult watermark esetén **exit 1, semmilyen írás**.
 5. **`leadgen/cli.py`**: `feedback` alparancs (önállóan is futtatható).
 
-### Ellenőrzés a szakasz végén
+### Amit a szakasz közben tanultunk
+
+- **A leiratkozás-felismerés KÉTIRÁNYBAN hibás volt**, nem csak a tervezett
+  hamis-pozitív irányban. Mérve:
+
+  | Válasz | Régi kód | Új kód |
+  |---|---|---|
+  | „Most nem aktuális, de jövőre kérdezz rá!" | ❌ leiratkozásnak vette | ✅ nem |
+  | „Kérlek távolíts el a listáról" | ❌ **egy mintára sem illeszkedett** | ✅ igen |
+  | „Kérem töröljenek a listáról" | ❌ nem illeszkedett | ✅ igen |
+
+  Az ok: a minták ASCII-ban vannak (`tavolits`, `nem erdekel`, `torol.*listar`),
+  a magyar válaszok viszont ékezetesek. Ha csak a `\bnem\b`-et töröltük volna
+  a terv szerint, az ékezetes leiratkozások helyzete **romlott** volna. Ezért a
+  `guards._fold()` ékezet-hajtogatást végez az illesztés előtt — a bounce-minták
+  (`nincs ilyen felhasznalo`) is ettől lettek működőképesek.
+  Regressziós teszt: `tests/test_guards_patterns.py`.
+
+- **A `guards.py` minden futásnál újraolvassa a teljes 14 napos postafiókot**
+  (9. ellentmondás), tehát ugyanaz a válasz többször is elénk kerül. A dedup
+  ezért a **Message-ID**-n áll, amit a `mailer.fetch_recent` mostantól kinyer.
+  Az IMAP `uid` erre nem jó: postafiókonként külön számozódik.
+
+- **Leiratkozásnál az `outreach` sort is le kell zárni**, nem elég a cég státuszát
+  `suppressed`-re állítani. A domain lock részleges indexe (`where status in
+  ('queued','sent')`) különben örökre „aktívnak" látná a szekvenciát, és a cég
+  soha nem kaphatna új outreach sort. Ezt az életciklus-teszt találta meg.
+
+- **A `dev clear-seed` nem adott tiszta lapot**: a `suppression` és a
+  `reply_events` szándékosan nem kapcsolódik céghez (egy tiltás akkor is érvényes
+  marad, ha a cég kikerül a DB-ből), ezért egy korábbi teszt leiratkozása némán
+  blokkolta az újra beszúrt teszt-cégeket. Most a `.invalid` címekhez tartozó
+  tiltásokat is takarítja.
+
+- **Nyitott döntés — hard bounce esetén mi legyen a céggel?** A jelenlegi
+  viselkedés: a *cím* suppressionbe kerül és `invalid` lesz, az outreach lezárul,
+  a **cég viszont visszakerül `ready`-be 30 napos cooldownnal**, hogy egy másik
+  címmel később újra próbálkozhasson. Az alternatíva a `rejected` lenne
+  (konzervatívabb, de elveszít egy jó céget egyetlen elavult `info@` cím miatt).
+  Felülvizsgálandó az első valódi bounce-ok után.
+
+### Ellenőrzés a szakasz végén — ✅ lefuttatva
+
+Végigjátszva egy teljes életciklus szimulált küldéssel:
+
+```
+3 cold kiküldés ............... ceg=sent, outreach=sent, sent_at kitöltve
+érdeklődő válasz .............. ceg=replied  (NEM suppression — ember vegye át)
+leiratkozás ................... ceg=suppressed, outreach=stopped, suppression=unsubscribe
+hard bounce ................... cím suppressed+invalid, ceg=ready + 30 nap cooldown
+teljes létra válasz nélkül .... ceg=done, outreach=done, cooldown=90 nap
+lezárt lead ................... kiesik a leads.csv-ből
+idempotencia .................. 2. futás: 0 új sor
+ABORT: hiányzó sent.csv ....... exit=1, a leads.csv ÉRINTETLEN
+pytest ........................ 74 teszt zöld
+```
 
 ```bash
 # szimulált küldés: kézzel írj egy sort a sent.csv-be az egyik teszt-leadre
@@ -808,7 +932,7 @@ mv /tmp/sent.csv cold-email-starter/data/
 
 ---
 
-## 4. szakasz — A 8.1 engine: ügynökségi partner lista `[külön session]`
+## 🟡 4. szakasz — A 8.1 engine: ügynökségi partner lista `[agent-rész kész: 2026-08-21]`
 
 **Cél:** valódi leadek kerüljenek a DB-be — az egyetlen engine, ami napokon belül
 kiküldhető listát ad.
@@ -828,19 +952,47 @@ hirdető) cégek `suppression`-ben vannak `competitor` okkal.
 > Cserébe minden határ-elemet kihajt: dedupe, suppression, enrichment,
 > email-extraction, validáció, export, küldés, feedback. Az 1. engine a 9-10. szakaszban jön.
 
+> **⚠️ 2026-08-20: a szakasz átírva kézi listáról automatizált forrásra.**
+> Az eredeti terv kézi seed-gyűjtést javasolt, mert a `SCRAPER-PLAN.md` 8.1 fejezete
+> szerint „ez nem scraping-probléma, ez egy lista". A felhasználó jogosan kifogásolta:
+> a projekt célja az automatizálás. **Amit méréssel megállapítottunk:**
+>
+> | Forrás | Állapot | Következmény |
+> |---|---|---|
+> | `cylex.hu` | **Cloudflare challenge**, még a `robots.txt` is | közvetlenül nem scrapelhető; a megkerülése detekció-kijátszás lenne, nem építjük |
+> | `linkedin.com` | `robots.txt`: *„The use of robots or other automated means to access LinkedIn without the express permission of LinkedIn is strictly prohibited"* | kizárva |
+> | **Apify Google Maps actor** | ✅ működő út | kategória + település szerint keres ügynökségeket, a blokkolást az Apify infrastruktúrája kezeli |
+> | Szakmai szervezetek taglistái | ✅ jellemzően statikus HTML | a generic directory motor kezeli, forrásonként egy config |
+>
+> Vagyis az automatizálás **az Apify-on keresztül vezet** — pontosan úgy, ahogy a
+> `SCRAPER-PLAN.md` „Apifyt hogyan használnám?" fejezete előírja: kész, olcsó Actor
+> ott, ahol a platform bonyolult. Emberi feladat így **egy token beszerzése**, nem
+> egy lista összegyűjtése.
+
 ### Az ÉN feladataim (ember)
 
-- **A szakasz előtt** — gyűjts össze **kézzel 30-60 magyar marketingügynökség
-  domainjét** egy sima szövegfájlba (`seeds/agencies.txt`), egy sor egy domain.
-  Források a tervből: Cylex/directory keresés, LinkedIn `Marketing Services` + HU,
-  szakmai szervezetek taglistái, szakmai díjak nevezési listái. **Ez 45-60 perc,
-  és felgyorsítja az egész szakaszt** — az agentnek így nem kell directory-scrapert
-  írnia, ami a leglassabb és legtörékenyebb rész.
+- **A szakasz előtt** — **Apify fiók + API token** a gyökér `.env`-be (`APIFY_TOKEN`).
+  Free tier is elég a teszteléshez. Kb. 10 perc. **Ez az egyetlen blokkoló.**
+- **A szakasz előtt (terv 0.3, kötelező)** — futtasd le a Google Maps actort
+  **egyetlen kis lekérdezéssel** (pl. „marketing ügynökség Budapest", limit 10), és
+  nézd meg **saját szemmel** a nyers outputot. **A kritikus mező: a `website`.**
+  Ha az actor nem adja vissza a cég weboldalát, csak a Maps-profilt, akkor az egész
+  enrichment elesik, és másik actort kell keresni.
+- **Opcionális gyorsító, nem kötelező** — ha eszedbe jut 5-10 ügynökség, akit
+  ismersz, dobd be egy `seeds/agencies.txt` fájlba (soronként egy domain). Az
+  engine ezt is beolvassa, kiegészítésként. Ez már nem feltétele a szakasznak.
 - **A szakasz után, kötelezően** — nézd át a `ready` listát **saját szemmel**.
   Ez 60 sor, 15 perc. Húzd ki, akit ismersz, akivel dolgoztál, vagy aki mégis
   versenytárs. Ezek `manual_block` / `existing_client` okkal mennek suppressionbe.
 
 ### Az agent feladatai
+
+0. **`leadgen/sources/apify.py`** — Actor futtatás + dataset letöltés (ezt a
+   9. szakasz újrahasznosítja a Profession engine-hez).
+   **`leadgen/sources/directory.py`** — generic, config-vezérelt directory scraper
+   statikus HTML-hez (szakmai szervezetek taglistái). Input: start URL-ek,
+   lapozás-minta, cég-selector, mező-selectorok. Új katalógus = új config, nem új kód.
+   **Fallback:** `seeds/*.txt` beolvasása, ha a felhasználó kézzel is ad domaineket.
 
 1. **`leadgen/enrich.py` — a közös enrichment engine** (a terv „A közös enrichment
    engine" fejezete). Ezt **egyszer írjuk meg**, minden későbbi engine ezt használja:
@@ -882,7 +1034,53 @@ hirdető) cégek `suppression`-ben vannak `competitor` okkal.
 3. **`leadgen/cli.py`**: `ingest agency --seeds seeds/agencies.txt`, `enrich`,
    `qualify agency` alparancsok — **külön lépések**, hogy bármelyik újrafuttatható legyen.
 
-### Ellenőrzés a szakasz végén
+### Amit a szakasz közben tanultunk
+
+- **Az `urllib.robotparser` hamis tiltást ad WAF mögötti oldalakra.** A beépített
+  `RobotFileParser.read()` a Python alapértelmezett User-Agentjével tölt le, amit a
+  Cloudflare-féle védelmek 403-mal utasítanak el — a parser pedig a 403-at „minden
+  tiltva"-ként értelmezi. Mérve: a `marketing21.hu` és a `2100labs.com` robots.txt-je
+  kifejezetten **engedélyez** mindent (`Disallow:` üresen), a parser mégis tiltást
+  jelzett. Így az enrichment gyakorlatilag **minden magyar oldalon némán elbukott
+  volna** — nem hibával, hanem „robots.txt tiltja" üzenettel. Javítva: saját UA-val
+  töltjük le, és csak a ténylegesen beolvasott szabályokat vesszük figyelembe.
+
+- **Idegen domainű email címek szivárognak be a crawlból.** A `marketingtanacsado.hu`-n
+  megjelent egy `admin@megacp.com` (a tárhelyszolgáltatóé) és egy másik domainhez
+  tartozó cím is. Ha ilyet írnánk a `leads.csv`-be, nem a célzott céget keresnénk meg.
+  Javítva: a cég **saját domainjéhez** tartozó címek élveznek elsőbbséget, és a
+  role-prefix lista bővült (`admin`, `privacy`, `gdpr`, `support`) — az `info@`
+  szándékosan **nem** szerepel benne.
+
+- **A `https://domain` újraépítése hibás volt** — a Maps által visszaadott VALÓDI
+  URL-t eldobtuk. A `chiro.hu`-nál a `https://chiro.hu` 500-at ad, a
+  `http://www.chiro.hu` viszont 301-et. Javítva: az eredeti URL az első jelölt,
+  utána jönnek a `https://`, `https://www.`, `http://` variánsok.
+  *(Megjegyzés: az érintett 10 cégnél ez végül nem segített — azok az oldalak
+  böngészővel is 500/403-at adnak, tehát valóban hibásak. A javítás mégis
+  helyes: a jövőbeli forrásoknál ez a leggyakoribb elérési hiba.)*
+
+- **Valós adatminőség, első futás:** 60 cégből 10 weboldala **nem érhető el**
+  (HTTP 500, 403 vagy nem feloldható DNS). Böngésző User-Agenttel is ugyanaz —
+  nem a scraper hibája. Ezzel tervezni kell: nagyjából minden hatodik magyar
+  KKV-weboldal elérhetetlen egy automatizált látogatás számára.
+
+- **🔑 A kulcsszó-kizárás túl szigorú volt — kettéosztva.** Az első éles futáson
+  9 cégből 8 lett „versenytárs". Kézzel megnézve a találatokat kiderült, hogy a
+  `plus-kreativ.hu` azért esett ki, mert egy **ügyfél-referenciában** szerepelt a
+  „webfejlesztési feladatokat" kifejezés — nem a saját szolgáltatásai közt.
+
+  A két hiba ára **nem szimmetrikus**: egy jó ügynökség elvesztése drágább, mint egy
+  félrement levél, mert a célcsoport véges (100-300 cég). Ezért a kizárás két szintű:
+
+  | Szint | Példa | Mi történik |
+  |---|---|---|
+  | **erős** | `egyedi fejlesztés`, `fejlesztő csapat`, `React`, `Laravel` | azonnal `suppressed`, `reason='competitor'` |
+  | **gyenge** | `webfejlesztés`, `weboldal készítés`, `webdesign` | `review` — **ember dönt**, nem dobjuk el |
+
+  Új parancs: `leadgen review` listázza őket a döntéshez.
+
+### Ellenőrzés a szakasz végén — ✅ lefuttatva
 
 ```bash
 .venv/bin/python -m leadgen.cli ingest agency --seeds seeds/agencies.txt
@@ -1236,6 +1434,33 @@ van, és egy napi összefoglaló megmutatja a keretet, a bounce-arányt és a v�
    megválaszolva.
 5. **A `guards.py` teljesítménye** (9. ellentmondás): ha a 14 napos INBOX-olvasás
    lassúvá válik, itt jön a UID-watermark vagy a `days` csökkentése 7-re.
+
+6. **🆕 Az SMTP-elutasítások naplózása — a ramp vak foltja.**
+
+   **A hiba:** a `deliverability.py` **fixen nullát** ad át az elutasításokra:
+   ```python
+   limits.evaluate_ramp(sent=..., bounces=..., rejects=0)   # ← hardcode
+   ```
+   Emiatt a `REJECT_RATE_ALERT=0.03` küszöb **soha nem sül el**, és a ramp
+   kizárólag a visszapattanásokból tanul. Nem látja, ha a Google elkezdi
+   **elutasítani** a küldéseket (rate limit, policy reject) — pedig pont ez az
+   a jel, ami időben szólna, mielőtt komoly baj lesz.
+
+   **Miért nem hiba, hanem befejezetlen funkció:** a `sender.py` már számolja a
+   sikertelen küldéseket (`failed += 1`, a `mailer.send()` hibaágán), de sehova
+   nem menti — így a `deliverability.py`-nak nincs mit beolvasnia.
+
+   **Amit meg kell csinálni** (~fél óra):
+   - `store.py`: új `rejects.csv` (`ts, email, account, error`) + `record_reject()`
+   - `sender.py`: a `mailer.send()` hibaágán hívja meg (a `store.log` mellett)
+   - `deliverability.py`: a mai `rejects.csv` sorok számát adja át a
+     `evaluate_ramp(rejects=...)` paraméternek a hardcode-olt 0 helyett
+   - a `leadgen feedback` importálja is (a `contacts.bounce_state`-hez hasonlóan),
+     hogy a scraper is lássa
+
+   **Miért itt van és nem korábban:** napi 20 levélnél egy elutasítás azonnal
+   látszik a logban. Akkor válik fontossá, amikor a cron veszi át a futtatást,
+   és már nem olvassa ember a kimenetet.
 
 ### Ellenőrzés a szakasz végén
 

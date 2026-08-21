@@ -29,6 +29,11 @@ LEADS_HEADER = [
 SENT_HEADER = ["ts", "email", "domain", "stage", "template", "subject", "account"]
 DNC_HEADER = ["ts", "email", "reason", "notes"]
 BOUNCE_HEADER = ["ts", "email", "reason", "raw_subject"]
+# `msg_id`: a level Message-ID fejlece. EZ A DEDUP KULCS -- a guards minden
+# futasnal ujraolvassa a teljes 14 napos postafiokot, tehat ugyanaz a valasz
+# tobbszor is elenk kerul. Message-ID nelkul minden futas duplikalna.
+# `classified`: a scraper (6. szakasz) tolti ki, a kuldo nem nyul hozza.
+REPLIES_HEADER = ["ts", "msg_id", "email", "subject", "body", "classified"]
 
 
 def _ensure(path: Path, header: list[str]) -> None:
@@ -42,6 +47,7 @@ def init_all() -> None:
     _ensure(config.SENT_CSV, SENT_HEADER)
     _ensure(config.DNC_CSV, DNC_HEADER)
     _ensure(config.BOUNCE_CSV, BOUNCE_HEADER)
+    _ensure(config.REPLIES_CSV, REPLIES_HEADER)
 
 
 def _read(path: Path) -> list[dict]:
@@ -127,6 +133,38 @@ def record_bounce(email: str, reason: str, raw_subject: str = "") -> None:
     _append(config.BOUNCE_CSV, BOUNCE_HEADER, {
         "ts": now(), "email": email.strip().lower(),
         "reason": reason, "raw_subject": raw_subject[:200],
+    })
+
+
+# ─── Valasz-naplo ──────────────────────────────────────────────────────────
+# MIERT VAN ERRE SZUKSEG: a guards.py eddig beolvasta a valasz szoveget,
+# mintat illesztett ra, majd ELDOBTA. Csak egy DNC-sor maradt belole. Emiatt
+# a tervezett AI valasz-osztalyozasnak (ami a suppression tablat toltene)
+# egyszeruen nem volt bemenete. Ez a fajl az a bemenet.
+#
+# A kuldo csak IR ide. Az osztalyozast a scraper vegzi, es a `classified`
+# oszlopot is o tolti -- a kuldo sosem olvassa vissza.
+
+def reply_rows() -> list[dict]:
+    return _read(config.REPLIES_CSV)
+
+
+def reply_msg_ids() -> set[str]:
+    """A mar naplozott valaszok Message-ID-jai (dedup a guards ujrafutasa ellen)."""
+    return {(r.get("msg_id") or "").strip() for r in reply_rows() if (r.get("msg_id") or "").strip()}
+
+
+def record_reply(msg_id: str, email: str, subject: str, body: str) -> None:
+    _append(config.REPLIES_CSV, REPLIES_HEADER, {
+        "ts": now(),
+        "msg_id": (msg_id or "").strip(),
+        "email": email.strip().lower(),
+        "subject": (subject or "")[:300],
+        # 2000 karakter boven eleg az osztalyozashoz, es igy a fajl nem hizik
+        # el az idezett elozmenyektol (a valaszok gyakran tartalmazzak a mi
+        # sajat levelunket is, teljes egeszeben).
+        "body": (body or "")[:2000],
+        "classified": "",
     })
 
 
