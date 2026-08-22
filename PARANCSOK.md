@@ -90,6 +90,27 @@ mutatja, hogy fogy a sor:
 > Az `export` **mindig lefuttatja a `feedback`-et először**. Ha az hibára fut,
 > az export megáll, és a `leads.csv` érintetlen marad.
 
+## AI-minősítés + evidence grounding (10. szakasz)
+
+| Parancs | Mit csinál |
+|---|---|
+| `score --dry` | megmutatja a minősítést — **semmit nem ír** |
+| `score --limit 20` | élesben, batch-elve |
+| `report --grounding` | mit állított az AI, és milyen idézetből |
+
+> **Bizonyíték-szabály:** minden AI-állításhoz szó szerinti idézet kell a
+> forrásszövegből. Ami nem található meg, azt a rendszer eldobja. Ha nem marad
+> alátámasztott állítás, a lead `rejected`. Ez **ingyen** van — nem AI-hívás.
+
+> **Ha a grounding-bukás 20% felett van**, a modell hallucinál → bake-off,
+> másik modell.
+
+> **Offer arbitration:** egy cég egy kampányba kerül. A legerősebb ajánlat nyer.
+
+> 🔒 **Vázlat sablonnal nem megy ki levél.** Az `APPROVED_CAMPAIGNS`
+> ([leadgen/contract.py](leadgen/contract.py)) a kapu — csak az ott felsorolt
+> kampányok exportálódnak.
+
 ## Álláshirdetés-forrás — Profession.hu (9. szakasz)
 
 | Parancs | Mit csinál |
@@ -100,8 +121,20 @@ mutatja, hogy fogy a sor:
 | `resolve-domains --limit 20` | **FIZETŐS**: a beragadt cégek domainje Maps-ből |
 | `resolve-domains --dry` | megmutatja, kiket kérdezne le |
 
-> **Az ingest inkrementális:** a már látott hirdetés némán kiesik. Kétszer
-> futtatva a második `uj hirdetes=0`-t ad.
+| `ingest ops-pain --force` | a ma már lefuttatott kereséseket is újra futtatja |
+| `ingest ops-pain --refresh-days 0` | soha ne hagyjon ki keresést |
+
+> **Két szinten véd az ismétlődés ellen, és a kettő más:**
+>
+> | Szint | Mit véd | Mit spórol |
+> |---|---|---|
+> | **hirdetés** (`sources`) | ugyanaz a hirdetés nem kerül be kétszer | nincs duplikált cég, nem fut le kétszer a drága feldolgozás |
+> | **keresés** (`source_runs`) | ugyanaz a keresés nem fut le újra aznap | **az Apify-lekérdezés árát** |
+>
+> A második nélkül a napon belül megismételt futás újra kifizetné a keresést,
+> hiába nem hozna egyetlen új hirdetést sem. Mérve: `$0.01` egy olyan futásért,
+> ami 0 új hirdetést hozott. Alapértelmezés: naponta egyszer futhat le egy
+> keresés — álláshirdetés naponta jelenik meg új.
 
 > **Miért külön a `resolve-domains`:** az ingest a HIRDETÉSEKBŐL indul, és a
 > már látottakat kiejti — a korábban beragadt cégeket tehát nem érné utol.

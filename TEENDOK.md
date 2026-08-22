@@ -125,7 +125,21 @@ cd .. && ./leadgen.sh feedback
 
 ## 🟡 3. AI réteg — a kód kész, ez hiányzik
 
-### 3.1 Anthropic (Claude) API kulcs
+### 3.1 Két API kulcs — most már MINDKETTŐ kell
+
+**Korábban azt írtam, hogy a Gemini kulcsra nincs szükséged. Ez a 10. fázissal
+megváltozott:** a hirdetés-minősítést a BULK (olcsó) modell végzi, mert napi
+több száz hirdetésről van szó.
+
+| Kulcs | Mire kell | Honnan |
+|---|---|---|
+| `GEMINI_API_KEY` | hirdetések minősítése (sok, olcsó) | aistudio.google.com → Get API key |
+| `ANTHROPIC_API_KEY` | válasz-értelmezés + magyar mondatok (kevés, jó) | console.anthropic.com → API keys |
+
+Mindkettő a **gyökér** `.env`-be. A `score` parancs a Gemini nélkül beszédes
+hibával megáll, nem csendben.
+
+### 3.1b Anthropic (Claude) API kulcs
 
 `console.anthropic.com` → API keys → a **gyökér** `.env`-be:
 
@@ -182,6 +196,50 @@ találatot**, mielőtt az első levél kimegy ebből a kampányból.
 > **Most nincs mit átnézni:** a jelenlegi 60 céged ügynökség, ők maguk
 > készítik a weboldalukat. Ez a jel a hétköznapi KKV-knál működik, akik a
 > 9. fázissal érkeznek.
+
+### 3.6 🔒 A két új kampány élesítése *(10. fázis)*
+
+**Két kampány sablonja készen áll, de VÁZLAT** — és a rendszer **nem is
+engedi kiküldeni őket**, amíg te jóvá nem hagytad. Ez nem formalitás: az
+export élesben blokkolta őket, amikor teszteltem.
+
+| Kampány | Kinek szól | Hangnem |
+|---|---|---|
+| `dead_dev` | akinek eltűnt a webfejlesztője | magázó |
+| `ops_pain` | aki adminisztrátort keres (Excel + munkalap) | magázó |
+
+**Élesítés három lépésben, kampányonként:**
+
+```bash
+# 1. írd át a szöveget a saját hangodra
+#    cold-email-starter/templates.py  ->  ops_pain_cold, ops_pain_follow_up_1, ...
+
+# 2. nézd meg, hogy fest
+cd cold-email-starter && python3 preview.py
+
+# 3. vedd fel a nevét
+#    leadgen/contract.py  ->  APPROVED_CAMPAIGNS
+```
+
+**Amíg ezt nem teszed meg, ezekből nem megy ki levél.** A 10 ügynökségi
+leaded ettől függetlenül megy tovább.
+
+### 3.7 Olvass el 20 AI-generált mondatot *(a `score` első futása után)*
+
+```bash
+./leadgen.sh report --grounding
+```
+
+Ez kiírja a levélbe kerülő mondatot **és az idézetet, amiből készült**.
+A terv kritériumai: természetes a szórend? nincs tükörfordítás-szag?
+nem hízeleg? tényleg abból indul ki, ami az idézetben van?
+
+> **Amelyik mondatot nem küldenéd ki a saját neveddel, az bukott.** Olyankor
+> nem a modell a hibás, hanem a prompt (`leadgen/prompts.py`) — szólj, és
+> javítom.
+
+Ha a bukási arány **20% felett** van, a modell hallucinál — akkor ne
+élesítsd a kampányt, hanem futtassuk le a bake-offot másik modellel.
 
 ---
 

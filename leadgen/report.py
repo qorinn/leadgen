@@ -300,6 +300,56 @@ def replies() -> int:
     return 0
 
 
+# ─── Evidence grounding ────────────────────────────────────────────────────
+
+def grounding() -> int:
+    """Az AI allitasai es a hozzajuk tartozo idezetek (`report --grounding`).
+
+    EZ AZ EMBERI ATNEZES FELULETE. A terv szerint a szemelyre szabott mondat
+    a legkockazatosabb kimenet: egy magabiztosan TEVES mondat hiteltelenne
+    tesz. Ezert itt egyutt latszik a mondat ES az idezet, amibol keszult.
+    """
+    rows = db.query("""
+        select company_name, normalized_domain, webapp_fit, website_fit,
+               personalization, evidence, grounding_dropped, score_model
+          from companies
+         where scored_at is not null
+         order by scored_at desc limit 30
+    """)
+    if not rows:
+        print("Meg nem futott AI-minosites.")
+        print("  Inditsd: ./leadgen.sh score --dry")
+        return 0
+
+    ossz = db.query("""
+        select count(*) as n,
+               sum(grounding_dropped) as eldobott,
+               count(*) filter (where status = 'ready') as fit
+          from companies where scored_at is not null
+    """)[0]
+    print(f"MINOSITETT CEGEK ({ossz['n']})   fit: {ossz['fit']}   "
+          f"eldobott allitas: {ossz['eldobott'] or 0}")
+
+    for r in rows:
+        ev = (r["evidence"] or {})
+        megtartott = ev.get("evidence") or []
+        eldobott = ev.get("dropped") or []
+        print(f"\n  {r['company_name']}   "
+              f"(webapp={r['webapp_fit'] or 0:.0f} website={r['website_fit'] or 0:.0f})")
+        if r["personalization"]:
+            print(f"    ➜ A LEVELBE MENO MONDAT:")
+            print(f"      \"{r['personalization']}\"")
+        for e in megtartott[:2]:
+            print(f"    ✓ {str(e.get('claim'))[:70]}")
+            print(f"      idezet: \"{str(e.get('quote'))[:70]}\"")
+        for e in eldobott[:2]:
+            print(f"    ✗ ELDOBVA ({e.get('indok')}): \"{str(e.get('quote'))[:60]}\"")
+
+    print("\n  Amelyik mondatot NEM kuldened ki a sajat neveddel, az bukott.")
+    print("  Olyankor nem a modell a hibas, hanem a prompt (leadgen/prompts.py).")
+    return 0
+
+
 # ─── 8.2 halott fejleszto ──────────────────────────────────────────────────
 
 def dead_dev() -> int:

@@ -308,10 +308,80 @@ Ha van, akkor nyugodtan hagyják figyelmen kívül ezt a levelet. Ha nincs, szí
             "template": "follow_up_2"}
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# OPERATIONAL PAIN kampany  --  ⚠️ VAZLAT, A SZOVEGET A FELHASZNALO IRJA
+#
+# Cimzett: egy KKV, aki olyan poziciót hirdet, aminek a munkakore nagyreszt
+# adminisztracio es koordinacio (szervizkoordinator, diszpecser). A jel az,
+# hogy naluk valoszinuleg Excelben es papiron megy a munka.
+#
+# ⚠️ A `personalization` mezoben itt AI-GENERALT mondat all, ami a hirdetes
+# egy SZO SZERINTI idezetebol keszult (evidence grounding). Ha az idezet nem
+# volt ellenorizheto, a mezo URES -> a sablon sajat, altalanos mondatara esik
+# vissza. A level ilyenkor gyengebb, de SOSEM teves.
+#
+# HANGNEM: magazo. Nem partnert keresunk (mint az ugynoksegi kampanyban),
+# hanem egy cegvezetot szolitunk meg, akinek problemaja van.
+#
+# NE HIVATKOZZ AZ ALLASHIRDETESRE NYERSEN. A "lattam, hogy hirdettek egy
+# allast" mondat megfigyelt-erzest kelt. A personalization mondat a
+# FELADATOKROL szol, nem arrol, hogy figyeljuk oket.
+# ═══════════════════════════════════════════════════════════════════════════
+
+def ops_pain_cold(lead: dict) -> dict:
+    """1. level. Kerdessel zarul, nem ajanlattal."""
+    body = f"""{_greeting(lead)}
+
+Egyedi belső rendszereket fejlesztek kis- és középvállalatoknak — jellemzően olyan helyeken, ahol a munka nagy része még táblázatban és papíron megy.
+
+{_personalization(lead, "Nálatok is úgy tűnik, hogy sok a kézi adminisztráció a napi működésben.")}
+
+Csak egy kérdés: mennyi időt visz el naponta az, hogy ezek az adatok több helyen legyenek naprakészen?
+
+{_unsubscribe(lead, magazo=True)}
+
+{_signature()}"""
+    return {"subject": "Mennyi időt visz el az adminisztráció?", "body": body,
+            "template": "cold"}
+
+
+def ops_pain_follow_up_1(lead: dict) -> dict:
+    """2. level. ONALLO -- a cimzett tobbnyire NEM latta az elsot."""
+    body = f"""{_greeting(lead)}
+
+Belső rendszereket építek cégeknek: munkalap-kezelés, beosztás, ügyfélkövetés — azt, ami most Excelben van.
+
+Nem egy nagy projektre gondolok. A legtöbb helyen egyetlen folyamat kiváltása is heti több órát szabadít fel.
+
+Van most ilyen folyamat, ami többet visz el a kelleténél?
+
+{_unsubscribe(lead, magazo=True)}
+
+{_signature()}"""
+    return {"subject": "Ami most Excelben van", "body": body,
+            "template": "follow_up_1"}
+
+
+def ops_pain_follow_up_2(lead: dict) -> dict:
+    """3. level. NEM igerunk "utoljara irok"-ot."""
+    body = f"""{_greeting(lead)}
+
+Utolsó kérdés a témában: ha egyetlen napi adminisztratív feladatot lehetne automatizálni Önöknél, melyik lenne az?
+
+Ha most nem aktuális, semmi gond — akkor is szívesen hallom a választ.
+
+{_unsubscribe(lead, magazo=True)}
+
+{_signature()}"""
+    return {"subject": "Egyetlen folyamat", "body": body,
+            "template": "follow_up_2"}
+
+
 CAMPAIGNS: dict[str, tuple] = {
     "agency_partner": (agency_cold, agency_follow_up_1, agency_follow_up_2),
     # ⚠️ VAZLAT -- a szoveget a felhasznalo irja at, mielott elesbe menne.
     "dead_dev": (deadev_cold, deadev_follow_up_1, deadev_follow_up_2),
+    "ops_pain": (ops_pain_cold, ops_pain_follow_up_1, ops_pain_follow_up_2),
 }
 
 DEFAULT_CAMPAIGN = "agency_partner"

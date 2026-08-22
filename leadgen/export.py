@@ -36,7 +36,7 @@ from pathlib import Path
 from typing import Any
 
 from . import config, db, feedback, validate
-from .contract import LEADS_HEADER
+from .contract import APPROVED_CAMPAIGNS, LEADS_HEADER
 
 # A suppression a lead kiadasanak LEGELSO lepese, nem az utolso (SCRAPER-PLAN 0.4).
 # Email-szintu ES domain-szintu tiltast is nez.
@@ -137,9 +137,11 @@ class ExportStats:
     skipped_dnc: int = 0
     skipped_no_source: int = 0
     skipped_validation: int = 0
+    skipped_campaign: int = 0
     limited_out: int = 0
     fake_domains: list[str] = field(default_factory=list)
     validation_notes: list[str] = field(default_factory=list)
+    blocked_campaigns: set = field(default_factory=set)
 
     @property
     def written(self) -> int:
@@ -297,6 +299,14 @@ def collect(limit: int = 0) -> tuple[list[dict[str, str]], ExportStats, list[dic
         if (row.get("local_check") or "") == "fail":
             stats.skipped_validation += 1
             continue
+        # ═══ A SABLON-KAPU ═══════════════════════════════════════════════
+        # Egy kampany szovege addig VAZLAT, amig a felhasznalo at nem nezte.
+        # Vazlat szoveggel nem megy ki eles level.
+        kampany = (row.get("campaign") or "").strip()
+        if kampany and kampany not in APPROVED_CAMPAIGNS:
+            stats.skipped_campaign += 1
+            stats.blocked_campaigns.add(kampany)
+            continue
         if config.EMAIL_VALIDATION == "full":
             mehet, indok = validate.kikuldheto(
                 row.get("verify_result"), row.get("signal_score"))
@@ -403,6 +413,13 @@ def run(dry: bool = False, limit: int = 0, skip_feedback: bool = False) -> Expor
         print(f"kihagyva (DNC)   : {stats.skipped_dnc}")
     if stats.skipped_no_source:
         print(f"kihagyva (nincs source_url): {stats.skipped_no_source}")
+    if stats.skipped_campaign:
+        print(f"\nkihagyva (JOVA NEM HAGYOTT KAMPANY): {stats.skipped_campaign}")
+        print(f"  erintett kampanyok: {', '.join(sorted(stats.blocked_campaigns))}")
+        print("  Ezeknek a sablonja meg VAZLAT. Elesites:")
+        print("    1. ird at: cold-email-starter/templates.py")
+        print("    2. nezd meg: cd cold-email-starter && python3 preview.py")
+        print("    3. vedd fel: leadgen/contract.py -> APPROVED_CAMPAIGNS")
     if stats.skipped_validation:
         # HANGOSAN, es indoklassal: egy nema validacios kizaras pontosan
         # ugy nezne ki, mintha a lead sosem letezett volna.

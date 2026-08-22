@@ -22,8 +22,9 @@
 | **6. AI réteg** | 🟡 **agent-rész kész — API kulcs + 30 teszteset RÁD vár** |
 | **7. Email-validáció** | 🟡 **agent-rész kész — az ingyenes szűrő ÉLES, a fizetős kulcsra vár** |
 | **8. Halott fejlesztő (8.2)** | 🟡 **agent-rész kész — 0 találat a mai listán (ügynökségek), a 9. fázistól lesz értéke** |
-| **9. Ops Pain, A rész (forrás)** | 🟡 **agent-rész kész — 0.3 előteszt ÁTMENT, 12 hirdetés betöltve** |
-| 10-13. | ⬜ nem kezdődött el |
+| **9. Ops Pain, A rész (forrás)** | 🟡 **agent-rész kész — 0.3 előteszt ÁTMENT, 100 cég betöltve** |
+| **10. Classifier + grounding** | 🟡 **agent-rész kész — kulcsra és a sablonok átírására vár** |
+| 11-13. | ⬜ nem kezdődött el |
 
 **A teljes lánc szárazon végigfutott valódi adattal.** Ami hátravan az 5. szakaszból,
 az egyetlen emberi lépés: elolvasni a 10 levelet, és elindítani a `--live` futást.
@@ -1623,6 +1624,16 @@ lekérdezés    "szervizkoordinátor" @ Budapest, maxResults=5  ->  2 találat
   maradtak volna. Javítva: külön `resolve-domains` parancs, ami a
   **cégekből** indul, nem a hirdetésekből.
 
+- **🔑 Hiányzott a LEKÉRDEZÉS-szintű ismétlődés-védelem.** A `sources` UNIQUE
+  megszorítása a *hirdetést* védi, de a *keresést* nem: egy napon belül
+  megismételt futás újra kifizette az Apify-lekérdezést, hiába hozott 0 új
+  hirdetést (mérve: $0.01). A Google Maps forrás ezt a `source_runs` táblával
+  már megoldotta — a Profession forrásból kimaradt.
+  **A felhasználó kérdése találta meg** („ha 0 új, akkor nem sikerült az
+  inkrementalitás?"). Javítva: `source_runs` + `--refresh-days` (alap: 1 nap,
+  nem 30 mint a Mapsnél — álláshirdetés naponta jelenik meg új).
+  Bizonyítva: a záró futás 0 Apify-hívást tett, a keret változatlan maradt.
+
 - **A szabad feloldás ennél a forrásnál ~0%-ot hoz.** 12 hirdetésből
   **egyetlen egyszer sem** szerepelt a cég weboldala a szövegben. A
   `name_key` egyezés is nullát adott (a DB-ben ügynökségek vannak).
@@ -1666,7 +1677,7 @@ lekérdezés    "szervizkoordinátor" @ Budapest, maxResults=5  ->  2 találat
 
 ---
 
-## 10. szakasz — Operational Pain engine, B rész: classifier + evidence grounding `[külön session]`
+## 🟡 10. szakasz — Classifier + evidence grounding `[agent-rész kész: 2026-08-22]`
 
 **Cél:** a lead classifier és az evidence grounding — a rendszer hitelességi
 védőrétege.
@@ -1682,7 +1693,46 @@ rendszer eldobja, és ha nem marad evidence, a lead `rejected`.
   nem hízeleg? **Amelyiket nem küldenéd ki a saját neveddel, az bukott** — akkor
   nem a modell a hibás, hanem a prompt.
 
-### Az agent feladatai
+### Az agent feladatai — ✅ mind kész
+
+**Ellenőrizve mockolt AI-val** (kulcs nélkül is mérhető, hogy a védelem fog):
+
+```
+valódi, szó szerinti idézet    -> ✅ átment, lead `ready`
+KITALÁLT idézet                -> ✗ eldobva, a lead kiesett
+részleges egyezés (első 40 kar) -> ✅ átment
+export a mock-leadekkel        -> 🔒 BLOKKOLVA (nem jóváhagyott kampány)
+pytest                         -> 277 zöld
+```
+
+### Amit a szakasz közben tanultunk
+
+- **🔑 Az export nem tudott a vázlat-sablonokról.** Az agent VÁZLAT szöveget
+  tesz a `templates.py`-ba (a szöveg a felhasználóé — invariáns 6), de az
+  export csak a `status='ready'`-t nézte. Élesben látszott: a mock-minősítés
+  után 2 lead `ready` lett `ops_pain` kampánnyal, és **csak azért nem ment
+  ki, mert még nem volt email címük** — az `enrich` után jóváhagyás nélkül
+  kiment volna a vázlat szöveg. Javítva: `contract.APPROVED_CAMPAIGNS` kapu,
+  hangos indoklással az exportban, tesztsorral védve.
+
+- **A `website_fit` nem AI-ból jön.** A 8.2 (halott fejlesztő) és a 7.5 (tech
+  ujjlenyomat) már megmérte ugyanezt, olcsóbban és megbízhatóbban. Egy
+  LLM-hívás itt pénzt égetne ugyanazért az információért.
+
+- **A `mobile_fit` szándékosan 0, és nem kap kampányt.** Az app-store engine
+  nincs megépítve. Ha kampányt adnánk neki, a `templates.for_campaign`
+  visszaesne az **alapértelmezett ügynökségi** sablonra — egy KKV-nak
+  teljesen értelmetlen levelet küldve. Tesztsor őrzi.
+
+- **A personalization bukása nem ejti ki a leadet.** Ha az AI mondata nem
+  ellenőrizhető, a lead **sablon-emailre esik vissza** — nem esik ki. A
+  személyre szabás hiánya gyengébb levél; a téves személyre szabás káros.
+
+- **A grounding `MIN_IDEZET` küszöbe nem formalitás.** Egy 8 karakteres
+  töredék („Excelben") szinte bármely szövegben megtalálható, tehát átmenne
+  az ellenőrzésen anélkül, hogy bármit alátámasztana.
+
+**Az eredeti feladatlista:**
 
 1. `leadgen/score.py` — a classifier a 6. szakaszban kiválasztott BULK modellel,
    a bake-off system prompttal (szó szerint az, amit a bake-offon mértünk).

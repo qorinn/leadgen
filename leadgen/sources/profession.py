@@ -144,29 +144,67 @@ def _feloldas(hirdetes: dict, maps: bool) -> tuple[str | None, str]:
 
 # ─── Az ingest ─────────────────────────────────────────────────────────────
 
+def _mar_futott(engine: EngineDef, refresh_days: int) -> set[tuple[str, str]]:
+    """Mely (kifejezes + telepules) parosok futottak le a friss ablakban.
+
+    KET SZINTU ISMETLODES-VEDELEM VAN, ES A KETTO MAS:
+
+      REKORD-szint (`sources` UNIQUE)  -- ugyanaz a HIRDETES nem kerul be
+                                         ketszer. Ez mindig aktiv.
+      LEKERDEZES-szint (`source_runs`) -- ugyanaz a KERESES nem FUT LE ujra
+                                         a friss ablakon belul. Ez sporol.
+
+    A masodik nelkul a napon belul megismetelt futas ujra kifizetne az
+    Apify-lekerdezest, hiaba nem lenne belole egyetlen uj hirdetes sem.
+    (Merve: a 9. szakasz eles tesztjenek 2. futasa $0.01-be kerult ugy, hogy
+    0 uj hirdetest hozott. Ezt a hianyt a felhasznalo kerdese talalta meg.)
+
+    MIERT 1 NAP AZ ALAPERTELMEZES, ES NEM 30 (mint a Mapsnel): allashirdetes
+    NAPONTA jelenik meg uj. A Maps-nel egy cegkereses eredmenye hetekig
+    ugyanaz, itt viszont pont a frissesseg a lenyeg.
+    """
+    rows = db.query(
+        """
+        select term, location from source_runs
+         where engine_key = %s and actor = %s
+           and (%s = 0 or run_at > now() - make_interval(days => %s))
+        """,
+        (engine.key, ACTOR, refresh_days, refresh_days))
+    return {(r["term"], r["location"]) for r in rows}
+
+
 def ingest(engine: EngineDef, max_results: int = 50, dry: bool = False,
            location: str = "", terms: tuple[str, ...] = (),
-           resolve_maps: bool = False, verbose: bool = True) -> dict:
-    """Hirdetesek betoltese. INKREMENTALIS.
-
-    Az inkrementalitas a `sources` tabla UNIQUE (source_type, source_url)
-    megszoritasan all: egy mar latott hirdetes NEMAN kiesik. Az elso futas
-    nagy backfill, utana napi nehany tucat.
-    """
-    from ..engines import OPS_PAIN
+           resolve_maps: bool = False, refresh_days: int = 1,
+           force: bool = False, verbose: bool = True) -> dict:
+    """Hirdetesek betoltese. KET SZINTEN inkrementalis (lasd `_mar_futott`)."""
     kifejezesek = terms or _alapkifejezesek(engine)
     stats = {"lekerdezes": 0, "talalat": 0, "uj_hirdetes": 0, "mar_ismert": 0,
-             "uj_ceg": 0, "domain_nelkul": 0, "kihagyva": 0}
+             "uj_ceg": 0, "domain_nelkul": 0, "kihagyva": 0, "kihagyott_kereses": 0}
+
+    futott = set() if force else _mar_futott(engine, refresh_days)
+    varo = [k for k in kifejezesek if (k, location) not in futott]
+    stats["kihagyott_kereses"] = len(kifejezesek) - len(varo)
 
     if dry:
-        print(f"[SZARAZ] {len(kifejezesek)} kifejezes, max {max_results} talalat:")
-        for k in kifejezesek:
+        print(f"[SZARAZ] {len(varo)} kifejezes futna, max {max_results} talalat:")
+        for k in varo:
             print(f"    {k!r} @ {location or 'orszagos'}")
+        if stats["kihagyott_kereses"]:
+            print(f"\n  {stats['kihagyott_kereses']} kereses KIHAGYVA: "
+                  f"{refresh_days} napon belul mar lefutott.")
+            print("  Ha megis kell: --force vagy --refresh-days 0")
         print("\n  Ez NEM kolt. Eles futas: a --dry nelkul.")
         return stats
 
+    if not varo:
+        print(f"Minden kereses lefutott mar {refresh_days} napon belul -- "
+              f"nem koltunk.")
+        print("  Holnap ujra futtathato, vagy most: --force")
+        return stats
+
     keret = max_results
-    for kifejezes in kifejezesek:
+    for kifejezes in varo:
         if keret <= 0:
             break
         payload: dict[str, Any] = {
@@ -192,6 +230,18 @@ def ingest(engine: EngineDef, max_results: int = 50, dry: bool = False,
 
         for hirdetes in items:
             _feldolgoz(hirdetes, resolve_maps, stats, verbose)
+
+        # A LEKERDEZES rogzitese -- ez akadalyozza meg, hogy ugyanazert a
+        # keresesert ma megegyszer fizessunk.
+        db.execute("""
+            insert into source_runs (engine_key, actor, term, location,
+                                     results, new_companies)
+                 values (%s, %s, %s, %s, %s, %s)
+            on conflict (engine_key, actor, term, location) do update
+                    set results = excluded.results,
+                        new_companies = excluded.new_companies,
+                        run_at = now()
+        """, (engine.key, ACTOR, kifejezes, location, len(items), stats["uj_ceg"]))
 
     if verbose:
         _riport(stats)
@@ -364,6 +414,9 @@ def _riport(stats: dict) -> None:
     print(f"  uj hirdetes={stats['uj_hirdetes']}  mar ismert={stats['mar_ismert']} "
           f"(kihagyva)")
     print(f"  uj ceg={stats['uj_ceg']}  ebbol domain nelkul={stats['domain_nelkul']}")
+    if stats.get("kihagyott_kereses"):
+        print(f"  kihagyott kereses={stats['kihagyott_kereses']} "
+              f"(a friss ablakon belul mar lefutott -- nem koltottunk ra)")
     if stats["domain_nelkul"]:
         print(f"\n  {stats['domain_nelkul']} ceghez nem talaltunk domaint. NEM VESZTEK EL:")
         print("  `error` allapotban varnak. Ha kesz vagy fizetni a feloldasert:")

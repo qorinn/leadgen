@@ -262,6 +262,22 @@ Ez azért van, mert a kulcsszó gyakran ügyfél-referenciából vagy blogcikkb�
 nem a cég saját szolgáltatás-listájából — és egy jó lead elvesztése drágább, mint
 egy félrement levél.
 
+**Vázlat sablonnal nem mehet ki levél: `contract.APPROVED_CAMPAIGNS` a kapu.**
+Az agent VÁZLAT sablonokat tesz a `templates.py`-ba (`dead_dev`, `ops_pain`),
+amiket a felhasználónak át kell írnia — de az exportot ez korábban nem
+érdekelte: ami `ready`, az kiment. Élesben látszott a 10. szakaszban: 2 lead
+`ready` lett `ops_pain` kampánnyal, és csak azért nem exportálódott, mert még
+nem volt email címük. Az `enrich` után kiment volna, jóváhagyás nélkül.
+**Új kampány élesítése: szöveg átírása → `preview.py` → felvétel az
+`APPROVED_CAMPAIGNS`-ba.** Tesztsor őrzi, hogy a vázlatok ne legyenek benne.
+
+**Az evidence grounding NEM AI-hívás.** [leadgen/grounding.py](leadgen/grounding.py):
+szóköz- és kisbetű-normalizálás, majd string-keresés a forrásszövegben, 40
+karakteres részleges egyezéssel. Amit **nem** normalizálunk: ékezet, ragozás,
+szórend, szinonima — az átfogalmazás már következtetés, nem idézet, és pont
+azt szűrjük. A `MIN_IDEZET` (15 karakter) azért kell, mert egy rövid töredék
+szinte bármely szövegben megtalálható, tehát átmenne anélkül, hogy bizonyítana.
+
 **A Profession.hu NEM adja meg a cég weboldalát.** Mérve (2026-08-22, 12
 hirdetés): a `description` teljes szöveggel megvan — **de csak
 `includeDetails=True` mellett** —, a cég domainje viszont sehol, még a

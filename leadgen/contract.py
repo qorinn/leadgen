@@ -48,6 +48,32 @@ LEADS_HEADER = _ORIGINAL + _ADDED
 # egy fokra, es ujra kikuldene nekik a levelet.
 STAGES = ("cold", "follow_up_1", "follow_up_2")
 
+# ═══════════════════════════════════════════════════════════════════════════
+# JOVAHAGYOTT KAMPANYOK -- amiknek a SZOVEGET a felhasznalo mar atnezte
+#
+# MIERT KELL EZ A LISTA: a `templates.py` CAMPAIGNS dict-jebe az agent VAZLAT
+# sablonokat tesz (dead_dev, ops_pain), amiket a felhasznalonak at kell irnia
+# a sajat hangjara -- ez a `templates.py a felhasznaloe` invarians.
+#
+# Csakhogy az exportot ez nem erdekelte: ami `ready` allapotu, az kiment.
+# Vagyis amint egy uj engine leadet termelt, a VAZLAT szoveg azonnal eles
+# levelkent ment volna ki, emberi jovahagyas nelkul.
+#
+# (Elesben latszott a 10. szakaszban: 2 lead `ready` allapotba kerult
+# `ops_pain` kampannyal, es csak azert nem exportalodott, mert meg nem volt
+# email cimuk. Az enrichment utan kiment volna.)
+#
+# ÚJ KAMPANY ELESITESE:
+#   1. ird at a szoveget a templates.py-ban
+#   2. nezd meg: cd cold-email-starter && python3 preview.py
+#   3. vedd fel ide a kampany nevet
+APPROVED_CAMPAIGNS = {
+    "agency_partner",
+    # "dead_dev",   <- a szoveg atirasa utan
+    # "ops_pain",   <- a szoveg atirasa utan
+}
+
+
 # A kuldo do-not-contact.csv okai -> a DB suppression.reason ertekei.
 # A ket taxonomia nem fedi egymast (INTEGRATION-PLAN.md, 4. ellentmondas):
 # a `replied` NEM suppression, hanem allapot -- a valaszolo forro lead lehet,

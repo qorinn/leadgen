@@ -407,6 +407,26 @@ harmadikra. **Mérve: 4-ből 3 céget megtalált** a Maps.
 > **Akihez nem találunk domaint, az nem vész el.** „Hiba" állapotban vár,
 > és bármikor újra megpróbálható. Semmi nem törlődik.
 
+### Naponta nyugodtan futtathatod
+
+A program **kétszer is véd az ismétlődés ellen**:
+
+- ugyanaz a **hirdetés** nem kerül be kétszer → nincs duplikált cég;
+- ugyanaz a **keresés** nem fut le újra aznap → **nem fizeted ki kétszer**.
+
+Ha ma már lefuttattad és újra elindítod, ezt írja ki, és **nem költ**:
+
+```
+Minden kereses lefutott mar 1 napon belul -- nem koltunk.
+```
+
+**Ez nem időzítő, hanem egy pipa a nyilvántartásban.** Semmi nem fut magától
+— amikor *te* elindítod a parancsot, a program megnézi, lefutott-e már ma ez
+a keresés, és ha igen, kihagyja.
+
+Ha holnap elindítod, le fog futni (az álláshirdetések naponta frissülnek).
+Ha mégis ma akarod újra: `--force`.
+
 ### Ez a forrás még nem küld levelet
 
 A hirdetéseket **be lehet gyűjteni**, de a minősítés (kinek jó lead és kinek
@@ -416,7 +436,68 @@ nem) még nincs kész — az a következő fázis. Amíg nincs kész, ezek a cé
 
 ---
 
-## 9. folyamat — Hol tartunk?
+## 9. folyamat — Az AI eldönti, ki a jó lead
+
+**Mikor:** miután begyűjtötted a hirdetéseket (8. folyamat).
+
+Az AI elolvassa a hirdetés szövegét, és eldönti, van-e ott valódi probléma,
+amit egy belső rendszer megoldana. **De nem hisszük el neki csak úgy.**
+
+```bash
+./leadgen.sh score --dry          # ELŐSZÖR mindig ez
+./leadgen.sh score                # élesben
+./leadgen.sh report --grounding   # mit állított, és miből
+```
+
+### A bizonyíték-szabály — ez a legfontosabb
+
+Az AI-nak **minden állításához szó szerinti idézetet** kell adnia a hirdetésből.
+A program utána **megkeresi az idézetet a szövegben**:
+
+```
+NINCS BIZONYÍTÉK  →  NINCS ÁLLÍTÁS  →  NINCS EMAIL
+```
+
+Ami nem található meg szó szerint, azt a program **eldobja**. Ha egyetlen
+alátámasztott állítás sem marad, a lead kiesik.
+
+**Miért ilyen szigorú:** ha az AI kitalál egy tényt, és az bekerül a levélbe,
+a hatás nem semleges, hanem **káros**. Egy általános levél unalmas. Egy
+magabiztosan **téves** személyre szabott levél hiteltelenné tesz:
+
+> AI: *„Láttam, hogy három telephelyen dolgoznak…"*
+> Valóság: egy telephely van, az AI kitalálta.
+
+Ez az ellenőrzés **ingyen van** — nem AI-hívás, csak szövegkeresés.
+
+> Ha a `report --grounding` azt írja, hogy a bukási arány **20% felett** van,
+> a modell hallucinál. Olyankor ne menj tovább — másik modell kell.
+
+### Egy cég csak egy ajánlatot kap
+
+Ha egy cégnél többféle ajánlat is indokolt lenne, a program a **legerősebbet**
+választja, és a többit nem küldi ki külön levélben. Nem fordulhat elő, hogy
+valaki ma „belső rendszert építek" levelet kap, holnap meg „weboldalt készítek".
+
+### 🔒 Vázlat sablonnal nem megy ki levél
+
+Az új kampányok szövege **vázlat**, amíg át nem írod. A program ezért nem
+engedi őket kiküldeni — az exportnál ezt fogod látni:
+
+```
+kihagyva (JOVA NEM HAGYOTT KAMPANY): 3
+  Ezeknek a sablonja meg VAZLAT.
+```
+
+Élesítés három lépésben:
+
+1. írd át a szöveget: `cold-email-starter/templates.py`
+2. nézd meg: `cd cold-email-starter && python3 preview.py`
+3. vedd fel a kampány nevét: `leadgen/contract.py` → `APPROVED_CAMPAIGNS`
+
+---
+
+## 10. folyamat — Hol tartunk?
 
 **Mikor:** bármikor. Ez a leggyakrabban használt parancs.
 
@@ -435,7 +516,7 @@ csak várakozó sort épít.
 
 ---
 
-## 10. folyamat — Első beállítás  *(egyszer kell)*
+## 11. folyamat — Első beállítás  *(egyszer kell)*
 
 Ha új gépre kerül a projekt:
 
@@ -455,7 +536,7 @@ python3 -c "import mailer; mailer.check_accounts()"
 
 ---
 
-## 11. folyamat — Modellek összehasonlítása (bake-off)
+## 12. folyamat — Modellek összehasonlítása (bake-off)
 
 **Mikor:** mielőtt nagy volumenű AI-leadszűrésre váltunk (9-10. fázis).
 
@@ -478,9 +559,7 @@ elmélet — a scrapelt oldalak szövegét idegenek írják.
 
 | Mi hiányzik | Melyik fázis | Mit jelent ez most |
 |---|---|---|
-| **Időzítés (cron)** | 12. | Minden parancsot kézzel indítasz. Nincs, ami magától fut. |
-| **Álláshirdetés-leadek minősítése** | 10. | A hirdetéseket begyűjtjük, de nem megy belőlük levél. |
-| **AI személyre szabás** | 10. | A nyitómondat sablonos, nem AI írja. |
+| **Időzítés (cron)** | 12. | **Semmi nem fut magától.** Minden parancsot te indítasz el. |
 | **Webes felület** | 13. | Minden parancssorból megy. |
 
 ---

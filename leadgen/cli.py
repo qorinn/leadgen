@@ -20,7 +20,7 @@ import argparse
 import sys
 
 from . import (classify, config, db, deadev, dev, engines, evals, export,
-               feedback, llm, pipeline, report)
+               feedback, llm, pipeline, report, score)
 from .sources import maps, profession
 
 
@@ -128,7 +128,18 @@ def _cmd_ingest_ops_pain(args: argparse.Namespace) -> int:
         print("   begyujtjuk, a minosites a 10. szakaszban jon)")
     profession.ingest(engine, max_results=args.max_results, dry=args.dry,
                       location=args.location or "",
-                      resolve_maps=args.resolve_maps)
+                      resolve_maps=args.resolve_maps,
+                      refresh_days=args.refresh_days, force=args.force)
+    return 0
+
+
+def _cmd_score(args: argparse.Namespace) -> int:
+    if not llm.available()["bulk"]:
+        print("HIBA: nincs GEMINI_API_KEY a gyoker .env-ben.")
+        print("  aistudio.google.com -> Get API key")
+        print("  (vagy allitsd at a LLM_BULK_MODEL-t olyan modellre, amihez van kulcsod)")
+        return 1
+    score.run(limit=args.limit, dry=args.dry)
     return 0
 
 
@@ -150,6 +161,8 @@ def _cmd_qualify(args: argparse.Namespace) -> int:
 
 
 def _cmd_report(args: argparse.Namespace) -> int:
+    if args.grounding:
+        return report.grounding()
     if args.signal == "dead_dev":
         return report.dead_dev()
     if args.replies:
@@ -335,6 +348,8 @@ def build_parser() -> argparse.ArgumentParser:
                     help="a valaszok besorolas szerinti bontasa")
     rp.add_argument("--signal", metavar="NEV", choices=("dead_dev",),
                     help="egy signal reszletes bontasa (pl. dead_dev)")
+    rp.add_argument("--grounding", action="store_true",
+                    help="az AI-allitasok es a hozzajuk tartozo idezetek")
     rp.set_defaults(func=_cmd_report)
 
     cr = sub.add_parser("classify-replies", help="AI valasz-osztalyozas (6. szakasz)")
@@ -391,7 +406,18 @@ def build_parser() -> argparse.ArgumentParser:
                     help="csak a terv -- NEM kolt")
     op.add_argument("--resolve-maps", action="store_true",
                     help="FIZETOS: Google Maps a domain feloldasahoz (~$0.005/ceg)")
+    op.add_argument("--refresh-days", type=int, default=1,
+                    help="ennyi napon belul ne fusson ujra ugyanaz a kereses "
+                         "(alap: 1 = naponta egyszer; 0 = mindig fusson)")
+    op.add_argument("--force", action="store_true",
+                    help="minden kereses fusson, meg a ma mar lefuttatottak is")
     op.set_defaults(func=_cmd_ingest_ops_pain)
+
+    sc = sub.add_parser("score", help="AI-minosites + evidence grounding (10. szakasz)")
+    sc.add_argument("--limit", type=int, default=20)
+    sc.add_argument("--dry", action="store_true",
+                    help="csak megmutatja a minositest -- SEMMIT nem ir")
+    sc.set_defaults(func=_cmd_score)
 
     rd = sub.add_parser("resolve-domains",
                         help="a domain nelkul beragadt cegek feloldasa (FIZETOS)")
