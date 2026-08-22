@@ -262,6 +262,17 @@ Ez azért van, mert a kulcsszó gyakran ügyfél-referenciából vagy blogcikkb�
 nem a cég saját szolgáltatás-listájából — és egy jó lead elvesztése drágább, mint
 egy félrement levél.
 
+**A Profession.hu NEM adja meg a cég weboldalát.** Mérve (2026-08-22, 12
+hirdetés): a `description` teljes szöveggel megvan — **de csak
+`includeDetails=True` mellett** —, a cég domainje viszont sehol, még a
+profession.hu profiloldalán sem. Ezért a domain-feloldás három lépcsős
+([leadgen/sources/profession.py](leadgen/sources/profession.py)), és a
+harmadik (Google Maps, ~$0,005/cég) **külön parancs**: az `ingest`
+inkrementális, tehát a már látott hirdetéseket a feloldás előtt kiejti — egy
+`--resolve-maps`-szel megismételt ingest sosem érné utol a beragadt cégeket.
+Ezt az éles teszt találta meg. Domain nélkül a cég `status='error'`-ban vár,
+**nem vész el**.
+
 **A 8.2 footer-felismerésben a kulcsszó önmagában ~85%-ban téved.** Mérve a 49
 letöltött oldalon: a „készítette / weboldal készítés / powered by" minták 7
 helyen találtak, de csak **1** volt valódi fejlesztő-kredit — a többi a cég

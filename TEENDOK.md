@@ -187,19 +187,41 @@ találatot**, mielőtt az első levél kimegy ebből a kampányból.
 
 ## 🟢 4. Külső szolgáltatások — a következő fázisokhoz
 
-### 4.1 Apify token *(9. fázis — Profession.hu leadgyűjtés)*
+### 4.1 ✅ Apify token — *megvan, működik*
 
-Van már fiókod a Google Maps-hez. Ugyanaz a token kell, `APIFY_TOKEN` néven
-a gyökér `.env`-ben. **Ellenőrizd, hogy még érvényes-e.**
+Ellenőrizve 2026-08-22: a token érvényes, a havi keret $10, ebből eddig
+**$0,57** fogyott.
 
-### 4.2 Apify actor előteszt *(kötelező, a terv 0.3 pontja)*
+### 4.2 ✅ Actor előteszt — *elvégezve, ÁTMENT*
 
-Mielőtt bármit építenék rá: futtasd le a Profession.hu actort **egyetlen kis
-lekérdezéssel**, és nézd meg **saját szemmel** a nyers kimenetet.
-**A kritikus mező: van-e benne a hirdetés teljes szövege.** Ha nincs, az egész
-9-10. fázis másik forrást igényel — és ezt jobb most tudni, mint utána.
+A terv 0.3 pontja kötelezővé tette. Lefuttattam helyetted, mert a kérdés
+ténykérdés volt, nem ízlés:
 
-### 4.3 Reoon kredit *(7. fázis — KÉSZ, csak a kulcs hiányzik)*
+```
+actor    : solidcode/profession-hu-scraper
+kérdés   : megvan-e a hirdetés TELJES szövege?
+válasz   : ✅ IGEN — 1978 karakter, de csak `includeDetails=True` mellett
+hiányzik : ❌ a cég weboldala. Sehol nem szerepel.
+költség  : $0,005
+```
+
+**Ha ránéznél te is:** a nyers válasz itt van: `/tmp/profession_proba.json`.
+
+### 4.3 A domain-feloldás fizetős — döntsd el, mennyit szánsz rá
+
+Mivel a Profession.hu nem adja meg a weboldalt, a cégeket a Google Maps-ből
+kell feloldani: **~$0,005/cég**, mért találati arány **4-ből 3**.
+
+Egy 200 hirdetéses backfill nagyságrendileg **$1-2**. A `--limit` a fék:
+
+```bash
+./leadgen.sh resolve-domains --dry          # megmutatja, kiket kérdezne le
+./leadgen.sh resolve-domains --limit 20     # élesben
+```
+
+Jelenleg **8 cég** vár feloldásra. Nem sürgős — nem vesznek el.
+
+### 4.4 Reoon kredit *(7. fázis — KÉSZ, csak a kulcs hiányzik)*
 
 **A kód kész és tesztelt.** Az ingyenes szűrő **már most is fut** minden
 exportnál — ez már ki is szűrt hibás címeket. A fizetős fokozat opcionális.

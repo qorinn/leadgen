@@ -90,6 +90,26 @@ mutatja, hogy fogy a sor:
 > Az `export` **mindig lefuttatja a `feedback`-et először**. Ha az hibára fut,
 > az export megáll, és a `leads.csv` érintetlen marad.
 
+## Álláshirdetés-forrás — Profession.hu (9. szakasz)
+
+| Parancs | Mit csinál |
+|---|---|
+| `ingest ops-pain --dry` | megmutatja, mit keresne — **nem költ** |
+| `ingest ops-pain --max-results 50` | hirdetések letöltése (költségfék) |
+| `ingest ops-pain --location Budapest` | csak erre a településre |
+| `resolve-domains --limit 20` | **FIZETŐS**: a beragadt cégek domainje Maps-ből |
+| `resolve-domains --dry` | megmutatja, kiket kérdezne le |
+
+> **Az ingest inkrementális:** a már látott hirdetés némán kiesik. Kétszer
+> futtatva a második `uj hirdetes=0`-t ad.
+
+> **Miért külön a `resolve-domains`:** az ingest a HIRDETÉSEKBŐL indul, és a
+> már látottakat kiejti — a korábban beragadt cégeket tehát nem érné utol.
+> Ez a parancs a CÉGEKBŐL indul.
+
+> A Profession.hu **nem adja meg a cég weboldalát** (mérve: 12 hirdetésből 0).
+> A feloldás ~$0,005/cég, mért találati arány 4/3.
+
 ## Halott fejlesztő — 8.2 (8. szakasz)
 
 | Parancs | Mit csinál |

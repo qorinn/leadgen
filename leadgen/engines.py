@@ -298,10 +298,88 @@ FIELD_SERVICE = EngineDef(
 )
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+#  3. OPERATIONAL PAIN  (SCRAPER-PLAN 1. engine)  -- allashirdetes-alapu
+# ═══════════════════════════════════════════════════════════════════════════
+# Ez az EGYETLEN engine, ami nem weboldalrol indul, hanem ALLASHIRDETESBOL.
+# A gondolat: ha egy ceg olyan pozíciót hirdet, aminek a munkakore nagyreszt
+# adminisztracio es koordinacio, akkor ott egy belso webalkalmazas valodi
+# problemat oldana meg.
+#
+# MIERT MAS A MINOSITES ITT: a tobbi engine a ceg WEBOLDALAN keres kulcsszot.
+# Itt a HIRDETES SZOVEGE a bizonyitek -- azt a `sources.raw_signal`-bol
+# olvassuk, nem a crawlbol. A `Qualifier` ugyanaz marad, csak mas szoveget kap.
+#
+# ⚠️ A VEGSO MINOSITES A 10. SZAKASZ AI-CLASSIFIERE LESZ. Az itteni
+# kulcsszavak ELOSZURESRE valok: olcson kidobjak a nyilvanvaloan rossz
+# talalatokat, mielott egy fizetos LLM-hivast koltenenk rajuk.
+
+# A terv keresoszavai (SCRAPER-PLAN, "Honnan szedd a tesztadatot").
+_OPS_PAIN_SEARCHES = (
+    "szervizkoordinátor", "diszpécser", "munkairányító",
+    "projektkoordinátor", "logisztikai koordinátor",
+    "szerviz munkafelvevő", "ügyfélszolgálati koordinátor",
+)
+
+# A FAJDALOM jelei a hirdetes szovegeben. Merve a valos adaton (2026-08-22,
+# Palla Autojavito Kft.): "Munkalapok felvetele, kezelese es nyomon kovetese",
+# "Kapcsolattartas a szerelokkel", "adminisztracio elvegzese" -- ezek szo
+# szerint ott vannak egy tipikus hirdetesben.
+_OPS_PAIN_REQUIRE = (
+    "excel", "tablazat", "munkalap", "adminisztracio", "adminisztrativ",
+    "nyilvantartas", "koordinal", "koordinacio", "utemez", "beoszt",
+    "diszpecs", "munkairanyit", "kapcsolattartas a szerel",
+    "megrendelesek kezelese", "kezi adatbevitel", "papir alapu",
+    "tobb telephely", "logisztik",
+)
+
+# Ami kizarja. NEM versenytarsat jelent -- csak azt, hogy nem fit.
+_OPS_PAIN_EXCLUDE = (
+    # Sajat IT/fejlesztoi kapacitas -> nem nekunk valo
+    "szoftverfejleszto", "programozo", "rendszergazda", "it osztaly",
+    "fejlesztoi csapat", "sajat it",
+    # Tul nagy szervezet -> nem KKV
+    "multinacionalis", "globalis vallalat", "shared service",
+)
+
+
+def _ops_pain_personalization(q: QualifyResult, row: dict) -> str:
+    """VAZLAT -- a 10. szakasz AI-ja fogja megirni a valodi mondatot.
+
+    Addig is legyen valami, ami TENYSZERU es a hirdetes szavaira epul:
+    ha a kulcsszo nem a hirdetesben volt, ne allitsuk, hogy ott volt.
+    """
+    jelek = [h for h in q.hits[:2]]
+    if not jelek:
+        return ""
+    return (f"Láttam a {row.get('city') or 'a'} álláshirdetésüket — a leírásban "
+            f"a {' és a '.join(jelek)} is szerepel a feladatok közt.")
+
+
+OPS_PAIN = EngineDef(
+    key="ops_pain",
+    label="Operational Pain (állashirdetés-alapú)",
+    campaign="ops_pain",
+    best_offer="webapp",
+    base_score=40,          # a terv legerosebb engine-je
+    # ⚠️ KIKAPCSOLVA, amig a 10. szakasz AI-classifiere es a sablonok
+    # el nem keszulnek. A forras (ingest) enelkul is futtathato.
+    enabled=False,
+    qualifier=Qualifier(
+        require_any=_OPS_PAIN_REQUIRE,
+        exclude_hard=_OPS_PAIN_EXCLUDE,
+        exclude_means_competitor=False,
+    ),
+    personalization=_ops_pain_personalization,
+    # Nincs maps_searches: ez a forras a Profession.hu, nem a Google Maps.
+    # A Maps csak a DOMAIN FELOLDASARA jon kepbe (lasd sources/profession.py).
+)
+
+
 # ─── Nyilvantartas ─────────────────────────────────────────────────────────
 
 ALL_ENGINES: dict[str, EngineDef] = {
-    e.key: e for e in (AGENCY_PARTNER, FIELD_SERVICE)
+    e.key: e for e in (AGENCY_PARTNER, FIELD_SERVICE, OPS_PAIN)
 }
 
 

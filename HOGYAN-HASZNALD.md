@@ -365,7 +365,58 @@ Ha a felismerés téved, az nem apró pontatlanság, hanem kínos. A
 
 ---
 
-## 8. folyamat — Hol tartunk?
+## 8. folyamat — Álláshirdetés-alapú leadek *(új forrás)*
+
+**Mikor:** naponta vagy hetente, ha új leadeket akarsz ebből a forrásból.
+
+**Az ötlet:** ha egy cég olyan pozíciót hirdet, aminek a munkaköre nagyrészt
+**adminisztráció és koordináció** (szervizkoordinátor, diszpécser,
+munkairányító), akkor ott jó eséllyel Excelben és papíron megy a munka — és
+egy belső webalkalmazás valódi problémát oldana meg.
+
+```bash
+./leadgen.sh ingest ops-pain --dry                    # mit keresne — NEM költ
+./leadgen.sh ingest ops-pain --max-results 50         # élesben
+./leadgen.sh resolve-domains --limit 20               # ← FIZETŐS, lásd lent
+./leadgen.sh enrich                                   # a szokásos folytatás
+```
+
+### A költség
+
+| Mi | Mennyi |
+|---|---|
+| hirdetések letöltése | ~$0,005 / futás + pár cent |
+| **domain-feloldás** | ~$0,005 / cég |
+
+**Nagyjából 1 cent egy lead.** A `--max-results` a költségfék.
+
+### ⚠️ Miért kell külön a domain-feloldás
+
+A Profession.hu **nem adja meg a cég weboldalát** — csak a nevét. Mérve:
+12 hirdetésből **0 alkalommal** szerepelt a weboldal a szövegben.
+
+A program három lépcsőben próbálja kitalálni, olcsótól a drágáig:
+
+1. a hirdetés szövegében szereplő weboldal — **ingyen**
+2. már ismerjük ezt a céget? — **ingyen**
+3. Google Maps keresés a cégnévre — **fizetős**
+
+Az első kettő ennél a forrásnál ritkán talál, ezért van külön parancs a
+harmadikra. **Mérve: 4-ből 3 céget megtalált** a Maps.
+
+> **Akihez nem találunk domaint, az nem vész el.** „Hiba" állapotban vár,
+> és bármikor újra megpróbálható. Semmi nem törlődik.
+
+### Ez a forrás még nem küld levelet
+
+A hirdetéseket **be lehet gyűjteni**, de a minősítés (kinek jó lead és kinek
+nem) még nincs kész — az a következő fázis. Amíg nincs kész, ezek a cégek
+**nem kerülhetnek a levélküldésbe**: két külön zár tartja őket
+(nem „kész" az állapotuk, és a motor ki van kapcsolva).
+
+---
+
+## 9. folyamat — Hol tartunk?
 
 **Mikor:** bármikor. Ez a leggyakrabban használt parancs.
 
@@ -384,7 +435,7 @@ csak várakozó sort épít.
 
 ---
 
-## 9. folyamat — Első beállítás  *(egyszer kell)*
+## 10. folyamat — Első beállítás  *(egyszer kell)*
 
 Ha új gépre kerül a projekt:
 
@@ -404,7 +455,7 @@ python3 -c "import mailer; mailer.check_accounts()"
 
 ---
 
-## 10. folyamat — Modellek összehasonlítása (bake-off)
+## 11. folyamat — Modellek összehasonlítása (bake-off)
 
 **Mikor:** mielőtt nagy volumenű AI-leadszűrésre váltunk (9-10. fázis).
 
@@ -428,7 +479,7 @@ elmélet — a scrapelt oldalak szövegét idegenek írják.
 | Mi hiányzik | Melyik fázis | Mit jelent ez most |
 |---|---|---|
 | **Időzítés (cron)** | 12. | Minden parancsot kézzel indítasz. Nincs, ami magától fut. |
-| **Profession.hu leadforrás** | 9-10. | Csak ügynökségeket gyűjtünk, más iparágat nem. |
+| **Álláshirdetés-leadek minősítése** | 10. | A hirdetéseket begyűjtjük, de nem megy belőlük levél. |
 | **AI személyre szabás** | 10. | A nyitómondat sablonos, nem AI írja. |
 | **Webes felület** | 13. | Minden parancssorból megy. |
 

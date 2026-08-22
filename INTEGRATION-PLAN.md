@@ -22,7 +22,8 @@
 | **6. AI réteg** | 🟡 **agent-rész kész — API kulcs + 30 teszteset RÁD vár** |
 | **7. Email-validáció** | 🟡 **agent-rész kész — az ingyenes szűrő ÉLES, a fizetős kulcsra vár** |
 | **8. Halott fejlesztő (8.2)** | 🟡 **agent-rész kész — 0 találat a mai listán (ügynökségek), a 9. fázistól lesz értéke** |
-| 9-13. | ⬜ nem kezdődött el |
+| **9. Ops Pain, A rész (forrás)** | 🟡 **agent-rész kész — 0.3 előteszt ÁTMENT, 12 hirdetés betöltve** |
+| 10-13. | ⬜ nem kezdődött el |
 
 **A teljes lánc szárazon végigfutott valódi adattal.** Ami hátravan az 5. szakaszból,
 az egyetlen emberi lépés: elolvasni a 10 levelet, és elindítani a `--live` futást.
@@ -1574,7 +1575,7 @@ visszamenőleg átrendezni a sorrendet.
 
 ---
 
-## 9. szakasz — Operational Pain engine, A rész: source + ingest `[külön session]`
+## 🟡 9. szakasz — Operational Pain, A rész `[agent-rész kész: 2026-08-22]`
 
 **Cél:** a Profession.hu álláshirdetés-forrás bekötése, inkrementálisan.
 **Becsült agent-munkaidő:** 2,5 óra.
@@ -1592,7 +1593,57 @@ a domaint.
 - **A szakasz előtt** — Apify fiók (Starter $29, vagy Free tier a teszteléshez),
   API token a `.env`-be.
 
-### Az agent feladatai
+### ✅ A 0.3 ELŐTESZT — elvégezve az agent által, 2026-08-22
+
+A terv tiltja a szakasz megkezdését az előteszt előtt. Mivel a token be volt
+állítva és a kérdés **ténykérdés** volt (nem ízlés), az agent futtatta le:
+
+```
+actor         solidcode/profession-hu-scraper   ($0.005 / futás, PAY_PER_EVENT)
+lekérdezés    "szervizkoordinátor" @ Budapest, maxResults=5  ->  2 találat
+
+✅ description       1978 karakter, TELJES szöveg
+                     szó szerint benne: "Munkalapok felvétele, kezelése és
+                     nyomon követése", "Kapcsolattartás a szerelőkkel",
+                     "adminisztráció elvégzése"  <- pont a keresett fájdalom
+   ⚠️ CSAK `includeDetails=True` mellett! Enélkül csak a cím jön.
+✅ companyName, location, postedAt, url, category
+❌ website / domain   SEHOL. A companyProfileUrl a profession.hu-ra mutat,
+                     és azon a HTML-ben 0 külső link van (ellenőrizve).
+```
+
+**Az engine tehát életképes, de a domain-feloldás valódi munka.**
+
+### Amit a szakasz közben tanultunk
+
+- **🔑 A `--resolve-maps` kapcsoló hatástalan lett volna újrafutáskor.** Az
+  ingest inkrementális: a már látott hirdetést kiejti, **mielőtt** a
+  feloldásig jutna. Vagyis a 11 domain nélkül beragadt céget semmilyen
+  ingest-kapcsolóval nem lehetett volna utolérni — örökre `error`-ban
+  maradtak volna. Javítva: külön `resolve-domains` parancs, ami a
+  **cégekből** indul, nem a hirdetésekből.
+
+- **A szabad feloldás ennél a forrásnál ~0%-ot hoz.** 12 hirdetésből
+  **egyetlen egyszer sem** szerepelt a cég weboldala a szövegben. A
+  `name_key` egyezés is nullát adott (a DB-ben ügynökségek vannak).
+  Vagyis a Google Maps lépcső itt nem opcionális kiegészítés, hanem
+  **a gyakorlati fő út** — ezt tudni kell a költségtervezéshez.
+
+- **A Maps-feloldás mért találati aránya 4/3.** Ami nem oldódik fel, az
+  `error`-ban vár, és bármikor újrapróbálható. Egy lead teljes költsége
+  (hirdetés + feloldás) nagyságrendileg **1 cent**.
+
+- **Az ütközés-ellenőrzés nem elhagyható.** Ha a feloldott domain már
+  másik céghez tartozik, NEM írjuk felül — különben a domain-alapú dedupe
+  két céget olvasztana össze. Ilyenkor a cég `error`-ban marad, indoklással.
+
+- **Az engine `enabled=False`-szal született.** A hirdetéseket be lehet
+  gyűjteni, de levél nem mehet belőlük, amíg a 10. szakasz classifiere és a
+  sablonok nincsenek készen. Élesben ellenőrizve: a 11 új cég `error`/`new`
+  állapotban van, az export 0 sort vesz belőlük, és a `qualify` hibával
+  megáll a kikapcsolt engine-en. **Két független zár.**
+
+**Az eredeti feladatlista:**
 
 1. `leadgen/sources/apify.py` — Actor futtatás + dataset letöltés, API-n keresztül.
 2. `leadgen/engines/ops_pain.py` — a terv keresőszavai (`szervizkoordinátor`,

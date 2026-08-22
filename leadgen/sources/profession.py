@@ -1,0 +1,372 @@
+#!/usr/bin/env python3
+"""Profession.hu allashirdetes-forras (9. szakasz).
+
+    kereses -> hirdetesek -> ceg -> DOMAIN FELOLDAS -> companies
+
+════════════════════════════════════════════════════════════════════════════
+A 0.3 ELOTESZT EREDMENYE (2026-08-22, `solidcode/profession-hu-scraper`)
+
+A terv kotelezove teszi, hogy a forrast MERESSEL ellenorizzuk, mielott
+epitenenk ra. Amit meresre kaptunk (5-os lekerdezes, "szervizkoordinator",
+Budapest -> 2 talalat, $0.005):
+
+  ✅ `description`      MEGVAN, TELJES SZOVEG (1978 karakter az elso talalatnal)
+                        Szo szerint benne: "Munkalapok felvetele, kezelese es
+                        nyomon kovetese", "Kapcsolattartas a szerelokkel",
+                        "adminisztracio elvegzese" -- pontosan az a fajdalom-jel,
+                        amit az engine keres.
+     FIGYELEM: csak `includeDetails=True` mellett! Enelkul csak a cim jon.
+
+  ✅ `companyName`, `location`, `postedAt`, `url`  -- mind megvan
+  ❌ `website` / `domain`  -- NINCS. A ceg weboldala SEHOL nem szerepel.
+     A `companyProfileUrl` a profession.hu sajat profiloldalara mutat, es
+     azon sincs kulso link (ellenorizve: 0 kulso link a HTML-ben).
+
+Vagyis az engine mukodokepes, de a DOMAIN FELOLDAS valodi munka -- nem
+"kiolvassuk a valaszbol".
+
+════════════════════════════════════════════════════════════════════════════
+A DOMAIN FELOLDAS HAROM LEPCSOJE (terv 9/4)
+
+Olcsotol a dragaig, es az elso talalat nyer:
+
+  1. A HIRDETES SZOVEGEBEN levo URL      -- ingyen
+  2. `name_key` egyezes a mar ismert cegekkel -- ingyen
+  3. Google Maps lekerdezes a cegnevre   -- ~$0.005/ceg, KULON KAPCSOLOVAL
+
+Ha egyik sem talal: a ceg BEKERUL `status='error'` allapotban, `name_key`
+kulccsal. NEM VESZ EL -- a terv kifejezetten ezt irja elo. Kesobb egy masik
+forras (vagy kezi kiegeszites) megadhatja a domaint, es a lead feleled.
+
+MIERT NEM A GOOGLE MAPS AZ ELSO: mert penz. Egy 200 hirdeteses backfill
+$1 lenne csak a feloldasra -- miközben a cegek egy resze mar ismert, vagy
+a hirdetes szovegeben ott a weboldal.
+"""
+from __future__ import annotations
+
+import re
+from typing import Any
+
+from .. import blocklist, db, normalize
+from ..engines import EngineDef
+from . import apify
+
+ACTOR = "solidcode/profession-hu-scraper"
+SOURCE_TYPE = "profession"
+
+# A hirdetes szovegeben elofordulo weboldal. A profession.hu sajat linkjeit
+# es a kozossegi oldalakat nem vesszuk figyelembe.
+_URL_MINTA = re.compile(r"\b((?:https?://)?(?:www\.)?[a-z0-9][a-z0-9-]*\.[a-z]{2,}(?:\.[a-z]{2,})?)\b", re.I)
+_URL_TILTOTT = ("profession.hu", "gmail.com", "freemail.hu", "citromail.hu")
+
+
+def _domain_a_szovegbol(szoveg: str, cegnev: str) -> str | None:
+    """1. lepcso: a hirdetes szovegeben szereplo weboldal. Ingyen.
+
+    Csak akkor fogadjuk el, ha a domain "hasonlit" a cegnevre -- kulonben egy
+    veletlen emlitett oldal (partner, szoftvernev) lenne a ceg domainje.
+    """
+    kulcs = normalize.normalize_company_name(cegnev) or ""
+    szavak = {sz for sz in kulcs.split() if len(sz) >= 4}
+    if not szavak:
+        return None
+
+    for talalat in _URL_MINTA.findall(szoveg or ""):
+        domain = normalize.normalize_domain(talalat)
+        if not domain or domain in _URL_TILTOTT or blocklist.is_platform(domain):
+            continue
+        torzs = normalize.strip_accents(domain.split(".")[0].lower())
+        # A cegnev valamelyik szava szerepeljen a domainben (vagy forditva).
+        if any(sz in torzs or torzs in sz for sz in szavak):
+            return domain
+    return None
+
+
+def _domain_a_dbbol(cegnev: str, varos: str | None) -> str | None:
+    """2. lepcso: mar ismerjuk ezt a ceget? Ingyen.
+
+    A `name_key` a normalizalt cegnev (jogi forma nelkul, ekezettelenul) --
+    ugyanaz a kulcs, amit a blocklist.company_key hasznal.
+    """
+    kulcs = normalize.normalize_company_name(cegnev)
+    if not kulcs:
+        return None
+    rows = db.query(
+        "select normalized_domain from companies "
+        " where name_key = %s and normalized_domain is not null limit 2",
+        (kulcs,))
+    # Ha ket kulonbozo ceg is ugyanazon a neven fut, NEM talalgatunk.
+    if len(rows) == 1:
+        return rows[0]["normalized_domain"]
+    return None
+
+
+def _domain_a_mapsbol(cegnev: str, varos: str | None) -> str | None:
+    """3. lepcso: Google Maps lekerdezes. FIZETOS (~$0.005/ceg).
+
+    Csak akkor fut, ha a hivo oldal kifejezetten kerte (`--resolve-maps`).
+    """
+    kereses = f"{cegnev} {varos or 'Hungary'}".strip()
+    try:
+        items = apify.run_actor("compass/crawler-google-places", {
+            "searchStringsArray": [kereses],
+            "maxCrawledPlacesPerSearch": 1,
+            "language": "hu",
+        }, timeout=300, verbose=False)
+    except Exception:  # noqa: BLE001
+        return None
+    for it in items or []:
+        domain = normalize.normalize_domain(it.get("website") or "")
+        if domain and not blocklist.is_platform(domain):
+            return domain
+    return None
+
+
+def _feloldas(hirdetes: dict, maps: bool) -> tuple[str | None, str]:
+    """A harom lepcso egymas utan. (domain, honnan)."""
+    cegnev = hirdetes.get("companyName") or ""
+    varos = hirdetes.get("addressLocality") or hirdetes.get("location")
+    szoveg = " ".join(str(hirdetes.get(k) or "") for k in
+                      ("description", "responsibilities", "requirements"))
+
+    d = _domain_a_szovegbol(szoveg, cegnev)
+    if d:
+        return d, "hirdetes szovege"
+    d = _domain_a_dbbol(cegnev, varos)
+    if d:
+        return d, "mar ismert ceg"
+    if maps:
+        d = _domain_a_mapsbol(cegnev, varos)
+        if d:
+            return d, "google maps"
+    return None, "nem sikerult"
+
+
+# ─── Az ingest ─────────────────────────────────────────────────────────────
+
+def ingest(engine: EngineDef, max_results: int = 50, dry: bool = False,
+           location: str = "", terms: tuple[str, ...] = (),
+           resolve_maps: bool = False, verbose: bool = True) -> dict:
+    """Hirdetesek betoltese. INKREMENTALIS.
+
+    Az inkrementalitas a `sources` tabla UNIQUE (source_type, source_url)
+    megszoritasan all: egy mar latott hirdetes NEMAN kiesik. Az elso futas
+    nagy backfill, utana napi nehany tucat.
+    """
+    from ..engines import OPS_PAIN
+    kifejezesek = terms or _alapkifejezesek(engine)
+    stats = {"lekerdezes": 0, "talalat": 0, "uj_hirdetes": 0, "mar_ismert": 0,
+             "uj_ceg": 0, "domain_nelkul": 0, "kihagyva": 0}
+
+    if dry:
+        print(f"[SZARAZ] {len(kifejezesek)} kifejezes, max {max_results} talalat:")
+        for k in kifejezesek:
+            print(f"    {k!r} @ {location or 'orszagos'}")
+        print("\n  Ez NEM kolt. Eles futas: a --dry nelkul.")
+        return stats
+
+    keret = max_results
+    for kifejezes in kifejezesek:
+        if keret <= 0:
+            break
+        payload: dict[str, Any] = {
+            "searchQuery": kifejezes,
+            "includeDetails": True,      # ⚠️ ENELKUL NINCS `description`
+            "descriptionFormat": "text",
+            "maxResults": min(keret, 50),
+        }
+        if location:
+            payload["location"] = location
+
+        if verbose:
+            print(f"\n  kereses: {kifejezes!r}")
+        try:
+            items = apify.run_actor(ACTOR, payload, timeout=900, verbose=verbose)
+        except apify.ApifyError as exc:
+            print(f"    HIBA: {exc}")
+            continue
+
+        stats["lekerdezes"] += 1
+        stats["talalat"] += len(items)
+        keret -= len(items)
+
+        for hirdetes in items:
+            _feldolgoz(hirdetes, resolve_maps, stats, verbose)
+
+    if verbose:
+        _riport(stats)
+    return stats
+
+
+def _alapkifejezesek(engine: EngineDef) -> tuple[str, ...]:
+    from ..engines import _OPS_PAIN_SEARCHES
+    return _OPS_PAIN_SEARCHES
+
+
+def _feldolgoz(hirdetes: dict, maps: bool, stats: dict, verbose: bool) -> None:
+    url = (hirdetes.get("url") or "").strip()
+    cegnev = (hirdetes.get("companyName") or "").strip()
+    if not url or not cegnev:
+        stats["kihagyva"] += 1
+        return
+
+    # ── INKREMENTALITAS: lattuk mar ezt a hirdetest? ──────────────────
+    mar = db.query("select 1 from sources where source_type = %s and source_url = %s",
+                   (SOURCE_TYPE, url))
+    if mar:
+        stats["mar_ismert"] += 1
+        return
+
+    stats["uj_hirdetes"] += 1
+    domain, honnan = _feloldas(hirdetes, maps)
+    varos = hirdetes.get("addressLocality") or ""
+    kulcs = normalize.normalize_company_name(cegnev)
+
+    if verbose:
+        jel = "✅" if domain else "❔"
+        print(f"    {jel} {cegnev[:34]:<36} {domain or '(nincs domain)':<24} {honnan}")
+
+    with db.connect() as conn, conn.cursor() as cur:
+        # A ceg: domain szerint, vagy ha nincs, nev+telepules szerint.
+        if domain:
+            cur.execute("select id from companies where normalized_domain = %s", (domain,))
+        else:
+            cur.execute("select id from companies where name_key = %s and city = %s",
+                        (kulcs, varos))
+        letezo = cur.fetchone()
+
+        if letezo:
+            company_id = letezo["id"]
+        else:
+            cur.execute("""
+                insert into companies (company_name, name_key, normalized_domain,
+                                       domain, city, industry, campaign,
+                                       signal_score, status, status_note)
+                     values (%s, %s, %s, %s, %s, %s, 'ops_pain', %s, %s, %s)
+                  returning id
+            """, (cegnev, kulcs, domain,
+                  f"https://{domain}" if domain else None, varos,
+                  hirdetes.get("category") or "", 40,
+                  # A domain nelkuli ceg NEM VESZ EL: `error` allapotban var,
+                  # amig valamelyik kesobbi forras megadja a domaint.
+                  "new" if domain else "error",
+                  None if domain else f"nincs feloldhato domain ({honnan})"))
+            company_id = cur.fetchone()["id"]
+            stats["uj_ceg"] += 1
+            if not domain:
+                stats["domain_nelkul"] += 1
+
+        # A HIRDETES a bizonyitek. A teljes szoveget megorizzuk: a 10. szakasz
+        # AI-classifiere ezt kapja bemenetkent, es az evidence grounding
+        # ebben a szovegben ellenorzi majd az idezeteket.
+        cur.execute("""
+            insert into sources (company_id, source_type, source_url, raw_signal)
+                 values (%s, %s, %s, %s)
+            on conflict (source_type, source_url) do nothing
+        """, (company_id, SOURCE_TYPE, url, db.Json({
+            "title": hirdetes.get("title"),
+            "company": cegnev,
+            "location": hirdetes.get("location"),
+            "posted_at": hirdetes.get("postedAt"),
+            "category": hirdetes.get("category"),
+            "description": hirdetes.get("description"),
+            "responsibilities": hirdetes.get("responsibilities"),
+            "requirements": hirdetes.get("requirements"),
+            "domain_resolution": honnan,
+        })))
+
+
+def resolve_pending(limit: int = 20, dry: bool = False,
+                    verbose: bool = True) -> dict:
+    """A domain nelkul beragadt cegek feloldasa Google Maps-szel. FIZETOS.
+
+    MIERT KELL KULON PARANCS, ES MIERT NEM AZ INGEST RESZE:
+    az ingest INKREMENTALIS -- a mar latott hirdetest kiejti, MIELOTT a
+    feloldasig jutna. Vagyis egy `--resolve-maps`-szel megismetelt ingest
+    NEM oldana fel a korabban beragadt cegeket: azok hirdeteseit mar
+    ismerjuk, tehat meg sem neznenk oket. Ez a parancs a CEGEKBOL indul,
+    nem a hirdetesekbol -- ezert eri utol oket.
+
+    (Ezt a hibat a 9. szakasz eles tesztje talalta meg: 11 ceg maradt
+    domain nelkul, es semmilyen ingest-kapcsoloval nem lehetett volna
+    utolerni oket.)
+    """
+    stats = {"vizsgalt": 0, "feloldva": 0, "sikertelen": 0}
+    rows = db.query("""
+        select c.id, c.company_name, c.city
+          from companies c
+         where c.normalized_domain is null
+           and c.campaign = 'ops_pain'
+           and c.status = 'error'
+         order by c.first_seen_at
+         limit %s
+    """, (limit,))
+
+    if not rows:
+        if verbose:
+            print("Nincs feloldasra varo ceg.")
+        return stats
+
+    if verbose:
+        koltseg = len(rows) * 0.005
+        print(f"{len(rows)} ceg feloldasa Google Maps-szel  (~${koltseg:.3f})"
+              + ("   [SZARAZ FUTAS]" if dry else ""))
+
+    for row in rows:
+        stats["vizsgalt"] += 1
+        if dry:
+            print(f"    lekerdezne: {row['company_name']} @ {row['city'] or 'Hungary'}")
+            continue
+
+        domain = _domain_a_mapsbol(row["company_name"], row["city"])
+        if not domain:
+            stats["sikertelen"] += 1
+            if verbose:
+                print(f"    ❔ {row['company_name'][:40]:<42} nem talalt")
+            db.execute("update companies set status_note = %s where id = %s",
+                       ("Maps-feloldas sikertelen", row["id"]))
+            continue
+
+        # Ha kozben mar letezik ez a domain (masik forrasbol), NE hozzunk
+        # letre duplikatumot -- a domain a fo dedupe kulcs.
+        utkozes = db.query(
+            "select id from companies where normalized_domain = %s and id <> %s",
+            (domain, row["id"]))
+        if utkozes:
+            stats["sikertelen"] += 1
+            if verbose:
+                print(f"    ⚠ {row['company_name'][:40]:<42} {domain} (mar letezik)")
+            db.execute("update companies set status_note = %s where id = %s",
+                       (f"a feloldott domain ({domain}) mar mas ceghez tartozik",
+                        row["id"]))
+            continue
+
+        stats["feloldva"] += 1
+        if verbose:
+            print(f"    ✅ {row['company_name'][:40]:<42} {domain}")
+        db.execute("""
+            update companies
+               set normalized_domain = %s, domain = %s,
+                   status = 'new', status_note = 'domain feloldva: google maps'
+             where id = %s
+        """, (domain, f"https://{domain}", row["id"]))
+
+    if verbose:
+        print(f"\n  feloldva={stats['feloldva']}  sikertelen={stats['sikertelen']}")
+        if stats["feloldva"]:
+            print("  A feloldott cegek `new` allapotba kerultek -> jon az enrich:")
+            print("    ./leadgen.sh enrich")
+    return stats
+
+
+def _riport(stats: dict) -> None:
+    print(f"\n  lekerdezes={stats['lekerdezes']}  talalat={stats['talalat']}")
+    print(f"  uj hirdetes={stats['uj_hirdetes']}  mar ismert={stats['mar_ismert']} "
+          f"(kihagyva)")
+    print(f"  uj ceg={stats['uj_ceg']}  ebbol domain nelkul={stats['domain_nelkul']}")
+    if stats["domain_nelkul"]:
+        print(f"\n  {stats['domain_nelkul']} ceghez nem talaltunk domaint. NEM VESZTEK EL:")
+        print("  `error` allapotban varnak. Ha kesz vagy fizetni a feloldasert:")
+        print("    ./leadgen.sh ingest ops-pain --resolve-maps")
+    if stats["mar_ismert"] and not stats["uj_hirdetes"]:
+        print("\n  Minden hirdetest lattunk mar -- az inkrementalitas mukodik.")

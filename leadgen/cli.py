@@ -21,7 +21,7 @@ import sys
 
 from . import (classify, config, db, deadev, dev, engines, evals, export,
                feedback, llm, pipeline, report)
-from .sources import maps
+from .sources import maps, profession
 
 
 def _cmd_db_migrate(_args: argparse.Namespace) -> int:
@@ -114,6 +114,26 @@ def _cmd_ingest_maps(args: argparse.Namespace) -> int:
 
 def _cmd_enrich(args: argparse.Namespace) -> int:
     pipeline.run_enrich(limit=args.limit)
+    return 0
+
+
+def _cmd_ingest_ops_pain(args: argparse.Namespace) -> int:
+    # A `get()` kikapcsolt engine-re hibat dob -- itt viszont a FORRAS fut,
+    # ami a minositestol fuggetlen. A hirdeteseket be lehet gyujteni azelott,
+    # hogy a 10. szakasz classifiere elkeszulne.
+    engine = engines.ALL_ENGINES["ops_pain"]
+    print(f"Engine: {engine.label}")
+    if not engine.enabled:
+        print("  (az engine MINOSITESE meg ki van kapcsolva -- a hirdeteseket")
+        print("   begyujtjuk, a minosites a 10. szakaszban jon)")
+    profession.ingest(engine, max_results=args.max_results, dry=args.dry,
+                      location=args.location or "",
+                      resolve_maps=args.resolve_maps)
+    return 0
+
+
+def _cmd_resolve_domains(args: argparse.Namespace) -> int:
+    profession.resolve_pending(limit=args.limit, dry=args.dry)
     return 0
 
 
@@ -361,6 +381,23 @@ def build_parser() -> argparse.ArgumentParser:
     m.add_argument("--force", action="store_true",
                    help="minden lekerdezes ujra fut, meg a mar lefuttatottak is")
     m.set_defaults(func=_cmd_ingest_maps)
+
+    op = ing_sub.add_parser("ops-pain", help="Profession.hu allashirdetesek")
+    op.add_argument("--max-results", type=int, default=50,
+                    help="felso korlat a TELJES futasra (koltsegfek)")
+    op.add_argument("--location", metavar="VAROS", default="",
+                    help="pl. Budapest (uresen: orszagos)")
+    op.add_argument("--dry", action="store_true",
+                    help="csak a terv -- NEM kolt")
+    op.add_argument("--resolve-maps", action="store_true",
+                    help="FIZETOS: Google Maps a domain feloldasahoz (~$0.005/ceg)")
+    op.set_defaults(func=_cmd_ingest_ops_pain)
+
+    rd = sub.add_parser("resolve-domains",
+                        help="a domain nelkul beragadt cegek feloldasa (FIZETOS)")
+    rd.add_argument("--limit", type=int, default=20)
+    rd.add_argument("--dry", action="store_true", help="csak a terv -- nem kolt")
+    rd.set_defaults(func=_cmd_resolve_domains)
 
     en = sub.add_parser("enrich", help="weboldalak feldolgozasa (`new` -> `enriched`)")
     en.add_argument("--limit", type=int, default=25)
