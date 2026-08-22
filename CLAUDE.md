@@ -11,6 +11,13 @@ A repó két rendszert tartalmaz, amiket össze kell hangolni:
 - `leadgen/` — a **lead-scraper**, épül. Saját venv (Python 3.12), Supabase Postgres.
   Az 1. szakasz (alapozás) 2026-08-19-én elkészült: séma, migrációk, normalizáló réteg.
   Üzleti logika még nincs benne.
+- [HOGYAN-HASZNALD.md](HOGYAN-HASZNALD.md) — **a felhasználói útmutató**: a valódi
+  folyamatok, hogyan kell futtatni őket, mi opcionális bennük, és mi nincs még kész.
+  Laikusnak írva, rövid mondatokkal. **Lásd lent a karbantartási kötelezettséget.**
+- [TEENDOK.md](TEENDOK.md) — **amit a felhasználónak kell elvégeznie**, fázisokon
+  átívelően. Ha egy szakasz emberi feladatot termel, ide is vedd fel.
+- [OPCIONALIS.md](OPCIONALIS.md) — elhalasztott és felmerült módosítási ötletek,
+  becsléssel. Nem TODO: innen a felhasználó választ.
 - [INTEGRATION-PLAN.md](INTEGRATION-PLAN.md) — **a végrehajtási terv**: a két rendszer
   közti kontraktus, az eldöntött integrációs kérdések, a szakaszok és az állapotuk.
   Egy új session ezzel kezdjen — a tetején lévő állapot-blokk megmondja, hol tartunk.
@@ -284,6 +291,28 @@ marad a `guards.py` tulajdona.**
 **A domain lock adatbázis-szinten él:** részleges UNIQUE index az
 `outreach (company_id) WHERE status IN ('queued','sent')` feltétellel. A küldő ezt
 nem tudja kifejezni (`build_plan` email szerint kulcsol), ezért itt kell kikényszeríteni.
+
+## 📌 Dokumentáció-karbantartás — kötelező, nem opcionális
+
+**Ha egy szakasz új folyamatot vagy új parancsot ad a rendszerhez, a
+[HOGYAN-HASZNALD.md](HOGYAN-HASZNALD.md) frissítése a szakasz része** — nem
+külön feladat, és nem a felhasználó kérésére történik. A felhasználó
+kifejezetten ezt kérte (2026-08-22): az útmutató maradjon együtt a kóddal.
+
+Amit frissíteni kell:
+
+| Ha ez történt | Ezt kell frissíteni |
+|---|---|
+| új folyamat (pl. ütemezés, új leadforrás) | új számozott szakasz a folyamatok közt |
+| új CLI parancs | a megfelelő folyamatba + [PARANCSOK.md](PARANCSOK.md) |
+| **egy hiányzó funkció elkészült** | ki a „Mi nincs még kész" táblából |
+| új gyakori hibaüzenet | a „Ha valami baj van" táblába |
+| új emberi feladat keletkezett | [TEENDOK.md](TEENDOK.md) |
+| felmerült, de elhalasztott ötlet | [OPCIONALIS.md](OPCIONALIS.md) |
+
+**A stílus kötelező része a tartalomnak:** rövid mondatok, szakzsargon csak
+magyarázattal, laikus olvasónak. Ne told bele a tervezési indoklásokat — azok
+az INTEGRATION-PLAN.md-be valók.
 
 ## Invariánsok — ezeket ne törd el
 
