@@ -18,6 +18,12 @@ A repó két rendszert tartalmaz, amiket össze kell hangolni:
   átívelően. Ha egy szakasz emberi feladatot termel, ide is vedd fel.
 - [OPCIONALIS.md](OPCIONALIS.md) — elhalasztott és felmerült módosítási ötletek,
   becsléssel. Nem TODO: innen a felhasználó választ.
+- [DOMAIN-BEMELEGITES.md](DOMAIN-BEMELEGITES.md) — hogyan kell egy új küldő
+  domaint előkészíteni és bemelegíteni. **Tartalmaz egy rendszer-specifikus
+  korlátot:** a `daily_cap()` a fiókok számával szoroz, a `next_account()` pedig
+  egyenletesen oszt — ezért egy második `SMTP_ACCOUNTS` bejegyzés a hideg
+  postafiókot azonnal napi 20 levéllel indítaná. A bemelegítés ezért külön
+  példányban fut, nem második fiókként.
 - [INTEGRATION-PLAN.md](INTEGRATION-PLAN.md) — **a végrehajtási terv**: a két rendszer
   közti kontraktus, az eldöntött integrációs kérdések, a szakaszok és az állapotuk.
   Egy új session ezzel kezdjen — a tetején lévő állapot-blokk megmondja, hol tartunk.
@@ -255,6 +261,15 @@ versenytárs-suppressionbe visz, a gyenge jel `review` állapotba, emberi dönt�
 Ez azért van, mert a kulcsszó gyakran ügyfél-referenciából vagy blogcikkből jön,
 nem a cég saját szolgáltatás-listájából — és egy jó lead elvesztése drágább, mint
 egy félrement levél.
+
+**Az email-validáció kétlépcsős, és a `role_account` NEM érvénytelen cím.**
+A [leadgen/validate.py](leadgen/validate.py) `_STATUS_MAP`-jában a legfontosabb
+sor a `role_account → valid`: a Reoon külön státusszal jelzi a szerepkörös
+címeket (`info@`, `office@`), és ha ezt `invalid`-nak vennénk, **a magyar
+KKV-lista nagy része csendben eltűnne** (a 46 kapcsolatból 31 `generic`,
+túlnyomórészt `info@`). Ugyanígy load-bearing: **minden API-hiba `unknown`,
+soha nem `invalid`** — egy Reoon-kimaradás nem törölheti a listát.
+A cache (90 nap) nem optimalizáció, hanem költségvédelem; kötelező teszt védi.
 
 **Az AI réteg két tieres, és a provider a modellnévből derül ki.**
 A [leadgen/llm.py](leadgen/llm.py) `bulk()` (Gemini, olcsó, nagy volumen) és

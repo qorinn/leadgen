@@ -3,6 +3,7 @@
 > Ez a fájl azt írja le, **mit tud a rendszer és hogyan kell használni**.
 > Ha csak a parancsok listája kell: [PARANCSOK.md](PARANCSOK.md).
 > Ha azt akarod tudni, mit kell **neked** elvégezned: [TEENDOK.md](TEENDOK.md).
+> Ha új küldő domaint készítesz elő: [DOMAIN-BEMELEGITES.md](DOMAIN-BEMELEGITES.md).
 
 ---
 
@@ -248,7 +249,77 @@ megérdemel egy emberi választ. Ez az a pont, ahol a rendszer működik, de az
 
 ---
 
-## 6. folyamat — Hol tartunk?
+## 6. folyamat — Email-címek ellenőrzése
+
+**Mikor:** magától fut minden exportnál. Nincs külön parancsa.
+
+**Miért fontos:** ha egy levél visszapattan (nem létező cím), az **visszamenőleg**
+rontja a domained hírnevét — és onnantól a **jó** címekre sem érkezik meg a
+leveled. Ez az egyetlen olyan hiba a rendszerben, ami a *múltbeli* munkádat is
+tönkreteszi. Ezért ellenőrizzük a címeket kiküldés előtt.
+
+**Három fokozat van**, a gyökér `.env`-ben állítod:
+
+| Beállítás | Mit csinál | Kerül pénzbe? |
+|---|---|---|
+| `off` | semmit — csak fejlesztéshez | nem |
+| **`local_only`** ← *jelenleg ez fut* | ingyenes ellenőrzés: formátum, létezik-e a domain postafiókja, eldobható cím-e | **nem** |
+| `full` | a fenti **plusz** Reoon: tényleg létezik-e a konkrét cím | igen, kb. **0,04 Ft / cím** |
+
+```
+EMAIL_VALIDATION=local_only     # a gyökér .env-ben
+```
+
+**Az ingyenes fokozat már most is dolgozik.** Az exportnál látni fogod:
+
+```
+helyi szuro KIZART: hello@pelda.invalid -- teszt-domain (nem letezo TLD)
+kihagyva (email-validacio): 1
+```
+
+### Ha bekapcsolod a fizetőset
+
+Kell hozzá Reoon-fiók és kredit (~$11,90 / 10 000 cím), az API kulcs a
+gyökér `.env`-be:
+
+```
+EMAIL_VALIDATION=full
+REOON_API_KEY=...
+```
+
+**Ugyanarra a címre 90 napig nem kérdez rá kétszer** — ez a cache, ez védi a
+pénztárcádat. Ellenőrizni így tudod:
+
+```bash
+./leadgen.sh export --dry     # első futás: N lekérdezés
+./leadgen.sh export --dry     # második: 0 lekérdezés, N cache-találat  ← ez a lényeg
+```
+
+Ha a második futásnál **nem** 0 a lekérdezés, valami baj van a cache-sel —
+azonnal állítsd vissza `local_only`-ra és szólj.
+
+> **Ha az ellenőrző szolgáltatás nem elérhető, senki nem esik ki.** Az ilyen
+> címek „nem tudom" jelölést kapnak, nem „rossz"-at. Egy félperces kimaradás
+> nem törölheti a listádat.
+
+### Amit a fizetős fokozat kizárhat
+
+| A cím állapota | Mi történik |
+|---|---|
+| létezik | mehet a levél |
+| **nem létezik** / spamcsapda / eldobható | kizárva |
+| a domain mindent elfogad (nem lehet eldönteni) | csak az erősebb leadeknek megy |
+| nem sikerült eldönteni | csak a legerősebb leadeknek megy |
+
+Az „erősebb lead" a pontszámot jelenti, amit a rendszer a cégnek adott.
+A határok a `.env`-ből állíthatók (`TIER_A_SCORE`, `TIER_B_SCORE`), ha úgy
+látod, túl sok jó lead esik ki.
+
+**Az export mindig kiírja, ki miért maradt ki** — néma kizárás nincs.
+
+---
+
+## 7. folyamat — Hol tartunk?
 
 **Mikor:** bármikor. Ez a leggyakrabban használt parancs.
 
@@ -267,7 +338,7 @@ csak várakozó sort épít.
 
 ---
 
-## 7. folyamat — Első beállítás  *(egyszer kell)*
+## 8. folyamat — Első beállítás  *(egyszer kell)*
 
 Ha új gépre kerül a projekt:
 
@@ -287,7 +358,7 @@ python3 -c "import mailer; mailer.check_accounts()"
 
 ---
 
-## 8. folyamat — Modellek összehasonlítása (bake-off)
+## 9. folyamat — Modellek összehasonlítása (bake-off)
 
 **Mikor:** mielőtt nagy volumenű AI-leadszűrésre váltunk (9-10. fázis).
 
@@ -311,7 +382,6 @@ elmélet — a scrapelt oldalak szövegét idegenek írják.
 | Mi hiányzik | Melyik fázis | Mit jelent ez most |
 |---|---|---|
 | **Időzítés (cron)** | 12. | Minden parancsot kézzel indítasz. Nincs, ami magától fut. |
-| **Email-cím ellenőrzés (Reoon)** | 7. | Nem tudjuk kiküldés előtt, hogy létezik-e a cím. |
 | **Profession.hu leadforrás** | 9-10. | Csak ügynökségeket gyűjtünk, más iparágat nem. |
 | **AI személyre szabás** | 10. | A nyitómondat sablonos, nem AI írja. |
 | **Webes felület** | 13. | Minden parancssorból megy. |
@@ -329,6 +399,8 @@ elmélet — a scrapelt oldalak szövegét idegenek írják.
 | `HIBA: nincs ANTHROPIC_API_KEY` | nincs AI-kulcs | csak az AI-parancsokat érinti, a küldés megy |
 | `deliverability.py` 1-es hibakód | **riasztás**, nem programhiba | olvasd el a kiírt üzenetet |
 | teszt-domainek a listában | `.invalid` címek maradtak bent | `./leadgen.sh dev clear-seed` |
+| `helyi szuro KIZART: ...` | egy cím nem ment át az ellenőrzésen | ez helyes működés, nem hiba |
+| `EMAIL_VALIDATION=full, de nincs REOON_API_KEY` | hiányzik a kulcs | csak az ingyenes szűrő fut, a küldés megy |
 
 **Ha elakadsz:** `./leadgen.sh report` szinte mindig megmondja, mi a következő
 lépés. Minden parancs újrafuttatható — egyik sem csinál kárt attól, hogy

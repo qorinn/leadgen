@@ -118,13 +118,29 @@ meg. Ez a sorrend spórol pénzt.
 *Ez a döntés a mai szűkítés után érvényes: a listából kikerültek a bizonytalan
 minták (`nem érdekel`, `köszönöm, nem`), és csak az egyértelműek maradtak.*
 
-### B2. Második postafiók  `~30 perc + havidíj`
+### B2. Postafiókonkénti napi keret  `~1,5 óra`
 
-A napi keret **postafiókonként** számol. Egy második fiók megduplázza a napi
-volument — de csak akkor, ha a lead-utánpótlás bírja, és a `ramp_state.json`-ban
-kézzel felezni kell a `cap` értéket, különben egy nap alatt ugrana a duplájára.
+**A jelenlegi korlát** (mérve 2026-08-22): a küldő két helyen kezeli a
+fiókokat, és mindkettő egyenlően bánik velük:
 
-**Most nem kell:** 10 leadnél a keret nem szűk keresztmetszet.
+```python
+limits.daily_cap()  = cap × a fiókok SZÁMA      # a keret duplázódik
+mailer.next_account() = körbejár, egyenletesen   # a levél 50-50%-ban oszlik
+```
+
+Vagyis egy második postafiók felvétele **azonnal 20-ról 40-re emeli** a napi
+keretet, és a vadonatúj, hideg fiók **az első napon 20 levelet küldene**.
+
+**Miért fáj ez:** így nem lehet egy új domaint lassan bemelegíteni a rendszeren
+belül. A [DOMAIN-BEMELEGITES.md](DOMAIN-BEMELEGITES.md) ezért külön példányt
+javasol (`cp -r cold-email-starter cold-email-warmup`) — az működik, csak
+kicsit kényelmetlen.
+
+**Amit ez a módosítás adna:** fiókonkénti `cap` és fiókonkénti rámpa, hogy a
+régi domain teljes sebességgel mehessen, miközben az új napi 3-mal indul.
+
+**Mikor éri meg:** amikor tényleg két domainen küldesz párhuzamosan. Addig a
+külön példány olcsóbb megoldás.
 
 ### B3. Webes felület  `~1 nap`
 

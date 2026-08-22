@@ -20,7 +20,8 @@
 | **5. Első éles kiküldés** | 🟡 **agent-rész kész — a `--live` futás RÁD vár (hétfő)** |
 | **5.5 Leiratkozó link** | ✅ **KÉSZ** — a Netlify oldal élesben ellenőrizve |
 | **6. AI réteg** | 🟡 **agent-rész kész — API kulcs + 30 teszteset RÁD vár** |
-| 7-13. | ⬜ nem kezdődött el |
+| **7. Email-validáció** | 🟡 **agent-rész kész — az ingyenes szűrő ÉLES, a fizetős kulcsra vár** |
+| 8-13. | ⬜ nem kezdődött el |
 
 **A teljes lánc szárazon végigfutott valódi adattal.** Ami hátravan az 5. szakaszból,
 az egyetlen emberi lépés: elolvasni a 10 levelet, és elindítani a `--live` futást.
@@ -1419,7 +1420,7 @@ rosszul sorolt `unsubscribe`-ként, azonnal javítsd: az visszafordíthatatlan.
 
 ---
 
-## 7. szakasz — Reoon validáció élesítése `[összefűzhető a 6-tal]`
+## 🟡 7. szakasz — Email-validáció `[agent-rész kész: 2026-08-22]`
 
 **Cél:** `EMAIL_VALIDATION=full` — a fizetős verifikáció bekapcsolása az export kapujában.
 **Becsült agent-munkaidő:** 1,5 óra.
@@ -1433,7 +1434,47 @@ rosszul sorolt `unsubscribe`-ként, azonnal javítsd: az visszafordíthatatlan.
 - **A szakasz után** — nézd meg a kredit-fogyást az első futás után. Ha többet fogyott,
   mint ahány új címed volt, a cache nem működik → azonnal állítsd vissza `local_only`-ra.
 
-### Az agent feladatai
+### Az agent feladatai — ✅ mind kész
+
+**Ellenőrizve** (kamu Reoon API-val, hogy ne kerüljön pénzbe):
+
+```
+1. futás  ->  3 lekérdezés, 0 cache-találat, 3 API-hívás
+2. futás  ->  0 lekérdezés, 3 cache-találat, 0 API-hívás   ← a terv kulcs-ellenőrzése
+role_account -> valid  (a csapda-eset, lásd lent)
+helyi szűrő élesben: mind a 3 `.invalid` seed-cím kiesett
+pytest: 201 zöld
+```
+
+### Amit a szakasz közben tanultunk
+
+- **🔑 A `local_check` oszlop eddig HAZUDOTT.** A `pipeline.run_enrich` minden
+  kapcsolatra feltétel nélkül `local_check='pass'`-t írt — vagyis a mező azt
+  állította, hogy ellenőriztük a címet, holott soha semmi nem futott le rajta.
+  Élesben látszott is: a három `.invalid` seed-cím `pass` állapotban ült a
+  DB-ben, és egy éles futásnál hard bounce-t okozott volna. Most valódi
+  ellenőrzés áll mögötte (formátum, MX-rekord, eldobható domain, teszt-TLD).
+
+- **🔑 A `role_account` státusz csapda.** A Reoon külön státusszal jelzi a
+  szerepkörös címeket. Ha ezt `invalid`-ra képeznénk, a jelenlegi 46
+  kapcsolatból **31 esne ki** (`generic`, túlnyomórészt `info@`) — némán,
+  hiba nélkül. A magyar KKV-knál az `info@` gyakran az egyetlen létező cím,
+  és a rendszer ezt tudatosan vállalja. `role_account → valid`, tesztsorral
+  védve.
+
+- **A POWER mód lassú, ezért párhuzamos.** A Reoon saját doksija szerint egy
+  cím ellenőrzése másodpercektől **egy percig** tarthat, és egy végponton
+  max **5 párhuzamos szálat** enged. Sorosan 20 cím akár 20 perc lenne —
+  ezért fut 5-ös szálkészlettel, 75 másodperces timeouttal.
+
+- **A tier-küszöbök `.env`-ből állíthatók.** A terv catch-all szabálya
+  „Tier A/B"-re hivatkozik, de tier-oszlop még nincs (az a 9-10. szakasz
+  offer arbitrationjével jön). Addig a `signal_score` sávjaira képezzük.
+  A jelenlegi 10 lead mind Tier B (50-65 pont), tehát ha bekapcsolod a
+  `full` módot és sok `unknown` jön vissza, **azok kiesnének** — ezért
+  `TIER_A_SCORE` / `TIER_B_SCORE` környezeti változó, nem bedrótozott szám.
+
+**Az eredeti feladatlista:**
 
 1. `leadgen/validate.py` — Reoon API kliens, batch-elt hívás, hibatűrés
    (API-hiba → `unknown`, **nem** `invalid`; a küldő `verify.py` doksijának

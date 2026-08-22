@@ -169,11 +169,34 @@ lekérdezéssel**, és nézd meg **saját szemmel** a nyers kimenetet.
 **A kritikus mező: van-e benne a hirdetés teljes szövege.** Ha nincs, az egész
 9-10. fázis másik forrást igényel — és ezt jobb most tudni, mint utána.
 
-### 4.3 Reoon kredit *(7. fázis — email-validáció)*
+### 4.3 Reoon kredit *(7. fázis — KÉSZ, csak a kulcs hiányzik)*
 
-`reoon.com` — ez fizetős. Ez ellenőrzi kiküldés előtt, hogy létezik-e a cím.
-Egy hard bounce **visszamenőleg** rontja a domain hírnevét, tehát ez
-reputáció-védelem. Kis összeg, de pénz.
+**A kód kész és tesztelt.** Az ingyenes szűrő **már most is fut** minden
+exportnál — ez már ki is szűrt hibás címeket. A fizetős fokozat opcionális.
+
+**Ha bekapcsolod:** `reoon.com` → fiók + kredit (~$11,90 / 10 000 cím,
+kb. **0,04 Ft / cím**). Aztán a gyökér `.env`-be:
+
+```
+EMAIL_VALIDATION=full
+REOON_API_KEY=...
+```
+
+**Az első futás után KÖTELEZŐ ellenőrizned a cache-t** — ez pénz:
+
+```bash
+./leadgen.sh export --dry     # 1. futás: N lekérdezés
+./leadgen.sh export --dry     # 2. futás: 0 lekérdezés, N cache-találat
+```
+
+Ha a második futásnál **nem 0** a lekérdezés, azonnal állítsd vissza
+`local_only`-ra és szólj — akkor a cache nem működik, és minden exportnál
+újra fizetnél ugyanazokért a címekért.
+
+**Amit figyelj még:** ha bekapcsolás után sok lead esik ki „nem tudott
+dönteni" indokkal, akkor a küszöb túl szigorú a jelenlegi listádra.
+A `.env`-ben állítható: `TIER_A_SCORE=70` → pl. `55`. Az export mindig
+kiírja, ki miért maradt ki, tehát ez látható lesz, nem néma.
 
 ---
 
@@ -187,6 +210,10 @@ reputáció-védelem. Kis összeg, de pénz.
 - [ ] **Analytics a leiratkozó oldalon.** A Google Analytics jelenleg látja a
       leiratkozó URL-t, amiben benne van a személyes token.
       Részletek: [OPCIONALIS.md](OPCIONALIS.md).
-- [ ] **Tartalék domain regisztrálása és öregítése.** Ha valaha nagyobb
-      volumenre mész, egy előélet nélküli domain a spam mappába esik.
-      Regisztráld most, használd fél év múlva.
+- [ ] **Tartalék domain regisztrálása és öregítése.**
+      **Teljes útmutató: [DOMAIN-BEMELEGITES.md](DOMAIN-BEMELEGITES.md).**
+      A regisztráció az egyetlen lépés, amit **nem lehet visszamenőleg**
+      megcsinálni, és ~5000 Ft/év — ezért érdemes most elintézni, akkor is,
+      ha a bemelegítés csak szeptemberben indul.
+      Sorrend: domain kiválasztás → regisztráció → weboldal/átirányítás →
+      DNS (MX, SPF, DKIM, DMARC) → **30 nap pihenés** → bemelegítés.

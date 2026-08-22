@@ -35,7 +35,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from . import config, db, feedback
+from . import config, db, feedback, validate
 from .contract import LEADS_HEADER
 
 # A suppression a lead kiadasanak LEGELSO lepese, nem az utolso (SCRAPER-PLAN 0.4).
@@ -136,8 +136,10 @@ class ExportStats:
     new_queued: int = 0
     skipped_dnc: int = 0
     skipped_no_source: int = 0
+    skipped_validation: int = 0
     limited_out: int = 0
     fake_domains: list[str] = field(default_factory=list)
+    validation_notes: list[str] = field(default_factory=list)
 
     @property
     def written(self) -> int:
@@ -255,6 +257,33 @@ def collect(limit: int = 0) -> tuple[list[dict[str, str]], ExportStats, list[dic
         _score[email] = float(row.get("signal_score") or 0)
         stats.inflight += 1
 
+    # ═══ A VALIDACIO KAPUJA ═══════════════════════════════════════════════
+    # Itt fut, es nem korabban: csak azokra a cimekre koltunk, amelyek
+    # tenylegesen kikuldesre keszulnek. Egy `new` statuszu ceg cime meg
+    # sokszor valtozhat az enrichment soran.
+    #
+    # A `--dry` futasnal IS lefut. Ez szandekos: kulonben a szaraz futas mast
+    # mutatna, mint az eles, es pont az ellenorzo lepes hazudna. (`off` es
+    # `local_only` modban ez amugy sem kerul penzbe.)
+    if candidates:
+        vstats = validate.ensure_verified(
+            [r.get("email") for r in candidates], verbose=True)
+        if vstats.lekerdezve or vstats.cache_talalat or vstats.helyi_bukas:
+            stats.validation_notes.append(
+                f"validacio ({config.EMAIL_VALIDATION}): "
+                f"{vstats.lekerdezve} lekerdezes, {vstats.cache_talalat} cache, "
+                f"{vstats.helyi_bukas} helyi kizaras")
+        # A frissen irt eredmenyeket vissza kell olvasni: a fenti SQL a
+        # validacio ELOTTI allapotot hozta.
+        friss = {r["email"]: r for r in db.query(
+            "select email, verify_result, local_check from contacts where email = any(%s)",
+            ([(r.get("email") or "").strip().lower() for r in candidates],))}
+        for row in candidates:
+            hit = friss.get((row.get("email") or "").strip().lower())
+            if hit:
+                row["verify_result"] = hit["verify_result"]
+                row["local_check"] = hit["local_check"]
+
     to_queue: list[dict] = []
     for row in candidates:
         email = (row.get("email") or "").strip().lower()
@@ -265,6 +294,16 @@ def collect(limit: int = 0) -> tuple[list[dict[str, str]], ExportStats, list[dic
             # 0.4 jogi minimum: forras nelkul nem adunk ki leadet.
             stats.skipped_no_source += 1
             continue
+        if (row.get("local_check") or "") == "fail":
+            stats.skipped_validation += 1
+            continue
+        if config.EMAIL_VALIDATION == "full":
+            mehet, indok = validate.kikuldheto(
+                row.get("verify_result"), row.get("signal_score"))
+            if not mehet:
+                stats.skipped_validation += 1
+                stats.validation_notes.append(f"  {email}: {indok}")
+                continue
         if limit and stats.new_queued >= limit:
             stats.limited_out += 1
             continue
@@ -364,6 +403,12 @@ def run(dry: bool = False, limit: int = 0, skip_feedback: bool = False) -> Expor
         print(f"kihagyva (DNC)   : {stats.skipped_dnc}")
     if stats.skipped_no_source:
         print(f"kihagyva (nincs source_url): {stats.skipped_no_source}")
+    if stats.skipped_validation:
+        # HANGOSAN, es indoklassal: egy nema validacios kizaras pontosan
+        # ugy nezne ki, mintha a lead sosem letezett volna.
+        print(f"kihagyva (email-validacio): {stats.skipped_validation}")
+    for note in stats.validation_notes:
+        print(f"  {note}" if not note.startswith("  ") else note)
     if stats.limited_out:
         print(f"limit miatt varakozik: {stats.limited_out}")
     if not dry:

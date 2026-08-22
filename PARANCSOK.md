@@ -90,6 +90,27 @@ mutatja, hogy fogy a sor:
 > Az `export` **mindig lefuttatja a `feedback`-et először**. Ha az hibára fut,
 > az export megáll, és a `leads.csv` érintetlen marad.
 
+## Email-ellenőrzés (7. szakasz)
+
+Nincs külön parancsa — **az exportnál automatikusan lefut**. A gyökér `.env`
+kapcsolója vezérli:
+
+| Beállítás | Mit csinál |
+|---|---|
+| `EMAIL_VALIDATION=off` | semmit |
+| `EMAIL_VALIDATION=local_only` | ingyenes szűrő: formátum, MX-rekord, eldobható domain |
+| `EMAIL_VALIDATION=full` | + Reoon a túlélőkre (fizetős, `REOON_API_KEY` kell) |
+
+```bash
+EMAIL_VALIDATION=full ./leadgen.sh export --dry   # egy futásra felülvezérelve
+```
+
+> **A cache pénzt véd:** ugyanarra a címre `VERIFY_CACHE_DAYS` (90) napon belül
+> nem kérdez rá kétszer. Két egymás utáni `export --dry` közül a másodiknak
+> **0 lekérdezést** kell mutatnia. Ha nem így van, állítsd vissza `local_only`-ra.
+
+> **API-hiba nem zár ki senkit.** Minden hiba `unknown`, soha nem `invalid`.
+
 ## AI réteg (6. szakasz)
 
 | Parancs | Mit csinál |

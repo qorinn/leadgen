@@ -28,7 +28,7 @@ import json
 import subprocess
 from dataclasses import dataclass
 
-from . import config, db
+from . import config, db, validate
 
 # A `companies.status` eletciklus sorrendben. A riport ebben a sorrendben ir,
 # nem darabszam szerint: igy latszik, hol AKAD EL a tolcser.
@@ -152,6 +152,13 @@ def funnel() -> int:
         for k in ("personal", "generic", "role", "ismeretlen"):
             if kapcsolat.get(k):
                 print(f"  {k:<10} {kapcsolat[k]:>4}")
+
+    # Email-validacio. Csak akkor irjuk ki, ha van mit: `off` modban zaj lenne.
+    if config.EMAIL_VALIDATION != "off":
+        print(f"\nEMAIL-VALIDACIO ({config.EMAIL_VALIDATION})")
+        print(f"  {validate.report_sor()}")
+        if config.EMAIL_VALIDATION == "full":
+            print("  A pontos kredit-egyenleg a Reoon vezerlopultjan latszik.")
 
     supp = _counts("select reason as k, count(*) as n from suppression group by 1")
     if supp:

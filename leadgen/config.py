@@ -59,6 +59,14 @@ REOON_API_KEY = os.environ.get("REOON_API_KEY", "").strip()
 # Ennel frissebb Reoon eredmenyt nem kerdezunk le ujra (kredit = penz).
 VERIFY_CACHE_DAYS = int(os.environ.get("VERIFY_CACHE_DAYS", "90"))
 
+# A catch-all szabaly tier-hatarai (terv 2136-2141). A "tier" a lead
+# jelerossege; kulon oszlop meg nincs ra, ezert a signal_score savjaira
+# kepezzuk. AZERT ALLITHATO .env-bol, mert ez a ket szam donti el, hany
+# lead esik ki, ha bekapcsolod a fizetos validaciot -- es ezt tuningolni
+# kell tudni kodmodositas nelkul.
+TIER_A_SCORE = int(os.environ.get("TIER_A_SCORE", "70"))
+TIER_B_SCORE = int(os.environ.get("TIER_B_SCORE", "45"))
+
 # ─── AI (6. szakasztol) ────────────────────────────────────────────────────
 LLM_BULK_MODEL = os.environ.get("LLM_BULK_MODEL", "gemini-2.5-flash-lite").strip()
 LLM_QUALITY_MODEL = os.environ.get("LLM_QUALITY_MODEL", "claude-haiku-4-5").strip()
