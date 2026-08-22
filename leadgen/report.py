@@ -300,6 +300,61 @@ def replies() -> int:
     return 0
 
 
+# ─── 8.2 halott fejleszto ──────────────────────────────────────────────────
+
+def dead_dev() -> int:
+    """A footer-kredit talalatok bontasa (`report --signal dead_dev`).
+
+    A DEAD talalatokat RESZLETESEN irjuk ki, a footer szo szerinti
+    szovegevel: a terv szabalya szerint ezeket EMBERNEK kell atneznie,
+    mielott a fejleszto neve belekerul egy levelbe.
+    """
+    osszes = _counts("""
+        select coalesce(dev_state, '(nincs kredit a footerben)') as k, count(*) as n
+          from companies where dev_checked_at is not null group by 1
+    """)
+    if not osszes:
+        print("Meg nem futott a 8.2 enrichment.")
+        print("  Inditsd: ./leadgen.sh enrich dead-dev")
+        return 0
+
+    cimke = {
+        "DEAD": "DEAD -- nincs, aki karbantartsa  (+35 pont)",
+        "DORMANT": "DORMANT -- a fejleszto evek ota inaktiv  (+20 pont)",
+        "ALIVE": "ALIVE -- elo fejleszto (versenytars, nem lead)",
+    }
+    print(f"HALOTT FEJLESZTO ({sum(osszes.values())} megvizsgalt ceg)")
+    width = max(len(cimke.get(k, k)) for k in osszes) + 2
+    for k in ("DEAD", "DORMANT", "ALIVE"):
+        if osszes.get(k):
+            print(f"  {cimke[k]:<{width}} {osszes[k]:>4}")
+    for k, n in sorted(osszes.items()):
+        if k not in cimke:
+            print(f"  {k:<{width}} {n:>4}")
+
+    rows = db.query("""
+        select company_name, normalized_domain, dev_domain, dev_name,
+               dev_evidence, signal_score
+          from companies
+         where dev_state = 'DEAD'
+         order by signal_score desc nulls last
+         limit 30
+    """)
+    if rows:
+        print(f"\n{'=' * 68}")
+        print(">>> EZEKET NEZD AT KEZZEL, mielott levelet kapnanak")
+        print("    A fejleszto NEVE szo szerint bekerul a levelbe -- ha teved,")
+        print("    az nem apro pontatlansag, hanem kinos.")
+        print(f"{'=' * 68}")
+        for r in rows:
+            print(f"\n  {r['company_name']}")
+            print(f"    ceg      : https://{r['normalized_domain']}   ({r['signal_score']} pont)")
+            print(f"    fejleszto: {r['dev_name']} -> https://{r['dev_domain']}")
+            print(f"    a footerben: \"{(r['dev_evidence'] or '')[:90]}\"")
+        print("\n  Ha egy talalat teves: ./leadgen.sh review --reject <ceg-domain>")
+    return 0
+
+
 def run(daily_view: bool = False) -> int:
     if daily_view:
         return daily()

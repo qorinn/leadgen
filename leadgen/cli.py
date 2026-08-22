@@ -19,8 +19,8 @@ from __future__ import annotations
 import argparse
 import sys
 
-from . import (classify, config, db, dev, engines, evals, export, feedback,
-               llm, pipeline, report)
+from . import (classify, config, db, deadev, dev, engines, evals, export,
+               feedback, llm, pipeline, report)
 from .sources import maps
 
 
@@ -117,6 +117,11 @@ def _cmd_enrich(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_enrich_deadev(args: argparse.Namespace) -> int:
+    deadev.run(limit=args.limit, mind=args.all, dry=args.dry)
+    return 0
+
+
 def _cmd_qualify(args: argparse.Namespace) -> int:
     engine = engines.get(args.engine)
     print(f"Engine: {engine.label}")
@@ -125,6 +130,8 @@ def _cmd_qualify(args: argparse.Namespace) -> int:
 
 
 def _cmd_report(args: argparse.Namespace) -> int:
+    if args.signal == "dead_dev":
+        return report.dead_dev()
     if args.replies:
         return report.replies()
     return report.run(daily_view=args.daily)
@@ -306,6 +313,8 @@ def build_parser() -> argparse.ArgumentParser:
                     help="csak a mai kep: napi keret vs. sorbanallas")
     rp.add_argument("--replies", action="store_true",
                     help="a valaszok besorolas szerinti bontasa")
+    rp.add_argument("--signal", metavar="NEV", choices=("dead_dev",),
+                    help="egy signal reszletes bontasa (pl. dead_dev)")
     rp.set_defaults(func=_cmd_report)
 
     cr = sub.add_parser("classify-replies", help="AI valasz-osztalyozas (6. szakasz)")
@@ -356,6 +365,15 @@ def build_parser() -> argparse.ArgumentParser:
     en = sub.add_parser("enrich", help="weboldalak feldolgozasa (`new` -> `enriched`)")
     en.add_argument("--limit", type=int, default=25)
     en.set_defaults(func=_cmd_enrich)
+    en_sub = en.add_subparsers(dest="action")
+    dd = en_sub.add_parser("dead-dev",
+                           help="8.2: ki keszitette a weboldalt, es el-e meg")
+    dd.add_argument("--all", action="store_true",
+                    help="a mar megvizsgaltakat is ujra nezi")
+    dd.add_argument("--limit", type=int, default=200)
+    dd.add_argument("--dry", action="store_true",
+                    help="csak megmutatja -- semmit nem ir")
+    dd.set_defaults(func=_cmd_enrich_deadev)
 
     ql = sub.add_parser("qualify", help="minosites (`enriched` -> `ready`/`rejected`)")
     ql.add_argument("--engine", default="agency_partner")

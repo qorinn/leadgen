@@ -262,6 +262,16 @@ Ez azért van, mert a kulcsszó gyakran ügyfél-referenciából vagy blogcikkb�
 nem a cég saját szolgáltatás-listájából — és egy jó lead elvesztése drágább, mint
 egy félrement levél.
 
+**A 8.2 footer-felismerésben a kulcsszó önmagában ~85%-ban téved.** Mérve a 49
+letöltött oldalon: a „készítette / weboldal készítés / powered by" minták 7
+helyen találtak, de csak **1** volt valódi fejlesztő-kredit — a többi a cég
+saját szolgáltatás-menüje, egy stock-fotó kredit és a WordPress/tárhely volt.
+A [leadgen/deadev.py](leadgen/deadev.py) ezért három feltételt köt össze:
+minta a footerben + link **a minta UTÁN, 60 karakteren belül** + a link idegen,
+nem-platform, nem-tárhely domainre mutat. A hosting-kontextust a link
+**szövegében is** nézi (`<a>Hosting: Smartsector</a>`). Mindegyik szűkítést
+valós hamis pozitív indokolta, és tesztsor őrzi.
+
 **Az email-validáció kétlépcsős, és a `role_account` NEM érvénytelen cím.**
 A [leadgen/validate.py](leadgen/validate.py) `_STATUS_MAP`-jában a legfontosabb
 sor a `role_account → valid`: a Reoon külön státusszal jelzi a szerepkörös

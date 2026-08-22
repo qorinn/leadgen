@@ -90,6 +90,21 @@ mutatja, hogy fogy a sor:
 > Az `export` **mindig lefuttatja a `feedback`-et először**. Ha az hibára fut,
 > az export megáll, és a `leads.csv` érintetlen marad.
 
+## Halott fejlesztő — 8.2 (8. szakasz)
+
+| Parancs | Mit csinál |
+|---|---|
+| `enrich dead-dev --dry` | megmutatja a találatokat — **nem ír** |
+| `enrich dead-dev` | élesben: pontozás + versenytárs-suppression |
+| `enrich dead-dev --all` | a már megvizsgáltakat is újra nézi |
+| `report --signal dead_dev` | DEAD / DORMANT / ALIVE bontás + a footer szövege |
+
+> **A DEAD találatokat ember nézze át.** A fejlesztő neve szó szerint bekerül
+> a levélbe — ha téves, az kínos. A riport ezért kiírja a footer eredeti
+> szövegét is.
+
+> Nem kell hozzá új scrapelés: a footer már benne van a letöltött HTML-ben.
+
 ## Email-ellenőrzés (7. szakasz)
 
 Nincs külön parancsa — **az exportnál automatikusan lefut**. A gyökér `.env`

@@ -319,7 +319,53 @@ látod, túl sok jó lead esik ki.
 
 ---
 
-## 7. folyamat — Hol tartunk?
+## 7. folyamat — „Ki készítette a weboldalukat?"
+
+**Mikor:** akkor futtasd, ha új cégeket gyűjtöttél. Nem naponta.
+
+**Az ötlet:** rengeteg magyar cég weboldalának alján ott van, hogy ki
+készítette. Megnézzük azt a fejlesztőt — és ha **az már nem működik**, akkor
+annak a cégnek **jelenleg nincs, aki karbantartsa az oldalát**.
+
+Ez a rendszer legerősebb objektív jele: nincs benne találgatás, és pont egy
+valódi, aktuális problémára tapint rá.
+
+```bash
+./leadgen.sh enrich dead-dev --dry     # először nézd meg
+./leadgen.sh enrich dead-dev           # élesben
+./leadgen.sh report --signal dead_dev  # az eredmény
+```
+
+Három kimenet lehet:
+
+| Eredmény | Mit jelent | Mi történik |
+|---|---|---|
+| 🔥 **DEAD** | a fejlesztő eltűnt | **top lead** — +35 pont |
+| ⭐ **DORMANT** | a fejlesztő él, de évek óta inaktív | jó lead — +20 pont |
+| ❌ **ALIVE** | aktív fejlesztő cég | nem lead — **a fejlesztő** tiltólistára kerül versenytársként |
+
+> **Az ALIVE ág ingyen ad versenytárs-térképet.** A megkeresett cég marad
+> lead; a *fejlesztője* kerül tiltólistára.
+
+### ⚠️ A DEAD találatokat NÉZD ÁT KÉZZEL
+
+Ebben a kampányban a levél **szó szerint tartalmazza a másik cég nevét**:
+
+> „...feltűnt, hogy a weboldalukat annak idején az **XY** készítette.
+> Úgy tűnik, ők már nem működnek."
+
+Ha a felismerés téved, az nem apró pontatlanság, hanem kínos. A
+`report --signal dead_dev` ezért kiírja a footer **szó szerinti szövegét** is
+— abból el tudod dönteni, jó-e a találat.
+
+> **Most miért nem talál semmit?** Mert a jelenlegi 60 céged **ügynökség** —
+> ők maguk készítik a saját weboldalukat, nincs footer-kreditük. Ez a jel a
+> hétköznapi kis- és középvállalatoknál működik (szerelő, fogorvos, gyártó),
+> akik a 9. folyamattal érkeznek majd.
+
+---
+
+## 8. folyamat — Hol tartunk?
 
 **Mikor:** bármikor. Ez a leggyakrabban használt parancs.
 
@@ -338,7 +384,7 @@ csak várakozó sort épít.
 
 ---
 
-## 8. folyamat — Első beállítás  *(egyszer kell)*
+## 9. folyamat — Első beállítás  *(egyszer kell)*
 
 Ha új gépre kerül a projekt:
 
@@ -358,7 +404,7 @@ python3 -c "import mailer; mailer.check_accounts()"
 
 ---
 
-## 9. folyamat — Modellek összehasonlítása (bake-off)
+## 10. folyamat — Modellek összehasonlítása (bake-off)
 
 **Mikor:** mielőtt nagy volumenű AI-leadszűrésre váltunk (9-10. fázis).
 

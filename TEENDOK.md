@@ -153,6 +153,36 @@ Formátum és útmutató: [evals/README.md](evals/README.md). ~40 perc.
 Ez dönti el, melyik olcsó modellre építsük a nagy volumenű leadgyűjtést.
 **A 10 határeset a te üzleti döntésed** — ezt AI nem tudja helyetted.
 
+### 3.4 A `dead_dev` kampány szövegének átírása *(8. fázis)*
+
+Elkészült a „halott fejlesztő" kampány **vázlata** a
+`cold-email-starter/templates.py`-ban (`deadev_cold`, `deadev_follow_up_1`,
+`deadev_follow_up_2`). A szöveg a terv javaslatából indul — **olvasd el és
+írd át a saját hangodra**, mielőtt élesbe menne.
+
+Miért más, mint az ügynökségi: ott partnert keresel (tegező, kollegiális),
+itt egy KKV-t szólítasz meg, akinek problémája van (magázó). A vázlat már
+magázó, de a megfogalmazás a tiéd.
+
+**Ez a kampány addig nem indul el**, amíg nincs benne lead — lásd lent.
+
+### 3.5 A DEAD találatok kézi átnézése *(amikor lesz találat)*
+
+```bash
+./leadgen.sh report --signal dead_dev
+```
+
+**A terv kemény szabálya:** *„Ha a footer-kredit nem egyértelmű, a lead
+inkább essen ki, mint hogy rossz nevet írj egy emailbe."*
+
+A levél szó szerint tartalmazza a fejlesztő nevét. A riport kiírja a footer
+eredeti szövegét — abból döntsd el, jó-e a találat. Nézz át **10 DEAD
+találatot**, mielőtt az első levél kimegy ebből a kampányból.
+
+> **Most nincs mit átnézni:** a jelenlegi 60 céged ügynökség, ők maguk
+> készítik a weboldalukat. Ez a jel a hétköznapi KKV-knál működik, akik a
+> 9. fázissal érkeznek.
+
 ---
 
 ## 🟢 4. Külső szolgáltatások — a következő fázisokhoz

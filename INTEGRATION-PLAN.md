@@ -21,7 +21,8 @@
 | **5.5 Leiratkozó link** | ✅ **KÉSZ** — a Netlify oldal élesben ellenőrizve |
 | **6. AI réteg** | 🟡 **agent-rész kész — API kulcs + 30 teszteset RÁD vár** |
 | **7. Email-validáció** | 🟡 **agent-rész kész — az ingyenes szűrő ÉLES, a fizetős kulcsra vár** |
-| 8-13. | ⬜ nem kezdődött el |
+| **8. Halott fejlesztő (8.2)** | 🟡 **agent-rész kész — 0 találat a mai listán (ügynökségek), a 9. fázistól lesz értéke** |
+| 9-13. | ⬜ nem kezdődött el |
 
 **A teljes lánc szárazon végigfutott valódi adattal.** Ami hátravan az 5. szakaszból,
 az egyetlen emberi lépés: elolvasni a 10 levelet, és elindítani a `--live` futást.
@@ -1496,7 +1497,7 @@ EMAIL_VALIDATION=full .venv/bin/python -m leadgen.cli export --dry   # újra
 
 ---
 
-## 8. szakasz — 8.2 „halott fejlesztő" enrichment `[külön session]`
+## 🟡 8. szakasz — 8.2 „halott fejlesztő" `[agent-rész kész: 2026-08-22]`
 
 **Cél:** a legerősebb objektív signal bekötése — és mivel **enrichment, nem source**,
 minden meglévő és jövőbeli leadre visszamenőleg lefut.
@@ -1512,7 +1513,42 @@ a `DEAD` fejlesztőjű cégek `signal_score`-ja +35-tel emelkedett; az `ALIVE` f
   *„Ha a footer-kredit nem egyértelmű, a lead inkább essen ki, mint hogy rossz nevet
   írj egy emailbe."*
 
-### Az agent feladatai
+### Az agent feladatai — ✅ mind kész
+
+**Amit a valós adat tanított** (49 letöltött oldal footere):
+
+| Talált | Miből |
+|---|---|
+| 7 oldalon illeszkedett a kulcsszó | |
+| ebből **1** volt valódi kredit | `marketingmost.hu` → Infiniteq |
+| 4 a cég **saját szolgáltatás-menüje** | „Weboldal készítés" menüpont, saját domainre mutat |
+| 1 stock-fotó kredit | „Photo design by: Freepik" |
+| 1 platform + tárhely | „Powered by WordPress", „Hosting: Smartsector" |
+
+A puszta kulcsszó tehát **~85%-ban téved**. A végleges szabály három feltételt
+köt össze, és **mindegyik szűkítést egy valós hamis pozitív indokolta**:
+
+1. kredit-minta a footerben
+2. link **a minta UTÁN**, 60 karakteren belül *(irányfüggő: a kredit
+   „Készítette: ‹link›" alakú — visszafelé keresve egy link-sűrű footerben
+   bármelyik korábbi link találna; mérve a `blog.hu` talált így)*
+3. a link idegen, nem-platform, nem-tárhely domainre mutat *(a hosting-kontextust
+   a link **szövegében is** nézi — az `onlinemarketing.hu` footere
+   `<a>Hosting: Smartsector</a>` alakú)*
+
+**Az eredmény a mai adaton:** 1 valódi találat / 6 hamis pozitív elutasítva,
+azaz 100% pontosság a mintán. A 30 aktív cégen **0 találat** — és ez a
+várt eredmény: a jelenlegi lista **ügynökségekből** áll, akik maguk készítik
+a saját weboldalukat. A 8.2 értéke a hétköznapi KKV-knál van, akik a
+9. szakasszal érkeznek.
+
+**A lecsengési görbe is megépült** (`leadgen/scoring.py`), bár ma nem
+változtat semmit: a jelenlegi két signal (8.1, 8.2) mindkettő a **lapos**
+görbén van. Azért kellett most, mert a 9. szakasz első signalja az
+álláshirdetés, ami a **meredek** görbén van — és akkor már nem lehet
+visszamenőleg átrendezni a sorrendet.
+
+**Az eredeti feladatlista:**
 
 1. Footer-kredit regex a **már letárolt** HTML-ből (`cache/`): `készítette|fejlesztette|
    webdesign|weboldal készítés|web design|powered by|design by|developed by` + az azt

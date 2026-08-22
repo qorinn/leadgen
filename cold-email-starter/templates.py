@@ -111,7 +111,7 @@ def _signature_informal() -> str:
     return _signature_lines("Üdv,")
 
 
-def _unsubscribe(lead: dict) -> str:
+def _unsubscribe(lead: dict, magazo: bool = False) -> str:
     """Kotelezo kilepesi lehetoseg. Ne rejtsd el, ne tedd korulmenyesse.
 
     Az EU-ban a hideg B2B megkereses jogalapja jellemzoen a jogos erdek
@@ -138,6 +138,12 @@ def _unsubscribe(lead: dict) -> str:
     (Integracios terv, 5. ellentmondas.)
     """
     url = (lead.get("unsub_url") or "").strip()
+    # A magazo kampanyokban (dead_dev) a tegezo mondat kirivo lenne. A ket
+    # valtozat kulonben szo szerint ugyanaz.
+    if magazo:
+        if url:
+            return f"Ha nem szeretne több levelet, itt tud leiratkozni:\n{url}"
+        return "Ha nem szeretne több levelet, írja vissza, hogy „stop”, és többet nem írok."
     if url:
         # A LINK KULON SORBAN VAN, es ez nem tipografia.
         # A torzs quoted-printable kodolassal megy (mailer.send), ami 76
@@ -234,8 +240,78 @@ Ha valaha aktuális lesz egy fejlesztő partner, szóljatok nyugodtan.
 # tehat nincs utkozes. Uj kampanyhoz UJ FUGGVENYEK kellenek, nem uj azonositok.
 #
 # Uj kampany felvetele: irj harom fuggvenyt, es vedd fel ide egy sorral.
+# ═══════════════════════════════════════════════════════════════════════════
+# HALOTT FEJLESZTO kampany (8.2)  --  ⚠️ VAZLAT, A SZOVEGET A FELHASZNALO IRJA
+#
+# A szoveg a SCRAPER-PLAN.md 8.2 fejezetenek javaslatabol indul. NE kuldd ki
+# addig, amig el nem olvastad es at nem irtad a sajat hangodra.
+#
+# MIERT MAS EZ, MINT AZ UGYNOKSEGI KAMPANY:
+# ott partnert keresel (kollegialis, tegezo), itt egy KKV-t szolitasz meg,
+# akinek problemaja van (magazo, tisztelettudo). Ugyanaz a sablon nem mukodik
+# mindketto helyett -- ezert van kulon kampany.
+#
+# A `personalization` mezobe a scraper a fejleszto nevet tartalmazo mondatot
+# irja (pl. "a weboldalukat annak idejen az Infiniteq keszitette").
+#
+# ⚠️ A LEGFONTOSABB: ebben a kampanyban a level SZO SZERINT tartalmazza egy
+# masik ceg nevet. Ha az felismeres teved, az nem apro pontatlansag, hanem
+# kinos. Ezert a 8.2 enrichment minden DEAD talalatat EMBER nezi at:
+#     ./leadgen.sh report --signal dead_dev
+# ═══════════════════════════════════════════════════════════════════════════
+
+def deadev_cold(lead: dict) -> dict:
+    """1. level. Kerdessel zarul, nem ajanlattal -- hogy a cimzett
+    elgondolkodjon, ne vedekezzen."""
+    body = f"""{_greeting(lead)}
+
+Weboldalakkal foglalkozom, és {_personalization(lead, "feltűnt, hogy a weboldalukat annak idején egy másik cég készítette, aki azóta már nem elérhető")}.
+
+Kihez fordulnak most, ha az oldalon valamit módosítani kell, vagy ha technikai probléma adódik?
+
+{_unsubscribe(lead, magazo=True)}
+
+{_signature()}"""
+    return {"subject": "Ki tartja karban a weboldalukat?", "body": body,
+            "template": "cold"}
+
+
+def deadev_follow_up_1(lead: dict) -> dict:
+    """2. level. ONALLO -- ne hivatkozz az elozore, a cimzett tobbnyire
+    NEM latta."""
+    body = f"""{_greeting(lead)}
+
+Weboldal-karbantartással és -fejlesztéssel foglalkozom, és néha megkeresek olyan cégeket, akiknek láthatóan nincs jelenleg fejlesztő partnerük.
+
+Nem sürgetni szeretném — csak jelezni, hogy ha egyszer elakadnak valamiben az oldalon, van kihez fordulniuk.
+
+{_unsubscribe(lead, magazo=True)}
+
+{_signature()}"""
+    return {"subject": "Weboldal karbantartás", "body": body,
+            "template": "follow_up_1"}
+
+
+def deadev_follow_up_2(lead: dict) -> dict:
+    """3. level. NEM igerunk "utoljara irok"-ot, ha megis irnank -- ez
+    valos ugyfelpanaszt eredmenyezett korabban."""
+    body = f"""{_greeting(lead)}
+
+Utolsó kérdés a témában: van most bárki, aki a weboldalukat kezeli?
+
+Ha van, akkor nyugodtan hagyják figyelmen kívül ezt a levelet. Ha nincs, szívesen ránézek egyszer, kötelezettség nélkül.
+
+{_unsubscribe(lead, magazo=True)}
+
+{_signature()}"""
+    return {"subject": "Weboldal karbantartás", "body": body,
+            "template": "follow_up_2"}
+
+
 CAMPAIGNS: dict[str, tuple] = {
     "agency_partner": (agency_cold, agency_follow_up_1, agency_follow_up_2),
+    # ⚠️ VAZLAT -- a szoveget a felhasznalo irja at, mielott elesbe menne.
+    "dead_dev": (deadev_cold, deadev_follow_up_1, deadev_follow_up_2),
 }
 
 DEFAULT_CAMPAIGN = "agency_partner"
