@@ -52,10 +52,18 @@ import httpx
 
 from . import config
 
-# Ezek a modellek MAR NEM fogadnak el sampling parametert (400-at adnak ra).
-# Ha uj modellt veszel fel a configba, ellenorizd, hogy melyik csoportba esik.
-_SAMPLING_TILTVA = ("claude-opus-5", "claude-opus-4-8", "claude-opus-4-7",
-                    "claude-sonnet-5", "claude-fable-5", "claude-mythos-5")
+# ⚠️ MERVE 2026-08-22, ELES HIVASSAL:
+# az `anthropic` SDK 1.0.0 `messages.create()` fuggvenyebol a `temperature`
+# parameter TELJESEN ELTUNT. Nem modellfuggo korlat -- a kwarg atadasa
+# `TypeError`-t dob, MEG AZELOTT, hogy barmilyen HTTP hivas tortenne.
+#
+# Ezert az Anthropic ag SOSEM kap temperature-t (lasd `_call_anthropic`),
+# es ez a lista mar csak az OPENAI oldalra vonatkozik: a reasoning-modellek
+# (o1/o3/o4) csak az alapertelmezett temperature-t fogadjak el.
+#
+# (A korabbi feltevesem az volt, hogy a claude-haiku-4-5 "meg elfogadja" --
+# ezt az elso valodi hivas cafolta meg. Pontosan ezert kell eles teszt.)
+_SAMPLING_TILTVA = ("o1", "o3", "o4")
 
 # A JSON-kimenet koruli szemet, amit a modellek neha ravesznek a valaszra.
 _JSON_FENCE = re.compile(r"^\s*```(?:json)?\s*|\s*```\s*$", re.I)
@@ -92,9 +100,14 @@ def provider_of(model: str) -> str:
         return "anthropic"
     if m.startswith("gemini"):
         return "gemini"
+    if m.startswith(("gpt-", "o1", "o3", "o4", "chatgpt")):
+        return "openai"
     raise LLMConfigError(
         f"ismeretlen modell: {model!r}\n"
-        "  A provider a nev elejebol derul ki: 'claude-*' vagy 'gemini*'."
+        "  A provider a nev elejebol derul ki:\n"
+        "    claude-*                  -> Anthropic\n"
+        "    gpt-* / o1 / o3 / o4      -> OpenAI\n"
+        "    gemini*                   -> Google"
     )
 
 
@@ -111,6 +124,8 @@ def _call_anthropic(model: str, system: str, user: str,
         )
 
     client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY, max_retries=3)
+    # `temperature` SZANDEKOSAN NINCS: az SDK 1.0.0-bol kikerult (lasd a
+    # _SAMPLING_TILTVA melletti magyarazatot). A parameter atadasa TypeError.
     kwargs: dict[str, Any] = {
         "model": model,
         "max_tokens": max_tokens,
@@ -120,9 +135,6 @@ def _call_anthropic(model: str, system: str, user: str,
                     "cache_control": {"type": "ephemeral"}}],
         "messages": [{"role": "user", "content": user}],
     }
-    if not model.startswith(_SAMPLING_TILTVA):
-        kwargs["temperature"] = temperature
-
     t0 = time.monotonic()
     try:
         resp = client.messages.create(**kwargs)
@@ -136,6 +148,13 @@ def _call_anthropic(model: str, system: str, user: str,
         raise LLMError(f"Anthropic API hiba {exc.status_code}: {exc}") from exc
     except anthropic.APIConnectionError as exc:
         raise LLMError(f"halozati hiba: {exc}") from exc
+    except TypeError as exc:
+        # Az SDK szignaturaja valtozott (mint a temperature eseteben 1.0.0-ban).
+        raise LLMConfigError(
+            f"az anthropic SDK nem fogadta el a parametereket: {exc}\n"
+            f"  Telepitett verzio: {anthropic.__version__}\n"
+            "  Ellenorizd a leadgen/llm.py `_call_anthropic` hivasat."
+        ) from exc
 
     # A `refusal` HTTP 200-zal jon, nem kivetellel -- kulon kell nezni.
     if getattr(resp, "stop_reason", None) == "refusal":
@@ -214,12 +233,120 @@ def _call_gemini(model: str, system: str, user: str,
     )
 
 
+# ─── OpenAI (BULK tier, 2026-08-22 ota ez az alapertelmezes) ───────────────
+#
+# MIERT httpx ES NEM AZ OPENAI SDK: ugyanaz az indok, mint a Gemininel --
+# egyetlen REST hivas nem indokol egy masodik nagy SDK-t a fuggosegek kozt.
+# (Az Anthropic oldalon SDK-t hasznalunk, mert ott a hivatalos ajanlas az,
+# es a tool use / caching retegek megis kellhetnek kesobb.)
+
+_OPENAI_URL = "https://api.openai.com/v1/chat/completions"
+
+
+def _call_openai(model: str, system: str, user: str,
+                 max_tokens: int, temperature: float) -> LLMResult:
+    if not config.OPENAI_API_KEY:
+        raise LLMConfigError(
+            "hianyzik az OPENAI_API_KEY a gyoker .env-bol.\n"
+            "  platform.openai.com -> API keys"
+        )
+
+    payload: dict[str, Any] = {
+        "model": model,
+        "messages": [
+            # A STABIL resz elol, a valtozo hatul -- ugyanaz a szerkezet,
+            # mint a masik ket providernel, a caching miatt.
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ],
+        # Az ujabb modellek `max_tokens` helyett ezt varjak. Ha a modell a
+        # regi nevet keri, a lenti hibakezeles atvalt.
+        "max_completion_tokens": max_tokens,
+        # JSON-mod: a modell garantaltan ervenyes JSON-t ad vissza. A
+        # promptjaink amugy is JSON-t kernek, tehat ez csak megerositi.
+        "response_format": {"type": "json_object"},
+    }
+    if not model.startswith(_SAMPLING_TILTVA):
+        payload["temperature"] = temperature
+
+    t0 = time.monotonic()
+    valasz = _openai_post(payload)
+
+    # ── Parameter-alapu visszaeses ────────────────────────────────────
+    # A modellcsaladok kulonbozo parametereket fogadnak el, es a nevek
+    # valtoznak (`max_tokens` -> `max_completion_tokens`, temperature-tiltas,
+    # JSON-mod tamogatas). Ahelyett, hogy modellenkent tablazatot vezetnenk
+    # -- ami elavulna --, a HIBAUZENETBOL tanulunk, egyszer, es ujraprobalunk.
+    for _ in range(3):
+        if valasz.status_code < 400:
+            break
+        szoveg = valasz.text[:600]
+        modositva = False
+        if "max_completion_tokens" in szoveg and "max_tokens" in szoveg:
+            payload["max_tokens"] = payload.pop("max_completion_tokens", max_tokens)
+            modositva = True
+        elif "temperature" in szoveg and "temperature" in payload:
+            payload.pop("temperature")
+            modositva = True
+        elif "response_format" in szoveg and "response_format" in payload:
+            payload.pop("response_format")
+            modositva = True
+        if not modositva:
+            break
+        valasz = _openai_post(payload)
+
+    r = valasz
+    if r.status_code == 401:
+        raise LLMConfigError(f"ervenytelen OPENAI_API_KEY: {r.text[:200]}")
+    if r.status_code == 404:
+        raise LLMConfigError(f"ismeretlen OpenAI modell: {model} ({r.text[:200]})")
+    if r.status_code == 429:
+        raise LLMError(f"OpenAI rate limit / elfogyott kredit: {r.text[:300]}")
+    if r.status_code >= 400:
+        raise LLMError(f"OpenAI API hiba {r.status_code}: {r.text[:400]}")
+
+    data = r.json()
+    choices = data.get("choices") or []
+    if not choices:
+        raise LLMError(f"az OpenAI nem adott valaszt: {json.dumps(data)[:300]}")
+
+    uzenet = choices[0].get("message") or {}
+    text = uzenet.get("content") or ""
+    # A `length` finish_reason csonka JSON-t jelent -- ezt NEM nyeljuk el,
+    # kulonben a parse hibaja utan talalgatnank, mi tortent.
+    if choices[0].get("finish_reason") == "length" and not text.rstrip().endswith("}"):
+        raise LLMError("a valasz elfogyott a token-keret miatt (novelt max_tokens kell)")
+
+    usage = data.get("usage") or {}
+    reszletek = usage.get("prompt_tokens_details") or {}
+    return LLMResult(
+        text=text,
+        model=data.get("model") or model,
+        latency_ms=int((time.monotonic() - t0) * 1000),
+        input_tokens=usage.get("prompt_tokens", 0) or 0,
+        output_tokens=usage.get("completion_tokens", 0) or 0,
+        cached_tokens=reszletek.get("cached_tokens", 0) or 0,
+    )
+
+
+def _openai_post(payload: dict):
+    try:
+        return httpx.post(
+            _OPENAI_URL, json=payload, timeout=120.0,
+            headers={"Authorization": f"Bearer {config.OPENAI_API_KEY}",
+                     "Content-Type": "application/json"},
+        )
+    except httpx.HTTPError as exc:
+        raise LLMError(f"halozati hiba (OpenAI): {exc}") from exc
+
+
 # ─── Kozos belepesi pontok ─────────────────────────────────────────────────
 
 def call(model: str, system: str, user: str, *,
          max_tokens: int = 1500, temperature: float = 0.0) -> LLMResult:
     """Egy hivas a megadott modellre. Hiba eseten DOB, sosem ad defaultot."""
-    dispatch = {"anthropic": _call_anthropic, "gemini": _call_gemini}
+    dispatch = {"anthropic": _call_anthropic, "gemini": _call_gemini,
+                "openai": _call_openai}
     return dispatch[provider_of(model)](model, system, user, max_tokens, temperature)
 
 
@@ -280,9 +407,35 @@ def json_call(model: str, system: str, user: str, *,
     raise LLMError(f"{retries + 1} probalkozas utan sem adott ervenyes JSON-t: {last}")
 
 
+_KULCS = {
+    "anthropic": ("ANTHROPIC_API_KEY", "console.anthropic.com -> API keys"),
+    "openai": ("OPENAI_API_KEY", "platform.openai.com -> API keys"),
+    "gemini": ("GEMINI_API_KEY", "aistudio.google.com -> Get API key"),
+}
+
+
+def kulcs_hianyzik(model: str) -> str:
+    """Ures string, ha a modellhez van kulcs. Kulonben beszedes uzenet.
+
+    A PROVIDERBOL vezetjuk le, nem bedrotozott nevbol: igy egy modellvaltas
+    (`.env`) utan a hibauzenet is a HELYES kulcsot keri, nem a regit.
+    """
+    provider = provider_of(model)
+    nev, honnan = _KULCS[provider]
+    if getattr(config, nev, ""):
+        return ""
+    return (f"nincs {nev} a gyoker .env-ben (a(z) {model!r} modellhez kell)\n"
+            f"  {honnan}")
+
+
 def available() -> dict[str, bool]:
     """Melyik tier hivhato. A CLI ebbol ad beszedes hibat kulcs nelkul."""
+    def ok(model: str) -> bool:
+        try:
+            return not kulcs_hianyzik(model)
+        except LLMConfigError:
+            return False
     return {
-        "bulk": bool(config.GEMINI_API_KEY),
-        "quality": bool(config.ANTHROPIC_API_KEY),
+        "bulk": ok(config.LLM_BULK_MODEL),
+        "quality": ok(config.LLM_QUALITY_MODEL),
     }

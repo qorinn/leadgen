@@ -53,11 +53,21 @@ művezető gyárban, fix telephelyen (nincs terepi elem).
 ## Futtatás
 
 ```bash
-./leadgen.sh eval bakeoff --model gemini-2.5-flash-lite
-./leadgen.sh eval bakeoff --model claude-haiku-4-5
-./leadgen.sh eval bakeoff --model gemini-2.5-flash-lite --model claude-haiku-4-5   # egymás mellett
-./leadgen.sh eval robustness --model gemini-2.5-flash-lite
+./leadgen.sh eval bakeoff --model gpt-5.6-luna
+./leadgen.sh eval bakeoff --model gpt-5.6-luna --model gpt-5-nano   # egymás mellett
+./leadgen.sh eval robustness --model gpt-5.6-luna
 ```
+
+**Jelöltek, amiket érdemes egymás mellé tenni** (a provider a modellnévből
+derül ki, tehát bármelyik mehet ugyanabba a futásba):
+
+| Modell | Miért jelölt |
+|---|---|
+| `gpt-5.6-luna` | jelenlegi alapértelmezés — a legolcsóbb OpenAI tier |
+| `gpt-5-nano` | az előző generáció ugyanebben a szerepben |
+| `gpt-5.6-terra` | drágább, de erősebb — megéri-e a különbség? |
+| `gemini-2.5-flash-lite` | ha visszatérnél a Geminire |
+| `claude-haiku-4-5` | a QUALITY tier modellje, összehasonlításnak |
 
 **Ezt a fájlt verziókövesd.** Ez a rendszer első és sokáig egyetlen evalja:
 fél év múlva egy új modellnél ugyanez a 30 eset 2 perc alatt megmondja,

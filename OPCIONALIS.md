@@ -9,7 +9,22 @@
 
 ## A) Már megbeszéltük
 
-### A1. Gemini → GPT csere  `~30 perc`
+### A1. ~~Gemini → GPT csere~~ — ✅ **KÉSZ (2026-08-22)**
+
+**Elkészült, a becsült ~30 perc tartott.** Az OpenAI a BULK tier
+alapértelmezése; a **Gemini-integráció érintetlenül megmaradt** a
+`llm.py`-ban, egy `.env` sorral visszakapcsolható.
+
+Amit a csere igényelt (pontosan annyi, amennyit becsültem):
+egy új függvény (`_call_openai`), a névfelismerés bővítése, egy kulcs a
+configban. **A hívó oldalak — `score.py`, `classify.py`, `evals.py` — egyetlen
+karakterrel sem változtak.**
+
+Egy dolgot menet közben javítani kellett: a hibaüzenetek bedrótozva kérték a
+`GEMINI_API_KEY`-t. Modellváltás után ez rossz kulcsot kért volna. Most a
+**providerből** vezetjük le (`llm.kulcs_hianyzik`), tesztsorral védve.
+
+<details><summary>Az eredeti leírás</summary>
 
 **Miről szól:** jelenleg két AI-szolgáltató van bedrótozva — a Claude (válasz-
 értelmezés) és a Gemini (nagy volumenű leadszűrés, még nincs éles feladata).
@@ -32,6 +47,8 @@ találgassunk: ugyanaz a 30 teszteset, három modell, a mérés dönt.
 A terv ártáblázata szerint a `gpt-5-nano` a legolcsóbb jelölt.
 
 > Ehhez OpenAI API kulcs kell, és a 30 teszteset ([TEENDOK.md](TEENDOK.md) 3.3).
+
+</details>
 
 ---
 

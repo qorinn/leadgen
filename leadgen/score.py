@@ -40,7 +40,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 
-from . import config, db, grounding, llm, prompts
+from . import config, db, grounding, llm, pricing, prompts
 
 # A terv A/5 kuszobe: e felett FIT. Ugyanaz a szam, amit a bake-off mer.
 FIT_KUSZOB = 70
@@ -65,6 +65,9 @@ class ScoreStats:
     personalization_bukas: int = 0
     hiba: int = 0
     kampanyok: dict[str, int] = field(default_factory=dict)
+    # MODELLENKENTI tokenszam es koltseg. A szolgaltatok dashboardja lassan
+    # frissul es OSSZEVONJA a modelleket -- ezert vezetjuk mi is.
+    konyv: pricing.Konyveles = field(default_factory=pricing.Konyveles)
 
     @property
     def grounding_arany(self) -> float:
@@ -140,7 +143,7 @@ def _forrasszoveg(company_id) -> tuple[str, dict]:
     return szoveg, rs
 
 
-def _osztalyoz(rs: dict, szoveg: str) -> tuple[dict, str]:
+def _osztalyoz(rs: dict, szoveg: str) -> tuple[dict, str, object]:
     user = prompts.lead_classifier_user(
         forras="Profession.hu allashirdetes",
         ceg=rs.get("company") or "(ismeretlen)",
@@ -148,9 +151,9 @@ def _osztalyoz(rs: dict, szoveg: str) -> tuple[dict, str]:
         szoveg=szoveg[:12000],
     )
     model = config.LLM_BULK_MODEL
-    data, _ = llm.json_call(model, prompts.LEAD_CLASSIFIER_SYSTEM, user,
-                            max_tokens=1500)
-    return data, model
+    data, result = llm.json_call(model, prompts.LEAD_CLASSIFIER_SYSTEM, user,
+                                 max_tokens=1500)
+    return data, model, result
 
 
 def _szam(ertek, alap: float = 0.0) -> float:
@@ -161,7 +164,7 @@ def _szam(ertek, alap: float = 0.0) -> float:
 
 
 def _personalization(rs: dict, evidence: list, szoveg: str,
-                     stats: ScoreStats) -> str:
+                     stats: ScoreStats, kampany: str = "") -> str:
     """A QUALITY tier magyar mondata. Bukas eseten URES -> sablon-email.
 
     A bemenete a MAR GROUNDOLT idezet: olyat adunk a modellnek, amirol mar
@@ -174,14 +177,22 @@ def _personalization(rs: dict, evidence: list, szoveg: str,
     if not idezet:
         return ""
     try:
-        r = llm.quality(prompts.PERSONALIZATION_SYSTEM,
+        magazo = kampany not in prompts.TEGEZO_KAMPANYOK
+        r = llm.quality(prompts.personalization_system(magazo, kampany),
                         prompts.personalization_user(
-                            rs.get("company") or "", idezet),
-                        max_tokens=300)
+                            rs.get("company") or "", idezet,
+                            forras="Profession.hu álláshirdetés"),
+                        # 1000, nem 300: a reasoning-modellek (gpt-5.6-*)
+                        # a BELSO gondolkodasra is a kimeneti keretbol
+                        # fogyasztanak. Merve: a luna 300-nal csonka valaszt
+                        # adott egyetlen mondatra. A magasabb plafon nem kerul
+                        # semmibe -- csak a TENYLEG hasznalt token szamlazodik.
+                        max_tokens=1000)
     except llm.LLMError:
         stats.personalization_bukas += 1
         return ""
 
+    stats.konyv.add_result(r)
     mondat = " ".join((r.text or "").split()).strip().strip('"')
     if not mondat or len(mondat) > 350:
         stats.personalization_bukas += 1
@@ -225,7 +236,8 @@ def run(limit: int = 20, dry: bool = False, verbose: bool = True) -> ScoreStats:
             continue
 
         try:
-            data, model = _osztalyoz(rs, szoveg)
+            data, model, result = _osztalyoz(rs, szoveg)
+            stats.konyv.add_result(result)
         except llm.LLMConfigError:
             raise                       # kulcs hianyzik -> alljon meg az egesz
         except Exception as exc:  # noqa: BLE001
@@ -274,7 +286,7 @@ def run(limit: int = 20, dry: bool = False, verbose: bool = True) -> ScoreStats:
 
         szemelyre = ""
         if fit and wa >= PERSONALIZATION_KUSZOB:
-            szemelyre = _personalization(rs, g.megtartott, szoveg, stats)
+            szemelyre = _personalization(rs, g.megtartott, szoveg, stats, kampany)
 
         _atvezet(row, wa, ws, mo, ajanlat, kampany, fit, g, data,
                  model, szemelyre)
@@ -342,6 +354,8 @@ def _riport(stats: ScoreStats, dry: bool) -> None:
         if stats.personalization_bukas:
             print(f"  sikertelen: {stats.personalization_bukas} "
                   f"-> ezek SABLON-emailt kapnak, nem esnek ki")
+
+    stats.konyv.riport("TOKENEK ES KOLTSEG (ez a futas)")
 
     if dry:
         print("\n[SZARAZ FUTAS] Semmi nem lett elmentve.")

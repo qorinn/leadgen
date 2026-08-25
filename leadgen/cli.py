@@ -20,7 +20,7 @@ import argparse
 import sys
 
 from . import (classify, config, db, deadev, dev, engines, evals, export,
-               feedback, llm, pipeline, report, score)
+               feedback, llm, llmcheck, pipeline, report, score)
 from .sources import maps, profession
 
 
@@ -133,10 +133,19 @@ def _cmd_ingest_ops_pain(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_llm_check(args: argparse.Namespace) -> int:
+    if args.summary:
+        llmcheck.osszesites()
+        return 0
+    models = args.model or [config.LLM_BULK_MODEL, config.LLM_QUALITY_MODEL]
+    return llmcheck.run(models, ismetles=args.repeat,
+                        keret_usd=args.budget, dry=args.dry)
+
+
 def _cmd_score(args: argparse.Namespace) -> int:
-    if not llm.available()["bulk"]:
-        print("HIBA: nincs GEMINI_API_KEY a gyoker .env-ben.")
-        print("  aistudio.google.com -> Get API key")
+    hiany = llm.kulcs_hianyzik(config.LLM_BULK_MODEL)
+    if hiany:
+        print(f"HIBA: {hiany}")
         print("  (vagy allitsd at a LLM_BULK_MODEL-t olyan modellre, amihez van kulcsod)")
         return 1
     score.run(limit=args.limit, dry=args.dry)
@@ -171,15 +180,18 @@ def _cmd_report(args: argparse.Namespace) -> int:
 
 
 def _cmd_classify_replies(args: argparse.Namespace) -> int:
-    if not llm.available()["quality"]:
-        print("HIBA: nincs ANTHROPIC_API_KEY a gyoker .env-ben.")
-        print("  console.anthropic.com -> API keys")
+    hiany = llm.kulcs_hianyzik(config.LLM_QUALITY_MODEL)
+    if hiany:
+        print(f"HIBA: {hiany}")
         return 1
     classify.run(limit=args.limit, dry=args.dry)
     return 0
 
 
 def _cmd_eval_bakeoff(args: argparse.Namespace) -> int:
+    # Az alapertelmezes a configbol jon, nem a parserbol: igy a .env-ben
+    # beallitott modell szamit alapnak, es nem kell ket helyen irni.
+    args.model = args.model or [config.LLM_BULK_MODEL]
     esetek = evals.betolt()
     csoportok: dict[str, int] = {}
     for e in esetek:
@@ -203,7 +215,13 @@ def _cmd_eval_bakeoff(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_eval_sentences(args: argparse.Namespace) -> int:
+    models = args.model or [config.LLM_QUALITY_MODEL]
+    return evals.mondatok(models, limit=args.limit)
+
+
 def _cmd_eval_robustness(args: argparse.Namespace) -> int:
+    args.model = args.model or [config.LLM_BULK_MODEL]
     for model in args.model:
         print(f"\n{'=' * 60}\n{model} -- robusztussagi teszt (terv C)\n{'=' * 60}")
         evals.robusztussag(model)
@@ -364,6 +382,14 @@ def build_parser() -> argparse.ArgumentParser:
     bo.add_argument("--model", action="append", default=None,
                     help="tobbszor is megadhato -- egymas mellett meri oket")
     bo.set_defaults(func=_cmd_eval_bakeoff)
+    ms = ev_sub.add_parser("sentences",
+                           help="B) teszt: personalization mondatok VAKON")
+    ms.add_argument("--model", action="append", default=None,
+                    help="tobbszor is megadhato (alap: a QUALITY modell)")
+    ms.add_argument("--limit", type=int, default=8,
+                    help="ennyi leadre generaljon mondatot")
+    ms.set_defaults(func=_cmd_eval_sentences)
+
     rb = ev_sub.add_parser("robustness", help="tamado bemenetek (terv C)")
     rb.add_argument("--model", action="append", default=None)
     rb.set_defaults(func=_cmd_eval_robustness)
@@ -413,6 +439,20 @@ def build_parser() -> argparse.ArgumentParser:
                     help="minden kereses fusson, meg a ma mar lefuttatottak is")
     op.set_defaults(func=_cmd_ingest_ops_pain)
 
+    lc = sub.add_parser("llm-check",
+                        help="eles API-teszt: mukodik-e, es MENNYIBE kerul")
+    lc.add_argument("--model", action="append", default=None,
+                    help="tobbszor is megadhato (alap: a ket beallitott modell)")
+    lc.add_argument("--repeat", type=int, default=1,
+                    help="ennyi hivas modellenkent")
+    lc.add_argument("--budget", type=float, default=0.50,
+                    help="koltsegfek USD-ben: e felett el sem indul")
+    lc.add_argument("--dry", action="store_true",
+                    help="csak a becsult koltseg -- NEM hiv API-t")
+    lc.add_argument("--summary", action="store_true",
+                    help="az eddigi merések osszesitese modellenkent")
+    lc.set_defaults(func=_cmd_llm_check)
+
     sc = sub.add_parser("score", help="AI-minosites + evidence grounding (10. szakasz)")
     sc.add_argument("--limit", type=int, default=20)
     sc.add_argument("--dry", action="store_true",
@@ -455,10 +495,6 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    # A --model alapertelmezese a configbol jon, nem a parserbol: igy a
-    # .env-ben beallitott modell szamit alapnak, es nem kell ket helyen irni.
-    if "model" in vars(args) and args.model is None:
-        args.model = [config.LLM_BULK_MODEL]
     return args.func(args)
 
 

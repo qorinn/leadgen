@@ -125,21 +125,39 @@ cd .. && ./leadgen.sh feedback
 
 ## 🟡 3. AI réteg — a kód kész, ez hiányzik
 
-### 3.1 Két API kulcs — most már MINDKETTŐ kell
+### 3.1 Két API kulcs + EGY SOR ÁTÍRÁSA a `.env`-ben
 
-**Korábban azt írtam, hogy a Gemini kulcsra nincs szükséged. Ez a 10. fázissal
-megváltozott:** a hirdetés-minősítést a BULK (olcsó) modell végzi, mert napi
-több száz hirdetésről van szó.
+**A Gemini helyett OpenAI-t használunk** (2026-08-22, a te döntésed alapján).
+A Gemini-integráció **nincs törölve** — egy sorral bármikor visszakapcsolható.
 
-| Kulcs | Mire kell | Honnan |
+A **gyökér** `.env`-be:
+
+```
+OPENAI_API_KEY=sk-...          # platform.openai.com → API keys
+ANTHROPIC_API_KEY=sk-ant-...   # console.anthropic.com → API keys
+```
+
+**⚠️ És írd át ezt a meglévő sort** — a `.env`-edben jelenleg a Gemini modell
+szerepel, ami felülírja az új alapértelmezést:
+
+```
+LLM_BULK_MODEL=gpt-5.6-luna    # ← ezt cseréld (most: gemini-2.5-flash-lite)
+```
+
+| Kulcs | Mire kell | Mennyi hívás |
 |---|---|---|
-| `GEMINI_API_KEY` | hirdetések minősítése (sok, olcsó) | aistudio.google.com → Get API key |
-| `ANTHROPIC_API_KEY` | válasz-értelmezés + magyar mondatok (kevés, jó) | console.anthropic.com → API keys |
+| `OPENAI_API_KEY` | hirdetések minősítése | sok, olcsó modell |
+| `ANTHROPIC_API_KEY` | válasz-értelmezés + magyar mondatok | kevés, jó modell |
 
-Mindkettő a **gyökér** `.env`-be. A `score` parancs a Gemini nélkül beszédes
-hibával megáll, nem csendben.
+**Ha a modellnév nem stimmel**, a program beszédes hibával megáll (nem
+csendben), és kiírja, melyik kulcs hiányzik. Ha a `gpt-5.6-luna` nem érhető el
+a fiókodban, szólj — a `.env`-ben bármelyik OpenAI modellre átírható
+(`gpt-5.6-terra`, `gpt-5-nano`, ...), a kód nem változik.
 
-### 3.1b Anthropic (Claude) API kulcs
+**Visszatérés a Geminire** bármikor, egy sorral:
+`LLM_BULK_MODEL=gemini-2.5-flash-lite` + `GEMINI_API_KEY=...`
+
+### 3.2 Anthropic kulcs — részletek
 
 `console.anthropic.com` → API keys → a **gyökér** `.env`-be:
 
@@ -224,7 +242,107 @@ cd cold-email-starter && python3 preview.py
 **Amíg ezt nem teszed meg, ezekből nem megy ki levél.** A 10 ügynökségi
 leaded ettől függetlenül megy tovább.
 
-### 3.7 Olvass el 20 AI-generált mondatot *(a `score` első futása után)*
+### 3.7 ⚠️ DÖNTSD EL: melyik modell írja a mondatokat  ← *ez most aktuális*
+
+**Lefuttattam az első éles AI-tesztet.** Az eredmény: **a mondatok jelenlegi
+formájukban nem küldhetők ki**, és ez nem a te hibád — a terv szerint ilyenkor
+a prompton kell javítani, amit meg is tettem. De a **modellválasztás a tiéd.**
+
+Amit ugyanazon a bemeneten mértem (3-3 mondat):
+
+| | `claude-haiku-4-5` | `claude-sonnet-5` |
+|---|---|---|
+| ár 1000 mondatra | **~$0,60** | ~$3,00 |
+| nyelvhelyesség | *„fektetek hangsúlyt"*, *„Az H-Control"* | rendben |
+| tartalmi hiba | *„sok cégnél ez elég hanyag szokott lenni"* (sértő!) | *„a honlapon szereplő leírásból"* (rossz forrás) |
+
+A **forrás-hibát javítottam** (a prompt most megkapja, honnan az idézet).
+Utána a Sonnet ezt adta:
+
+> *„A Profession.hu-n megjelent álláshirdetésükben a szerviz részleg napi
+> működésének koordinálását nevezték meg a pozíció egyik feladataként."*
+
+**Készítettem hozzá vak összehasonlítót**, mert ezt látni kell, nem elhinni:
+
+```bash
+./leadgen.sh eval sentences --limit 9 \
+  --model gpt-5.6-luna --model claude-haiku-4-5 --model claude-sonnet-5
+```
+
+Ez ugyanarra a 9 valódi leadre generál mondatot mindhárom modellel, **véletlen
+sorrendben összekeverve**, és a megfejtés a fájl végén van elrejtve. Így nem
+befolyásol, hogy melyiket melyik írta.
+
+**A már elkészült lista:** [evals/mondatok-2026-08-24.md](evals/mondatok-2026-08-24.md)
+Olvasd végig, jelöld be mondatonként, melyiket küldenéd ki — **és csak utána**
+nézd meg a megfejtést. A terv szerint érdemes másnap nekiülni.
+
+**A skálázott költség (mérve, nem becsülve):**
+
+| modell | 1 mondat | 333 lead/nap | havonta |
+|---|---|---|---|
+| `gpt-5.6-luna` | $0,00016 | $0,05 | **$1,64** |
+| `claude-haiku-4-5` | $0,00073 | $0,24 | **$7,28** |
+| `claude-sonnet-5` | $0,00298 | $0,99 | **$29,72** |
+
+> ⚠️ **A mondat leadenként készül egyszer**, és mind a 3 levélben ugyanaz.
+> Napi 1000 **levél** tehát ~333 új **lead** — nem 1000 mondat. Az 5x szorzó
+> így havi ~$22 különbséget jelent, nem havi százakat.
+
+**A döntésed (2026-08-25): `gpt-5.6-luna`** — legolcsóbb és a legtermészetesebb.
+
+```
+LLM_QUALITY_MODEL=gpt-5.6-luna
+```
+
+> ⚠️ **Egy dolgot mérlegelj, mielőtt átírod.** A `LLM_QUALITY_MODEL` nem csak
+> a mondatokat írja — a **válasz-értelmezés** is ezt használja
+> (`classify-replies`), és ott az `unsubscribe` / `negative` címke
+> **véglegesen** kizár egy céget.
+>
+> A mondatokat vakon összehasonlítottad, a válasz-értelmezést nem. Ha
+> óvatos akarsz lenni, a kettő szétválasztható: a mondatok mehetnek Lunával,
+> a válasz-értelmezés maradhat Claude-on. Szólj, és beállítom külön
+> kapcsolóval — most közös.
+
+---
+
+### ⚠️ FRISSÍTVE a vak teszted után (2026-08-24)
+
+**A visszajelzésed alapján két dolgot átírtam**, és mindkettő megváltoztatja
+a képet:
+
+**1. A prompt most a MUNKÁRÓL ír, nem a hirdetésről.** Igazad volt: a régi
+prompt parafrazeálásra ösztönzött, és egy szóval sem mondta meg a modellnek,
+hogy te mit csinálsz — így nem tudta, melyik szálat emelje ki.
+
+**2. Egy mondat helyett 2-3 mondat** (max. 60 szó). A terv az egy mondatot a
+Tier B szintre szánta; a Tier A-ra maga is „konkrét tény + konkrét probléma"-t
+ír elő, ami egy mondatba nem fér bele.
+
+**3. A költségkép is megváltozott.** Az új, hosszabb prompt átlépte az
+Anthropic cache-küszöbét — de **csak a Sonnetnél** (a Haiku minimum
+cache-mérete magasabb). Mérve, 333 lead/nap mellett:
+
+| modell | cache | havonta |
+|---|---|---|
+| `claude-haiku-4-5` | nem kap | ~$13,2 |
+| `claude-sonnet-5` | **meleg** | ~$15,5 *(1 mondat)* / ~$28 *(2-3 mondat)* |
+
+**A 3x-os listaár a gyakorlatban ~17%-ra olvadt.** A költség-ellenérv a
+Sonnettel szemben lényegében megszűnt.
+
+**Új vak lista kell** — a régi már az előző prompttal készült:
+
+```bash
+./leadgen.sh eval sentences --limit 9 \
+  --model gpt-5.6-luna --model claude-haiku-4-5 --model claude-sonnet-5
+```
+
+> A Haiku *„hanyag szokott lenni"* mondata jól mutatja, miért kell ez az emberi
+> kör: nyelvtanilag jó, de **sértő** — és semmi nem jelezte volna automatikusan.
+
+### 3.8 Olvass el 20 AI-generált mondatot *(a `score` nagyobb futása után)*
 
 ```bash
 ./leadgen.sh report --grounding

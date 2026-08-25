@@ -35,7 +35,7 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import config, llm, prompts
+from . import config, llm, pricing, prompts
 
 BAKEOFF_PATH = config.BASE / "evals" / "bakeoff-30.jsonl"
 
@@ -219,6 +219,17 @@ def tablazat(eredmenyek: list[ModelResult]) -> None:
         ("Atlag valaszido", lambda r: (f"{sum(r.latency_ms) // len(r.latency_ms)} ms"
                                        if r.latency_ms else "-")),
         ("Token be/ki", lambda r: f"{r.input_tokens}/{r.output_tokens}"),
+        # A KOLTSEG a bake-off dontetlenjenel dont (terv A/6: "Egyenlosegnel
+        # az olcsobb"). A szolgaltato dashboardja osszevonja a modelleket,
+        # ezert sajat szamitas kell.
+        ("$ (szamitott)", lambda r: (
+            f"${k:.6f}" if (k := pricing.cost_usd(
+                r.model, r.input_tokens, r.output_tokens)) is not None
+            else "ismeretlen ar")),
+        ("$ / 1000 lead", lambda r: (
+            f"${k / r.osszes * 1000:.2f}" if r.osszes and (k := pricing.cost_usd(
+                r.model, r.input_tokens, r.output_tokens)) is not None
+            else "-")),
     ]
 
     print()
@@ -310,3 +321,145 @@ def robusztussag(model: str, verbose: bool = True) -> dict:
             print("  idegenek irjak -- ezzel a modellel barki felnyomhatna a sajat")
             print("  pontszamat. Valassz masik modellt, vagy erositsd a promptot.")
     return stats
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  B) TESZT — personalization mondatok, VAKON
+#
+#  A terv B/3 pontja: "Ez az egyetlen teszt, ahol TE vagy a merőműszer."
+#  Nincs objektiv helyes valasz -- a kriterium az, hogy egy magyar cegvezeto
+#  termeszetesnek olvassa-e.
+#
+#  MIERT VAKON: a terv B/3 gyakorlati trukkje szerint "a modellek mondatait
+#  keverd ossze egy listaban, FORRAS NELKUL". Ha latod, melyiket melyik irta,
+#  az befolyasol -- a dragabb modelltol onkentelenul jobbat varsz, es abba az
+#  iranyba olvasod a mondatot. A vak osszehasonlitas ezt zarja ki.
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _mondat_bemenetek(limit: int) -> list[dict]:
+    """Valodi leadek, amikhez mar van GROUNDOLT idezet.
+
+    Szandekosan valodi adat: egy kitalalt pelda-mondaton minden modell jol
+    teljesit. A kulonbseg a valodi, esetlen magyar hirdetes-szovegeken latszik.
+    """
+    from . import db
+    rows = db.query("""
+        select company_name, evidence, campaign
+          from companies
+         where scored_at is not null and evidence is not null
+         order by scored_at desc limit %s
+    """, (limit,))
+    ki = []
+    for r in rows:
+        ev = (r["evidence"] or {}).get("evidence") or []
+        if ev and str(ev[0].get("quote") or "").strip():
+            ki.append({"ceg": r["company_name"],
+                       "idezet": str(ev[0]["quote"]),
+                       "kampany": r["campaign"] or ""})
+    return ki
+
+
+def mondatok(models: list[str], limit: int = 10,
+             kimenet: Path | None = None) -> int:
+    """A B) teszt: ugyanaz a bemenet, tobb modell, VAK osszehasonlitas."""
+    import random
+    from . import db, pricing
+
+    bemenetek = _mondat_bemenetek(limit)
+    if not bemenetek:
+        print("Nincs mihez mondatot generalni.")
+        print("  Eloszor minositeni kell: ./leadgen.sh score --limit 5")
+        return 1
+
+    konyv = pricing.Konyveles()
+    # eredmenyek[i] = {model: mondat}
+    eredmenyek: list[dict[str, str]] = []
+
+    print(f"{len(bemenetek)} bemenet x {len(models)} modell = "
+          f"{len(bemenetek) * len(models)} hivas\n")
+
+    for b in bemenetek:
+        sor: dict[str, str] = {}
+        magazo = b["kampany"] not in prompts.TEGEZO_KAMPANYOK
+        for model in models:
+            try:
+                r = llm.call(model, prompts.personalization_system(magazo, b['kampany']),
+                             prompts.personalization_user(
+                                 b["ceg"], b["idezet"],
+                                 forras="Profession.hu álláshirdetés"),
+                             max_tokens=1000)   # lasd score.py: reasoning-keret
+            except Exception as exc:  # noqa: BLE001
+                sor[model] = f"[HIBA: {str(exc)[:80]}]"
+                continue
+            konyv.add_result(r)
+            sor[model] = " ".join((r.text or "").split()).strip().strip('"')
+        eredmenyek.append(sor)
+        print(f"  ✓ {b['ceg'][:40]}")
+
+    # ─── A VAK LISTA ─────────────────────────────────────────────────
+    kimenet = kimenet or (config.BASE / "evals" /
+                          f"mondatok-{_ma()}.md")
+    kimenet.parent.mkdir(parents=True, exist_ok=True)
+
+    # Bemenetenkent MAS sorrend: igy nem lehet kitalalni, hogy "az elso
+    # mindig az A modell".
+    kulcs: list[list[str]] = []
+    sorok = ["# Mondat-összehasonlítás — VAK\n",
+             "> Ne nézd meg a végét, amíg végig nem olvastad.\n",
+             "> Kritérium (terv B/3): **kiküldenéd a saját neveddel?**\n",
+             "> Természetes a szórend? Nincs tükörfordítás-szag? Nem hízeleg?",
+             "> Tényleg abból indul ki, ami az idézetben van?\n"]
+
+    for i, (b, sor) in enumerate(zip(bemenetek, eredmenyek), 1):
+        kevert = list(models)
+        random.shuffle(kevert)
+        kulcs.append(kevert)
+        sorok.append(f"\n---\n\n## {i}. {b['ceg']}\n")
+        sorok.append(f"**Az idézet, amiből dolgozott:**\n> {b['idezet']}\n")
+        for jel, model in zip("ABCD", kevert):
+            sorok.append(f"\n**{jel})** {sor.get(model, '(nincs)')}\n")
+        sorok.append("\nMelyiket küldenéd ki? ______\n")
+
+    sorok.append("\n\n---\n\n<details><summary>MEGFEJTÉS — csak a végén</summary>\n\n")
+    for i, kevert in enumerate(kulcs, 1):
+        parok = ", ".join(f"{jel}={m}" for jel, m in zip("ABCD", kevert))
+        sorok.append(f"{i}. {parok}\n")
+    sorok.append("\n</details>\n")
+    kimenet.write_text("".join(sorok), encoding="utf-8")
+
+    konyv.riport("EZ A MERES KOLTSEGE")
+    _skala(konyv, len(bemenetek))
+
+    print(f"\n>>> A VAK LISTA: {kimenet}")
+    print("    Olvasd vegig, dontsd el mondatonkent, ES CSAK UTANA nezd meg")
+    print("    a vegen a megfejtest. A terv szerint erdemes MASNAP elolvasni.")
+    return 0
+
+
+def _ma() -> str:
+    import datetime as _dt
+    return _dt.date.today().isoformat()
+
+
+def _skala(konyv, darab: int) -> None:
+    """Mit jelent ez nagyobb volumenen -- ez donti el a modellvalasztast.
+
+    FONTOS: a mondat LEADENKENT keszul egyszer, es mindharom levelben
+    ugyanaz. Tehat napi 1000 LEVEL nem 1000 mondat: egy lead 3 levelet kap
+    a szekvencia soran, vagyis ~333 uj lead/nap.
+    """
+    from . import pricing
+    print("\nMIT JELENT EZ NAGYOBB VOLUMENEN")
+    print("  (a mondat LEADENKENT keszul egyszer, es mind a 3 levelben ugyanaz --")
+    print("   napi 1000 LEVEL tehat kb. 333 uj lead)")
+    print(f"\n  {'modell':<24} {'1 mondat':>11} {'333 lead/nap':>14} {'/ honap':>11}")
+    print("  " + "-" * 64)
+    for model in sorted(konyv.tetelek):
+        t = konyv.tetelek[model]
+        k = konyv.koltseg(model)
+        if k is None:
+            print(f"  {model:<24} {'ismeretlen ar':>11}")
+            continue
+        egy = k / max(1, t["hivasok"])
+        print(f"  {model:<24} ${egy:>10.5f} ${egy * 333:>13.2f} "
+              f"${egy * 333 * 30:>10.2f}")

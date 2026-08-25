@@ -332,9 +332,9 @@ def ops_pain_cold(lead: dict) -> dict:
     """1. level. Kerdessel zarul, nem ajanlattal."""
     body = f"""{_greeting(lead)}
 
-Egyedi belső rendszereket fejlesztek kis- és középvállalatoknak — jellemzően olyan helyeken, ahol a munka nagy része még táblázatban és papíron megy.
+Egyedi belső rendszereket fejlesztek kis- és középvállalatoknak.
 
-{_personalization(lead, "Nálatok is úgy tűnik, hogy sok a kézi adminisztráció a napi működésben.")}
+{_personalization(lead, "Önöknél is úgy tűnik, hogy sok a kézi adminisztráció a napi működésben.")}
 
 Csak egy kérdés: mennyi időt visz el naponta az, hogy ezek az adatok több helyen legyenek naprakészen?
 

@@ -68,10 +68,24 @@ TIER_A_SCORE = int(os.environ.get("TIER_A_SCORE", "70"))
 TIER_B_SCORE = int(os.environ.get("TIER_B_SCORE", "45"))
 
 # ─── AI (6. szakasztol) ────────────────────────────────────────────────────
-LLM_BULK_MODEL = os.environ.get("LLM_BULK_MODEL", "gemini-2.5-flash-lite").strip()
+# A PROVIDER A MODELLNEVBOL DERUL KI (lasd llm.provider_of), tehat providert
+# valtani = ATIRNI EZT AZ EGY SORT a .env-ben. Nincs kulon kapcsolo.
+#
+#   gpt-*  /  o1 / o3 / o4   -> OpenAI
+#   claude-*                 -> Anthropic
+#   gemini*                  -> Google
+#
+# 2026-08-22: a BULK tier Geminirol OpenAI-ra valtott, felhasznaloi dontes
+# alapjan (mar volt OpenAI kreditje). A Gemini-integracio ERINTETLENUL
+# MEGMARADT a llm.py-ban -- visszaallni ennyi:
+#     LLM_BULK_MODEL=gemini-2.5-flash-lite
+LLM_BULK_MODEL = os.environ.get("LLM_BULK_MODEL", "gpt-5.6-luna").strip()
 LLM_QUALITY_MODEL = os.environ.get("LLM_QUALITY_MODEL", "claude-haiku-4-5").strip()
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
+
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "").strip()
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+# Nem torolve: a Gemini barmikor visszakapcsolhato a LLM_BULK_MODEL-lel.
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
 
 # ─── Leiratkozo link ───────────────────────────────────────────────────────
 # A leiratkozo oldal cime, token NELKUL. Az export ehhez fuzi hozza a

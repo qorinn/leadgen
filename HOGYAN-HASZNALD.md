@@ -523,7 +523,8 @@ Ha új gépre kerül a projekt:
 ```bash
 # 1. A titkok
 cp cold-email-starter/.env.example cold-email-starter/.env   # küldő
-# a gyökér .env-be: DATABASE_URL, APIFY_TOKEN, UNSUB_BASE_URL, ANTHROPIC_API_KEY
+# a gyökér .env-be: DATABASE_URL, APIFY_TOKEN, UNSUB_BASE_URL,
+#                   OPENAI_API_KEY, ANTHROPIC_API_KEY
 
 # 2. Adatbázis
 ./leadgen.sh db migrate      # bármikor újrafuttatható
@@ -536,7 +537,36 @@ python3 -c "import mailer; mailer.check_accounts()"
 
 ---
 
-## 12. folyamat — Modellek összehasonlítása (bake-off)
+## 12. folyamat — AI-szolgáltató váltása
+
+**Mikor:** ha egy másik szolgáltatónál van kereted, vagy olcsóbbat találsz.
+
+A rendszer **három szolgáltatót ismer**, és a **modell nevéből** találja ki,
+melyikről van szó. Váltani egyetlen sor átírása a gyökér `.env`-ben:
+
+| Ha a modell neve így kezdődik | Akkor ide megy |
+|---|---|
+| `gpt-`, `o1`, `o3`, `o4` | OpenAI |
+| `claude-` | Anthropic |
+| `gemini` | Google |
+
+```bash
+# a gyökér .env-ben:
+LLM_BULK_MODEL=gpt-5.6-luna      # sok, olcsó hívás (hirdetés-minősítés)
+LLM_QUALITY_MODEL=claude-haiku-4-5   # kevés, jó hívás (magyar mondatok)
+```
+
+Ehhez a megfelelő kulcs is kell (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`
+vagy `GEMINI_API_KEY`). **Ha hiányzik, a program megmondja, melyik** — nem
+kell találgatnod.
+
+> **A program kódja nem változik váltáskor.** Ezt élesben kipróbáltuk:
+> a Geminiről OpenAI-ra váltás után a minősítő, a válasz-értelmező és az
+> összehasonlító egyetlen karakterrel sem változott.
+
+---
+
+## 13. folyamat — Modellek összehasonlítása (bake-off)
 
 **Mikor:** mielőtt nagy volumenű AI-leadszűrésre váltunk (9-10. fázis).
 

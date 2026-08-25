@@ -55,16 +55,37 @@ class TestProviderFelismeres:
     @pytest.mark.parametrize("model,vart", [
         ("claude-haiku-4-5", "anthropic"),
         ("claude-opus-5", "anthropic"),
+        ("gpt-5-nano", "openai"),
+        ("gpt-4o-mini", "openai"),
+        ("o3-mini", "openai"),
+        # A Gemini-integracio 2026-08-22-tol nem az alapertelmezes, de
+        # ERINTETLENUL MEGMARADT -- egy .env sorral visszakapcsolhato.
         ("gemini-2.5-flash-lite", "gemini"),
         ("gemini-3.7-flash", "gemini"),
     ])
     def test_felismeri(self, model, vart):
         assert llm.provider_of(model) == vart
 
-    def test_ismeretlen_modellre_dob(self):
+    @pytest.mark.parametrize("rossz", ["llama-3", "mistral-large", "", "gpt5"])
+    def test_ismeretlen_modellre_dob(self, rossz):
         # Elgepelt modellnev ne csendben az egyik providerhez menjen.
         with pytest.raises(llm.LLMConfigError):
-            llm.provider_of("gpt-5-nano")
+            llm.provider_of(rossz)
+
+    def test_a_kulcs_hianyat_a_PROVIDERBOL_vezeti_le(self, monkeypatch):
+        """Modellvaltas utan a hibauzenet a HELYES kulcsot kerje.
+
+        Ha bedrotoznank ("nincs GEMINI_API_KEY"), egy OpenAI-ra valtas utan
+        a felhasznalo a rossz kulcsot keresne -- es nem ertene, miert nem
+        mukodik, miutan beszerezte."""
+        monkeypatch.setattr(llm.config, "OPENAI_API_KEY", "")
+        monkeypatch.setattr(llm.config, "ANTHROPIC_API_KEY", "")
+        assert "OPENAI_API_KEY" in llm.kulcs_hianyzik("gpt-5-nano")
+        assert "ANTHROPIC_API_KEY" in llm.kulcs_hianyzik("claude-haiku-4-5")
+
+    def test_meglevo_kulcsnal_nincs_uzenet(self, monkeypatch):
+        monkeypatch.setattr(llm.config, "OPENAI_API_KEY", "sk-teszt")
+        assert llm.kulcs_hianyzik("gpt-5-nano") == ""
 
 
 class TestBizalmiKapu:
@@ -229,13 +250,38 @@ class TestPromptok:
 
 
 class TestSamplingVedelem:
-    """Ha valaki atallitja a modellt a .env-ben, ne szalljon el minden hivas."""
+    """A temperature-kezeles -- ELES HIVASSAL MERVE, 2026-08-22.
 
-    def test_az_ujabb_modellek_nem_kapnak_temperature_t(self):
-        # Az Opus 5 / Sonnet 5 / Fable 5 400-zal utasitja el a temperature-t.
-        for m in ("claude-opus-5", "claude-sonnet-5", "claude-fable-5"):
+    A korabbi feltevesunk az volt, hogy a `claude-haiku-4-5` "meg elfogadja"
+    a temperature-t, es csak az ujabb Claude modellek utasitjak el. Az elso
+    valodi hivas ezt MEGCAFOLTA: az `anthropic` SDK 1.0.0
+    `messages.create()`-jebol a parameter TELJESEN ELTUNT, tehat barmelyik
+    modellnel `TypeError`-t dob -- meg azelott, hogy HTTP hivas tortenne.
+    """
+
+    def test_az_anthropic_ag_NEM_kuld_temperature_t(self):
+        """Ha valaki visszatenne, minden Claude-hivas azonnal elszallna."""
+        import inspect
+        forras = inspect.getsource(llm._call_anthropic)
+        assert '"temperature"' not in forras, (
+            "az anthropic SDK 1.0.0 nem fogad el temperature-t -- "
+            "a kwarg atadasa TypeError")
+
+    def test_az_sdk_tenyleg_nem_ismeri(self):
+        """A feltevest a TELEPITETT SDK-n ellenorizzuk, nem emlekezetbol.
+
+        Ha egy kesobbi SDK visszahozza a parametert, ez a teszt elbukik --
+        es akkor ujra lehet gondolni a determinisztikus kimenetet."""
+        import anthropic
+        import inspect
+        sig = inspect.signature(anthropic.Anthropic(api_key="x").messages.create)
+        assert "temperature" not in sig.parameters
+
+    def test_az_openai_reasoning_modellek_kimaradnak(self):
+        # Az o-sorozat csak az alapertelmezett temperature-t fogadja el.
+        for m in ("o1", "o3-mini", "o4-mini"):
             assert m.startswith(llm._SAMPLING_TILTVA)
 
-    def test_a_haiku_meg_kap(self):
-        # A Haiku 4.5 elfogadja -- es a classifierhez kell a temperature 0.
-        assert not "claude-haiku-4-5".startswith(llm._SAMPLING_TILTVA)
+    def test_a_normal_openai_modell_kap_temperature_t(self):
+        # A classifierhez determinisztikus kimenet kell -> temperature 0.
+        assert not "gpt-5.6-luna".startswith(llm._SAMPLING_TILTVA)

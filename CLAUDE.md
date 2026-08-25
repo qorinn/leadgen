@@ -309,12 +309,49 @@ soha nem `invalid`** — egy Reoon-kimaradás nem törölheti a listát.
 A cache (90 nap) nem optimalizáció, hanem költségvédelem; kötelező teszt védi.
 
 **Az AI réteg két tieres, és a provider a modellnévből derül ki.**
-A [leadgen/llm.py](leadgen/llm.py) `bulk()` (Gemini, olcsó, nagy volumen) és
-`quality()` (Claude, jobb magyar) függvényt ad; a `call(model, ...)` bármelyik
+Három provider van bekötve: `gpt-*`/`o1`/`o3`/`o4` → OpenAI, `claude-*` →
+Anthropic, `gemini*` → Google. **Providert váltani = egy sort átírni a
+`.env`-ben** (`LLM_BULK_MODEL`), a hívó oldalak nem változnak — ez 2026-08-22-én
+élesben bizonyult, amikor a BULK tier Geminiről OpenAI-ra váltott. A
+Gemini-integráció szándékosan **megmaradt**, nincs törölve.
+**Kulcshiány-üzenet: soha ne drótozd be a provider nevét** — az
+`llm.kulcs_hianyzik()` a modellnévből vezeti le, különben egy modellváltás után
+a rossz kulcsot kérnénk a felhasználótól. Tesztsor védi.
+A [leadgen/llm.py](leadgen/llm.py) `bulk()` (olcsó, nagy volumen) és
+`quality()` (jobb magyar) függvényt ad; a `call(model, ...)` bármelyik
 modellel megy, ezért tud a bake-off ugyanazon a kódon több modellt mérni.
 A promptok egy helyen vannak ([leadgen/prompts.py](leadgen/prompts.py)), mert a
 prompt caching **stabil prefixet** kíván — a változó lead-adat mindig külön
 paraméter, sosem a rendszer-prompthoz fűzve.
+
+**A prompt few-shot példái SABLONNÁ válnak — ezt hat kimenet együtt látszik.**
+Mérve 2026-08-25: a personalization mind a 6 mondata ugyanúgy folytatódott
+(*„Ilyenkor szokott segíteni egy közös webes felület, ahol…"*), mert a prompt
+JÓ példái pont ezt a fordulatot használták. Egyetlen kimeneten ez nem
+látszik. Javítva: a példák **szerkezetileg különböznek** egymástól, a prompt
+kimondja, hogy a példák a szerkezetet mutatják és nem a szövegezést, és
+felsorol tiltott sablon-fordulatokat. **Prompt-módosítás után mindig
+6+ kimenetet nézz egyszerre**, ne egyet.
+
+**Ellentmondó hossz-utasítás = a modell találgat.** Ugyanabban a promptban
+egyszerre szerepelt *„egyetlen mondat"*, *„KÉT-HÁROM MONDAT"* és *„három
+mondat, maximum 70 szó"* — a bővítések rétegződtek egymásra. A modell
+ilyenkor nem hibázik hangosan, csak kiszámíthatatlan hosszúságút ad.
+Prompt bővítésekor **a régi utasítást is javítsd**, ne csak told hozzá az újat.
+
+**Minden LLM-hívás tokenjeit MI számoljuk** ([leadgen/pricing.py](leadgen/pricing.py)),
+mert a szolgáltatók dashboardja lassan frissül és **összevonja a modelleket** —
+egy bake-off ettől értelmetlen lenne. A `score`, a `classify-replies` és az
+`llm-check` mind modellenkénti bontást ír ki, és a `data/llm_usage.csv` napló
+összeadható. Az árak kézzel karbantartott tábla, forrással és dátummal;
+ismeretlen modellnél a tokenszám pontos, az ár helyén „ISMERETLEN AR" áll —
+**soha ne találj ki árat**.
+
+**Az `anthropic` SDK 1.0.0 `messages.create()`-je NEM fogad el `temperature`-t.**
+A paraméter teljesen eltűnt: az átadása `TypeError`, még HTTP-hívás előtt. Ez
+nem modellfüggő korlát — a korábbi feltevés („a Haiku még elfogadja") téves
+volt, és az első valódi hívás cáfolta meg. Tesztsor ellenőrzi a **telepített**
+SDK szignatúráját, nem emlékezetből.
 
 **A `temperature` nem küldhető minden modellnek.** A `claude-haiku-4-5` még
 elfogadja, az Opus 5 / Sonnet 5 / Fable 5 viszont **400-zal elutasítja**. Mivel

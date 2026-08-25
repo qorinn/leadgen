@@ -36,7 +36,7 @@ import json
 import math
 from dataclasses import dataclass, field
 
-from . import config, db, llm, prompts
+from . import config, db, llm, pricing, prompts
 from .normalize import email_domain
 
 # Ez alatt a modell sajat bizonytalansaga miatt NEM hajtunk vegre
@@ -61,12 +61,13 @@ class ClassifyStats:
     ismeretlen_cim: int = 0        # nincs ilyen kapcsolat a DB-ben
     cimkek: dict[str, int] = field(default_factory=dict)
     erdeklodok: list[dict] = field(default_factory=list)
+    konyv: pricing.Konyveles = field(default_factory=pricing.Konyveles)
 
     def szamol(self, cimke: str) -> None:
         self.cimkek[cimke] = self.cimkek.get(cimke, 0) + 1
 
 
-def _osztalyoz(row: dict) -> tuple[dict, str]:
+def _osztalyoz(row: dict) -> tuple[dict, str, object]:
     """Egy valasz besorolasa. (eredmeny_dict, modellnev). Hiba eseten dob."""
     user = prompts.reply_classifier_user(
         felado=row.get("email") or "",
@@ -76,10 +77,10 @@ def _osztalyoz(row: dict) -> tuple[dict, str]:
         szoveg=(row.get("body") or "")[:4000],
     )
     model = config.LLM_QUALITY_MODEL
-    data, _ = llm.json_call(
+    data, result = llm.json_call(
         model, prompts.REPLY_CLASSIFIER_SYSTEM, user, max_tokens=500,
     )
-    return data, model
+    return data, model, result
 
 
 def _normalizal(data: dict) -> tuple[str, float, str]:
@@ -233,7 +234,8 @@ def run(limit: int = 50, dry: bool = False, verbose: bool = True) -> ClassifySta
 
     for row in rows:
         try:
-            data, model = _osztalyoz(row)
+            data, model, result = _osztalyoz(row)
+            stats.konyv.add_result(result)
         except llm.LLMConfigError:
             raise                       # kulcs hianyzik -> az egesz futas alljon meg
         except (llm.LLMError, json.JSONDecodeError) as exc:
@@ -303,6 +305,8 @@ def _riport(stats: ClassifyStats, dry: bool) -> None:
             print(f"  {e.get('company_name') or '?'}  <{e['email']}>")
             if e.get("normalized_domain"):
                 print(f"    https://{e['normalized_domain']}")
+
+    stats.konyv.riport("TOKENEK ES KOLTSEG (ez a futas)")
 
     if dry:
         print("\n[SZARAZ FUTAS] Semmi nem lett elmentve. Eles futas: a --dry nelkul.")

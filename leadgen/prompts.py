@@ -84,26 +84,190 @@ def lead_classifier_user(forras: str, ceg: str, pozicio: str, szoveg: str) -> st
 # B) QUALITY tier — personalization mondat
 # ═══════════════════════════════════════════════════════════════════════════
 
-PERSONALIZATION_SYSTEM = """\
-Egy hideg üzleti email nyitómondatát írod meg magyarul.
+# ⚠️ A MEGSZOLITAS FORMAJA KAMPANYFUGGO, es ez nem stilus-kerdes.
+#
+# Merve az elso eles futason (2026-08-22): a modell TEGEZO mondatokat irt
+# ("futtatjatok", "nalatok"), miközben az `ops_pain` es a `dead_dev` sablon
+# MAGAZO. A ket hangnem egy levelen belul kirivo -- a cimzett azonnal latja,
+# hogy ket kulonbozo forrasbol van osszerakva.
+#
+# Ezert a prompt KET valtozatban letezik, es a hivo oldal donti el, melyik
+# kell. A kampany hangneme a templates.py-ban van; ha ott valtozik, ITT is
+# valtoztatni kell.
+# ⚠️ A LEVELEKBEN MEGJELENO "MIBEN TUDOK SEGITENI" RESZ FORRASA.
+#
+# Forras: SZOLGALTATASOK.md (a felhasznalo sajat szolgaltatas-leirasa,
+# 2026-08-13). Ha ott valtozik valami, ITT is at kell vezetni -- kulonben
+# olyat sugallnank egy kimeno levelben, amit valojaban nem csinal.
+#
+# MIERT KAMPANYONKENT KULON: az `ops_pain` cimzettjenek a belso rendszer a
+# relevans, a `dead_dev` cimzettjenek a meglevo oldal atvetele. Ha
+# mindenkinek a teljes listat adnank, az AI a rossz szalat emelne ki.
+SZOLGALTATASOK = {
+    # Allashirdetes-alapu lead: adminisztracios fajdalom.
+    "ops_pain": (
+        "webes rendszer és webapp fejlesztés, ha az üzleti cél túlmutat egy "
+        "statikus bemutatkozó oldalon; skálázható megoldás, ami később új "
+        "funkciókkal és integrációkkal bővíthető"
+    ),
+    # Halott fejleszto: van oldala, de nincs, aki karbantartsa.
+    # A `SZOLGALTATASOK.md` szo szerinti megfogalmazasa illik ide a legjobban.
+    "dead_dev": (
+        "meglévő céges weboldalak felmérése, felújítása és újratervezése — a "
+        "hasznos tartalmak, URL-ek és üzleti funkciók megőrzésével; valamint "
+        "átadás utáni támogatás"
+    ),
+    # Ugynoksegi partner: alvallalkozokent dolgozik moguk.
+    "agency_partner": (
+        "fejlesztői alvállalkozás ügynökségeknek: egyedi weboldal, landing "
+        "oldal, webes rendszer és mobilalkalmazás — a stratégia, a hirdetés "
+        "és a kreatív marad náluk"
+    ),
+}
 
-BEMENET: egy cégről gyűjtött információ és egy szó szerinti idézet.
+# ⚠️ AMIT A LEVEL SOHA NEM IGERHET. A SZOLGALTATASOK.md "Korlatok" fejezete.
+# Ezek nem stilus-szabalyok: mindegyik mogott egy TEVES IGERET all, ami
+# utolag kinos lenne.
+_SZOLGALTATAS_KORLATOK = """
+AMIT SOHA NE ÍGÉRJ EBBEN A RÉSZBEN:
+- keresőoptimalizálást olyan weboldalra, amit nem te készítettél (a
+  levélíró SEO-t csak a saját készítésű oldalaihoz vállal)
+- árat, határidőt vagy konkrét terjedelmet
+- azt, hogy ez lesz a legolcsóbb megoldás — a levélíró nem ezen a piacon van
+"""
 
-FELADAT: egyetlen mondat, ami megmutatja, hogy konkrétan RÁJUK néztél rá.
+_SZOLGALTATAS_ALAP = SZOLGALTATASOK["ops_pain"]
+
+
+_PERSONALIZATION_ALAP = """\
+Egy hideg üzleti email személyre szabott részét írod meg magyarul.
+
+KI ÍRJA A LEVELET: egy fejlesztő. Amit csinál:
+{szolgaltatasok}
+
+════════════════════════════════════════════════════════════════════════
+A FELADAT: PONTOSAN KÉT MONDAT — FÁJDALOM, MAJD IRÁNY.
+
+  1. A FÁJDALOM. Az a pont, ahol ez a munka jellemzően nehezedik.
+  2. AZ IRÁNY. Milyen megoldás szokott ezen segíteni.
+
+Semmi más. Nincs bevezetés, nincs magyarázat, nincs kérdés.
+
+⚠️ NE MAGYARÁZD EL, MI A MUNKA.
+A címzett munkairányító vagy cégvezető — PONTOSAN TUDJA, mit jelent a saját
+munkája. Ha elmagyarázod neki, lekezelő és unalmas, és azonnal látszik, hogy
+egy gép írta.
+
+ROSSZ (elmagyarázza a nyilvánvalót):
+  "A menetrendszerinti járatok menedzselése a gyakorlatban azt jelenti, hogy
+   a menetrendeket, a kihasználtságot és a változásokat folyamatosan
+   egyeztetni kell egymással."
+  -> Ezt ő tudja a legjobban. Nulla információ a számára.
+
+ROSSZ (visszamondja a hirdetést):
+  "Az álláshirdetésükben szerepel a munkalapok felvétele és kezelése."
+  -> Ezt ő írta. Semmit nem mond neki.
+
+JÓ — figyeld meg, hogy a HÁROM PÉLDA MIND MÁSHOGY ÉPÜL FEL:
+
+  idézet: "Munkalapok felvétele, kezelése és nyomon követése"
+  -> "Több szerelőnél nem a munkalap rögzítése a szűk keresztmetszet, hanem
+      hogy utólag senki nem tudja megmondani, melyik munka hol tart. Egy
+      belső felület ezt teszi láthatóvá."
+
+  idézet: "ügyfél- és objektumadatok karbantartása, frissítések követése"
+  -> "Egy elmaradt átvezetés itt hetekig észrevétlen marad, mert nincs hol
+      összevetni a verziókat. Erre való egy központi nyilvántartás
+      változásnaplóval."
+
+  idézet: "a diszpécserek szabadságához alkalmazkodó beosztás"
+  -> "A csere önmagában két perc, a hatása viszont az egész heti lefedettség
+      újratervezése. Beosztástervezőben ez egy húzás, táblázatban fél nap."
+
+⚠️ NE MÁSOLD A FENTI MONDATKEZDÉSEKET. A példák a SZERKEZETET mutatják, nem a
+szövegezést. Ha minden levél úgy folytatódik, hogy "Ilyenkor szokott
+segíteni egy közös webes felület, ahol...", akkor húsz címzett ugyanazt a
+sablont kapja — és pontosan úgy is fog kinézni.
+
+VÁLTOZTASD a második mondat felépítését leadenként. Néhány irány:
+  - a megoldás megnevezése tárgyként: "Erre való egy ütemezőfelület."
+  - következmény: "Egy közös felületen ez egy kattintás."
+  - összehasonlítás: "Táblázatban fél nap, egy erre épített felületen perc."
+  - a hiányzó dolog megnevezése: "Ehhez egy közös állapot-nézet hiányzik."
+════════════════════════════════════════════════════════════════════════
 
 SZABÁLYOK:
-- pontosan egy mondat, maximum 30 szó
-- csak arra utalj, ami a megadott idézetben ténylegesen benne van
-- ne dicsérj, ne hízelegj ("nagyon professzionális weboldal", "gratulálok")
-- ne ajánlj semmit, ne adj el — ez csak a nyitómondat
-- természetes, hétköznapi magyar; ne legyen se hivataloskodó, se túl közvetlen
-- ne kezdd azzal, hogy "Láttam, hogy..." — variálj
+- PONTOSAN két mondat, összesen maximum 45 szó
+- az ELSŐ szótól a fájdalomról szólj — ne vezesd fel, ne keretezd
+- az idézetből indulj ki, de ne idézd vissza és ne fogalmazd át
+- ne állíts olyan tényt, ami nincs az idézetben (hány telephely, hány ember)
+- ne dicsérj, ne hízelegj, ne minősítsd őket vagy a versenytársaikat
+- IRÁNYT adj, ne AJÁNLATOT: "ilyenkor szokott segíteni...", soha nem
+  "készítek Önöknek..." — nincs ár, nincs határidő, nincs konkrét terv
+- NE bagatellizálj olyan munkát, ahol emberi biztonság a tét (mentés,
+  vagyonvédelem, egészségügy) — ott visszafogottan fogalmazz
+- a cégnevet RÖVIDÍTVE írd: "Kft.", "Zrt.", "Bt."
+- természetes, hétköznapi magyar; ne legyen hivataloskodó
+- KERÜLD a sablonos fordulatokat. Ezeket NE használd, mert az összes levél
+  egyformává válik tőlük:
+    "Ilyenkor szokott segíteni egy közös webes felület, ahol..."
+    "általában az okoz nehézséget, hogy..."
+    "jellemzően ott szokott nehézzé válni, amikor..."
+  Ugyanazt más szavakkal, minden leadnél máshogy.
+- ne kezdd azzal, hogy "Láttam, hogy...", "Az álláshirdetésükben...",
+  "A [munka] azt jelenti...", "A gyakorlatban..."
+- NE TALÁLD KI, honnan az információ. A FORRÁS mezőben megkapod.
 
-KIMENET: csak a mondat, semmi más."""
+KIMENET: csak a két mondat, semmi más."""
+
+_MAGAZO = """
+MEGSZÓLÍTÁS: magázó formát használj (Önök, Önöknél). A mondat egy cégvezetőnek
+szól, akit nem ismersz. Tegező alakot NE használj."""
+
+_TEGEZO = """
+MEGSZÓLÍTÁS: tegező formát használj (ti, nálatok). A mondat egy szakmai
+partnernek szól, kollegiális hangnemben."""
+
+# Visszafele kompatibilitas: a magazo a biztonsagosabb alapertelmezes.
+PERSONALIZATION_SYSTEM = (
+    _PERSONALIZATION_ALAP.format(szolgaltatasok=_SZOLGALTATAS_ALAP) + _MAGAZO)
 
 
-def personalization_user(ceg: str, idezet: str) -> str:
-    return f"CÉG: {ceg}\n\nIDÉZET A FORRÁSBÓL:\n{idezet}"
+def personalization_system(magazo: bool = True, kampany: str = "") -> str:
+    """A kampany hangnemehez illo valtozat.
+
+    A hivo oldal (score.py) a kampanybol vezeti le -- nem talalgat.
+
+    ⚠️ AZ IRANY-MONDAT MAS KOCKAZATI OSZTALY, MINT A TOBBI.
+    Az elso ket mondat ROLUK szol, ezert az evidence grounding vedi: ha nincs
+    szo szerinti idezet, nincs allitas. A harmadik mondat viszont ROLUNK
+    szol -- azt nem a forrasszoveg alapozza meg, hanem a SZOLGALTATASOK
+    lista. Ha oda olyan kerul, amit nem csinalsz, azt fogjuk sugallni.
+    Ezert az a lista uzleti adat, es a felhasznalo felelossege.
+    """
+    alap = _PERSONALIZATION_ALAP.format(
+        szolgaltatasok=SZOLGALTATASOK.get(kampany, _SZOLGALTATAS_ALAP)
+        + "\n" + _SZOLGALTATAS_KORLATOK)
+    return alap + (_MAGAZO if magazo else _TEGEZO)
+
+
+# Melyik kampany magazo. Ha uj kampany keszul, IDE is fel kell venni --
+# kulonben a magazo alapertelmezest kapja, ami a biztonsagos irany.
+TEGEZO_KAMPANYOK = {"agency_partner"}
+
+
+def personalization_user(ceg: str, idezet: str,
+                         forras: str = "álláshirdetés") -> str:
+    """A valtozo resz.
+
+    A FORRAS megadasa nem diszites: nelkule a modell KITALALJA, honnan van az
+    informacio. Merve 2026-08-22-en: a Sonnet 5 azt irta, hogy "a honlapon
+    szereplo leirasbol", holott a szoveg egy allashirdetesbol jott. Ez apro
+    tenybeli teves allitas -- pontosan az a fajta, ami hiteltelenne tesz.
+    """
+    return (f"CÉG: {ceg}\n"
+            f"FORRÁS: {forras}\n\n"
+            f"IDÉZET A FORRÁSBÓL:\n{idezet}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════

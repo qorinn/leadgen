@@ -90,6 +90,62 @@ mutatja, hogy fogy a sor:
 > Az `export` **mindig lefuttatja a `feedback`-et először**. Ha az hibára fut,
 > az export megáll, és a `leads.csv` érintetlen marad.
 
+## Modell-összehasonlítás
+
+| Parancs | Mit mér |
+|---|---|
+| `eval sentences --limit 9 --model A --model B` | **a magyar mondatok minősége — VAKON** |
+| `eval bakeoff --model A --model B` | a hirdetés-minősítés pontossága (30 teszteset kell) |
+| `eval robustness --model A` | átverhető-e (prompt injection) |
+
+> **Az `eval sentences` vakon dolgozik:** minden mondatnál más sorrendben
+> keveri a modelleket, és a megfejtés a fájl végén, lenyitható blokkban van.
+> Ha látnád, melyiket melyik írta, a drágábbtól önkéntelenül jobbat várnál.
+>
+> A terv szerint érdemes **másnap** elolvasni. A kritérium egyetlen kérdés:
+> **kiküldenéd a saját neveddel?**
+
+> Kiírja a **skálázott költséget** is: mit jelentene napi 333 új leadnél
+> (= napi ~1000 levél, mert egy lead 3 levelet kap).
+
+## Költségmérés — token- és árszámolás
+
+| Parancs | Mit csinál |
+|---|---|
+| `llm-check --dry` | **becsült** költség — nem hív API-t |
+| `llm-check` | éles teszt: működik-e a kulcs + mennyibe került |
+| `llm-check --model gpt-5.6-luna --model claude-sonnet-5` | több modell egymás mellett |
+| `llm-check --repeat 5` | ennyi hívás modellenként (pontosabb átlag) |
+| `llm-check --budget 2.00` | költségfék USD-ben — e felett **el sem indul** |
+| `llm-check --summary` | az eddigi összes mérés, modellenként |
+
+> **Miért számolunk mi:** a szolgáltatók dashboardja lassan frissül és
+> **összevonja a modelleket** — egy összehasonlítás ettől értelmetlen lenne.
+> Minden hívás tokenjeit külön vezetjük: `data/llm_usage.csv`.
+
+> A `score` és a `classify-replies` is kiírja a saját futása token- és
+> költségbontását, modellenként.
+
+> ⚠️ Ez **számítás, nem számla.** Az árak a `leadgen/pricing.py` táblájából
+> jönnek, forrással és dátummal. Ismeretlen árú modellnél a tokenszám pontos,
+> az ár helyén „ISMERETLEN AR" áll — nem talál ki számot.
+
+## AI-szolgáltató váltása
+
+Egyetlen sor a gyökér `.env`-ben — a **provider a modellnévből** derül ki:
+
+```
+LLM_BULK_MODEL=gpt-5.6-luna            # gpt-*/o1/o3/o4 → OpenAI
+LLM_QUALITY_MODEL=claude-haiku-4-5     # claude-*       → Anthropic
+                                       # gemini*        → Google
+```
+
+> Mindhárom integráció megvan és megmarad. A Geminire visszatérni ennyi:
+> `LLM_BULK_MODEL=gemini-2.5-flash-lite` + `GEMINI_API_KEY=...`
+
+> Kulcshiánynál a program megmondja, **melyik** kulcs kell — a modellnévből
+> vezeti le, nem bedrótozva.
+
 ## AI-minősítés + evidence grounding (10. szakasz)
 
 | Parancs | Mit csinál |
