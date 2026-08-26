@@ -20,7 +20,7 @@ import argparse
 import sys
 
 from . import (classify, config, db, deadev, dev, engines, evals, export,
-               feedback, llm, llmcheck, pipeline, report, score)
+               feedback, labels, llm, llmcheck, pipeline, report, score)
 from .sources import maps, profession
 
 
@@ -241,20 +241,46 @@ def _cmd_engines(_args: argparse.Namespace) -> int:
 def _cmd_review(args: argparse.Namespace) -> int:
     """Emberi dontes. Az AUTOMATIKUS dontesek is felulbirlhatok innen."""
     if args.approve:
-        # `review` ES `suppressed` allapotbol is visszahozhato -- kulonben a
-        # gep automatikus versenytars-dontese felulbirlhatatlan lenne, es a
-        # felhasznalo nem tudna korrigalni egy tul szigoru kulcsszot.
+        # A gep automatikus VERSENYTARS-dontese felulbiralhato. Mas
+        # suppression-ok (leiratkozas, bounce) ezen a parancson at sem
+        # oldhatok fel veletlenul.
         with db.connect() as conn, conn.cursor() as cur:
             cur.execute(
-                "update companies set status = 'ready', status_note = 'kezi jovahagyas' "
-                "where normalized_domain = %s and status in ('review','suppressed','rejected')",
+                """
+                select c.id,
+                       exists (
+                         select 1 from contacts ct
+                          where ct.company_id = c.id
+                            and ct.local_check is distinct from 'fail'
+                            and coalesce(ct.verify_result, '') <> 'invalid'
+                            and coalesce(ct.bounce_state, '') <> 'hard_bounce'
+                       ) as van_kapcsolat
+                  from companies c
+                 where c.normalized_domain = %s
+                   and (
+                     c.status in ('review', 'hold', 'rejected')
+                     or (c.status = 'suppressed' and exists (
+                       select 1 from suppression sp
+                        where sp.normalized_domain = c.normalized_domain
+                          and sp.reason = 'competitor'
+                     ))
+                   )
+                """,
                 (args.approve,))
-            n = cur.rowcount
-            if n:
+            hit = cur.fetchone()
+            n = 1 if hit else 0
+            status = ""
+            if hit:
                 cur.execute("delete from suppression where normalized_domain = %s "
                             "and reason = 'competitor'", (args.approve,))
-        print(f"Jovahagyva: {n} ceg -> ready" if n else
-              "Nincs ilyen ceg review/suppressed/rejected allapotban.")
+                status = "ready" if hit["van_kapcsolat"] else "scored"
+                cur.execute(
+                    "update companies set status = %s, status_note = 'kezi jovahagyas' "
+                    "where id = %s", (status, hit["id"]))
+                for label in ("manual_review", "enterprise_hold", "legacy_rejected"):
+                    labels.clear_label(cur, hit["id"], label)
+        print(f"Jovahagyva: {n} ceg -> {status}" if n else
+              "Nincs jovahagyhato review/hold/competitor ceg ezen a domainen.")
         return 0
 
     if args.suppressed:
@@ -478,7 +504,7 @@ def build_parser() -> argparse.ArgumentParser:
                     help="csak megmutatja -- semmit nem ir")
     dd.set_defaults(func=_cmd_enrich_deadev)
 
-    ql = sub.add_parser("qualify", help="minosites (`enriched` -> `ready`/`rejected`)")
+    ql = sub.add_parser("qualify", help="minosites (`enriched` -> `ready`/`scored`/`review`)")
     ql.add_argument("--engine", default="agency_partner")
     ql.add_argument("--limit", type=int, default=200)
     ql.set_defaults(func=_cmd_qualify)

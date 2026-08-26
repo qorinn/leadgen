@@ -568,10 +568,12 @@ kell találgatnod.
 
 ## 13. folyamat — Modellek összehasonlítása (bake-off)
 
-**Mikor:** mielőtt nagy volumenű AI-leadszűrésre váltunk (9-10. fázis).
+**Mikor:** opcionálisan, ha modellt váltanál vagy romlik a személyre szabás.
 
-Ez megméri, melyik olcsó AI-modell dönt legjobban **a te ítéleted szerint**.
-Kell hozzá 30 teszteset, amit **te** címkézel fel — útmutató:
+Ez már nem küldési vagy implementációs kapu. A rendszer nem az AI-val dob ki
+cégeket: több lehetséges szolgáltatási irányt ment, bizonyíték nélkül pedig
+`scored` állapotban tartja a céget. A bake-off azt méri, melyik olcsó modell
+ad jobb rangsort és pontosabb idézeteket. A 30 eset útmutatója:
 [evals/README.md](evals/README.md).
 
 ```bash

@@ -60,6 +60,11 @@ def test_nincs_ismetlodo_mezo():
     assert len(contract.LEADS_HEADER) == len(set(contract.LEADS_HEADER))
 
 
+def test_a_lead_es_contact_forrasa_kulon_mezo():
+    for field in ("lead_source_type", "lead_source_url", "contact_source_url"):
+        assert field in contract.LEADS_HEADER
+
+
 def test_a_dnc_okok_le_vannak_kepezve():
     """A guards.py minden DNC-okara legyen szabaly a contract.DNC_REASON_MAP-ben.
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""A feldolgozasi lanc: new -> enriched -> ready/rejected.
+"""A feldolgozasi lanc: new -> enriched -> ready/scored/review/suppressed.
 
 BATCH-ELT, ROVID FUTASOK. A terv "Fontos: mi fut hol" fejezete ezt irja elo:
 minden lepes a DB `status` oszlopabol olvassa, hol tart, dolgozik egy adagot,
@@ -10,7 +10,7 @@ Ettol lesz a rendszer ujraindithato: nincs allapot a folyamat memoriajaban.
 """
 from __future__ import annotations
 
-from . import db, enrich
+from . import db, enrich, labels
 from .engines import EngineDef
 
 
@@ -22,7 +22,8 @@ def run_enrich(limit: int = 25, verbose: bool = True) -> dict:
 
     rows = db.query(
         """
-        select id, company_name, normalized_domain, domain
+        select id, company_name, normalized_domain, domain,
+               scored_at, personalization, campaign
           from companies
          where status = 'new'
          order by signal_score desc nulls last, first_seen_at
@@ -41,10 +42,13 @@ def run_enrich(limit: int = 25, verbose: bool = True) -> dict:
 
         if not domain:
             # Csak platform-oldal (Facebook stb.) -- nincs mit letolteni.
-            db.execute(
-                "update companies set status = 'error', status_note = %s where id = %s",
-                ("nincs sajat domain (csak platform-oldal)", row["id"]),
-            )
+            with db.connect() as conn, conn.cursor() as cur:
+                cur.execute(
+                    "update companies set status = 'error', status_note = %s where id = %s",
+                    ("nincs sajat domain (csak platform-oldal)", row["id"]),
+                )
+                labels.set_label(cur, row["id"], "domain_missing",
+                                 {"reason": "nincs sajat domain"})
             stats["domain_nelkul"] += 1
             continue
 
@@ -84,18 +88,40 @@ def run_enrich(limit: int = 25, verbose: bool = True) -> dict:
                 if cur.rowcount:
                     stats["kapcsolat"] += 1
 
+            cur.execute("""
+                select count(*) as n from contacts
+                 where company_id = %s
+                   and local_check is distinct from 'fail'
+                   and coalesce(verify_result, '') <> 'invalid'
+                   and coalesce(bounce_state, '') <> 'hard_bounce'
+            """, (row["id"],))
+            kapcsolatok = int(cur.fetchone()["n"])
+            if kapcsolatok:
+                labels.clear_label(cur, row["id"], "contact_missing")
+            else:
+                labels.set_label(cur, row["id"], "contact_missing",
+                                 {"checked_url": f"https://{domain}"})
+            labels.clear_label(cur, row["id"], "domain_missing")
+
             # A tech ujjlenyomat es a footer a cegre kerul: a 8.2 ("halott
             # fejleszto") engine kesobb ebbol dolgozik, ujra-letoltes nelkul.
+            kovetkezo_status = "enriched"
+            if row.get("scored_at"):
+                kovetkezo_status = (
+                    "ready" if kapcsolatok and row.get("personalization")
+                    and row.get("campaign") else "scored"
+                )
             cur.execute(
                 """
                 update companies
-                   set status = 'enriched',
+                   set status = %s,
                        status_note = null,
                        signal_score = signal_score
                                       + case when %s then 15 else 0 end
                  where id = %s
                 """,
-                (bool(extract.tech.get("copyright_year"))
+                (kovetkezo_status,
+                 bool(extract.tech.get("copyright_year"))
                  and extract.tech["copyright_year"] <= 2023, row["id"]),
             )
             stats["sikeres"] += 1
@@ -161,58 +187,81 @@ def run_qualify(engine: EngineDef, limit: int = 200, verbose: bool = True) -> di
         if not q.ok and q.needs_review:
             # Gyenge kizaro jel: lehet ugyfel-referencia vagy blogcikk is.
             # NEM dobjuk el -- a `leadgen review` listazza emberi dontesre.
-            db.execute(
-                """
-                update companies set status = 'review',
-                                     personalization = %s,
-                                     signal_summary = %s,
-                                     status_note = %s
-                 where id = %s
-                """,
-                (engine.personalization(q, raw),
-                 f"{engine.label} | kulcsszavak: {', '.join(q.hits[:5])}"[:300],
-                 f"ATNEZENDO -- gyenge kizaro jel: {', '.join(q.blockers[:3])}"[:200],
-                 row["id"]),
-            )
+            with db.connect() as conn, conn.cursor() as cur:
+                cur.execute(
+                    """
+                    update companies set status = 'review',
+                                         personalization = %s,
+                                         signal_summary = %s,
+                                         status_note = %s
+                     where id = %s
+                    """,
+                    (engine.personalization(q, raw),
+                     f"{engine.label} | kulcsszavak: {', '.join(q.hits[:5])}"[:300],
+                     f"ATNEZENDO -- gyenge kizaro jel: {', '.join(q.blockers[:3])}"[:200],
+                     row["id"]),
+                )
+                labels.set_label(cur, row["id"], "manual_review",
+                                 {"blockers": q.blockers[:3]})
             stats["atnezendo"] = stats.get("atnezendo", 0) + 1
             continue
 
         if not q.ok:
-            db.execute(
-                "update companies set status = 'rejected', status_note = %s where id = %s",
-                (q.reason[:200], row["id"]),
-            )
+            # Ez csak azt jelenti, hogy EHHEZ a kampanyhoz nincs eleg eros
+            # jel. A ceg ettol meg mas szolgaltatasi iranyban jo lead lehet.
+            with db.connect() as conn, conn.cursor() as cur:
+                cur.execute(
+                    "update companies set status = 'scored', status_note = %s where id = %s",
+                    (f"nincs alatamasztott kampanyszog: {q.reason}"[:200], row["id"]),
+                )
+                labels.set_label(cur, row["id"], "personalization_missing",
+                                 {"reason": q.reason, "campaign": engine.campaign})
             stats["nem_fit"] += 1
             continue
 
         if not row["kapcsolatok"]:
-            db.execute(
-                "update companies set status = 'rejected', status_note = %s where id = %s",
-                ("minositest atment, de nincs email cim", row["id"]),
-            )
+            with db.connect() as conn, conn.cursor() as cur:
+                cur.execute(
+                    """
+                    update companies
+                       set status = 'scored', personalization = %s,
+                           signal_summary = %s,
+                           status_note = 'minositest atment, de nincs email cim'
+                     where id = %s
+                    """,
+                    (engine.personalization(q, raw),
+                     f"{engine.label} | talalt kulcsszavak: {', '.join(q.hits[:5])}"[:300],
+                     row["id"]),
+                )
+                labels.set_label(cur, row["id"], "contact_missing",
+                                 {"campaign": engine.campaign})
             stats["nincs_email"] += 1
             continue
 
-        db.execute(
-            """
-            update companies
-               set status = 'ready',
-                   personalization = %s,
-                   signal_summary = %s,
-                   status_note = null,
-                   signal_score = signal_score + 10
-             where id = %s
-            """,
-            (engine.personalization(q, raw),
-             f"{engine.label} | talalt kulcsszavak: {', '.join(q.hits[:5])}"[:300],
-             row["id"]),
-        )
+        with db.connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                update companies
+                   set status = 'ready',
+                       personalization = %s,
+                       signal_summary = %s,
+                       status_note = null,
+                       signal_score = signal_score + 10
+                 where id = %s
+                """,
+                (engine.personalization(q, raw),
+                 f"{engine.label} | talalt kulcsszavak: {', '.join(q.hits[:5])}"[:300],
+                 row["id"]),
+            )
+            labels.clear_label(cur, row["id"], "contact_missing")
+            labels.clear_label(cur, row["id"], "personalization_missing")
+            labels.clear_label(cur, row["id"], "manual_review")
         stats["ready"] += 1
 
     if verbose:
         print(f"  vizsgalt={stats['vizsgalt']}  READY={stats['ready']}  "
               f"ATNEZENDO={stats['atnezendo']}  versenytars={stats['versenytars']}  "
-              f"nem fit={stats['nem_fit']}  nincs email={stats['nincs_email']}")
+              f"nincs kampanyszog={stats['nem_fit']}  nincs email={stats['nincs_email']}")
         if stats["atnezendo"]:
             print(f"\n  {stats['atnezendo']} ceg emberi dontesre var: leadgen review")
     return stats

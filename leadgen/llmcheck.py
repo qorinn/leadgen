@@ -164,18 +164,19 @@ def run(models: list[str], ismetles: int = 1, keret_usd: float = 0.50,
             konyv.add_result(result)
             k = pricing.cost_usd(model, result.input_tokens,
                                  result.output_tokens, result.cached_tokens)
-            fit = data.get("webapp_fit")
-            ev = len(data.get("evidence") or [])
-            print(f"   ✓ webapp_fit={fit}  {ev} idezet  "
+            angles = [a for a in (data.get("opportunity_angles") or [])
+                      if isinstance(a, dict)]
+            print(f"   ✓ {len(angles)} lehetseges irany  "
                   f"{result.latency_ms} ms  "
                   f"be={result.input_tokens} ki={result.output_tokens}"
                   + (f"  ${k:.6f}" if k is not None else "  ar ismeretlen"))
             if i == 0:
                 # Az ELSO valasz tartalmat is megmutatjuk: enelkul csak azt
                 # tudnank, hogy "valaszolt", nem azt, hogy ERTELMESET valaszolt.
-                print(f"     pain: {str(data.get('pain'))[:60]}")
-                for e in (data.get("evidence") or [])[:1]:
-                    print(f"     idezet: \"{str(e.get('quote'))[:70]}\"")
+                for angle in angles[:1]:
+                    print(f"     {angle.get('type')}: "
+                          f"{str(angle.get('pain'))[:60]}")
+                    print(f"     idezet: \"{str(angle.get('quote'))[:70]}\"")
 
     konyv.riport()
     if konyv.tetelek:

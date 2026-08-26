@@ -25,8 +25,12 @@ _ADDED = [
     # Az evidence-groundolt nyitomondat. URES -> a sablon sajat mondatara esik
     # vissza, tehat a lead NEM vesz el, csak nem lesz szemelyre szabva.
     "personalization",
-    # 0.4 JOGI MINIMUM: honnan van az adat. Ha valaki rakerdez, meg kell tudni
-    # mondani. Ezert az exportalo NEM ir ki olyan sort, ahol ez ures.
+    # A lead eredete es a kapcsolat megtalalasanak helye ket kulon adat.
+    "lead_source_type",
+    "lead_source_url",
+    "contact_source_url",
+    # Visszamenoleges alias: a `source_url` a lead eredetet jelenti. Uj kodban
+    # a fenti, egyertelmu mezoket hasznald.
     "source_url",
     # Signal-frissesseg (ISO datum). Emberi atnezeshez es hibakereseshez.
     "scraped_at",
@@ -80,6 +84,6 @@ APPROVED_CAMPAIGNS = {
 # csak ember vegye at, ne a robot.
 DNC_REASON_MAP = {
     "unsubscribe_request": "unsubscribe",
-    "hard_bounce": "manual_block",
+    "hard_bounce": "hard_bounce",
     "replied": None,  # nem suppression: companies.status = 'replied'
 }

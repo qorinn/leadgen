@@ -1,14 +1,18 @@
-# Bake-off tesztkészlet
+# Bake-off tesztkészlet (opcionális modellkalibráció)
+
+> 2026-08-25 óta ez **nem lead-kizárási és nem implementációs kapu**. Az AI
+> több `opportunity_angles` irányt ad, a cég pedig gyenge jel esetén is
+> megmarad. A régi `FIT`/`NO FIT` címke csak azt méri, felismeri-e a modell a
+> webapp irányt; nem azt, hogy meg kell-e keresni a céget.
 
 A `bakeoff-30.jsonl` **emberi munka**, és szándékosan az. A protokoll:
 [SCRAPER-PLAN.md 2981–3258](../SCRAPER-PLAN.md) — „Függelék: bake-off protokoll".
 
 ## Miért nem generálja ezt AI
 
-A 10 határeset kézi címkéje a **te üzleti döntésed**. Ha egy modell írná a
-címkéket, az eval azt mérné, hogy két modell egyetért-e egymással — nem azt,
-hogy jó leadeket válogatnak-e neked. A könnyű eseteken minden modell jó lesz;
-**a választ a 10 határeset adja meg.**
+A 10 határeset kézi címkéje itt csak kalibrációs referencia. Ha egy modell
+írná a címkéket, az eval azt mérné, hogy két modell egyetért-e egymással. Ezt
+nyugodtan hagyd ki, amíg nem akarsz modelleket összehasonlítani.
 
 ## Formátum
 

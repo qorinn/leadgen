@@ -67,7 +67,21 @@ _COMMON_FIELDS = """
   c.city                                  as city,
   c.signal_summary                        as notes,
   c.signal_score                          as signal_score,
-  ct.source_url                           as source_url,
+  coalesce(
+    (select s.source_type from sources s
+      where s.company_id = c.id and s.source_type <> 'website_crawl'
+      order by s.created_at, s.detected_at limit 1),
+    (select s.source_type from sources s
+      where s.company_id = c.id order by s.created_at, s.detected_at limit 1)
+  )                                       as lead_source_type,
+  coalesce(
+    (select s.source_url from sources s
+      where s.company_id = c.id and s.source_type <> 'website_crawl'
+      order by s.created_at, s.detected_at limit 1),
+    (select s.source_url from sources s
+      where s.company_id = c.id order by s.created_at, s.detected_at limit 1)
+  )                                       as lead_source_url,
+  ct.source_url                           as contact_source_url,
   ct.unsub_token                          as unsub_token,
   c.id                                    as company_id,
   c.normalized_domain                     as normalized_domain,
@@ -213,7 +227,10 @@ def _to_csv_row(row: dict[str, Any]) -> dict[str, str]:
         "notes": row.get("notes") or "",
         "campaign": row.get("campaign") or "",
         "personalization": row.get("personalization") or "",
-        "source_url": row.get("source_url") or "",
+        "lead_source_type": row.get("lead_source_type") or "",
+        "lead_source_url": row.get("lead_source_url") or "",
+        "contact_source_url": row.get("contact_source_url") or "",
+        "source_url": row.get("lead_source_url") or "",
         "scraped_at": scraped.date().isoformat() if hasattr(scraped, "date") else "",
         "company_id": str(row.get("company_id") or ""),
         "unsub_url": unsub_url(row.get("unsub_token")),
@@ -255,6 +272,11 @@ def collect(limit: int = 0) -> tuple[list[dict[str, str]], ExportStats, list[dic
         if email in dnc:
             stats.skipped_dnc += 1
             continue
+        kampany = (row.get("campaign") or "").strip()
+        if kampany not in APPROVED_CAMPAIGNS:
+            stats.skipped_campaign += 1
+            stats.blocked_campaigns.add(kampany or "(ures)")
+            continue
         out.append(_to_csv_row(row))
         _score[email] = float(row.get("signal_score") or 0)
         stats.inflight += 1
@@ -292,7 +314,7 @@ def collect(limit: int = 0) -> tuple[list[dict[str, str]], ExportStats, list[dic
         if email in dnc:
             stats.skipped_dnc += 1
             continue
-        if not (row.get("source_url") or "").strip():
+        if not (row.get("lead_source_url") or "").strip():
             # 0.4 jogi minimum: forras nelkul nem adunk ki leadet.
             stats.skipped_no_source += 1
             continue
@@ -303,9 +325,9 @@ def collect(limit: int = 0) -> tuple[list[dict[str, str]], ExportStats, list[dic
         # Egy kampany szovege addig VAZLAT, amig a felhasznalo at nem nezte.
         # Vazlat szoveggel nem megy ki eles level.
         kampany = (row.get("campaign") or "").strip()
-        if kampany and kampany not in APPROVED_CAMPAIGNS:
+        if kampany not in APPROVED_CAMPAIGNS:
             stats.skipped_campaign += 1
-            stats.blocked_campaigns.add(kampany)
+            stats.blocked_campaigns.add(kampany or "(ures)")
             continue
         if config.EMAIL_VALIDATION == "full":
             mehet, indok = validate.kikuldheto(

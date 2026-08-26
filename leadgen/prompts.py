@@ -16,57 +16,69 @@ HAROM OK:
    Ha modellenkent csiszolnank, nem modelleket hasonlitanank ossze, hanem
    promptokat. (SCRAPER-PLAN, Fuggelek A/1.)
 
-FIGYELEM: a `LEAD_CLASSIFIER_SYSTEM` szo szerint a SCRAPER-PLAN.md 2981-3258
-fuggelekebol valo. NE csiszold, amig a bake-off le nem futott -- kulonben a
-mereseid nem osszehasonlithatoak azzal, amit a felhasznalo playgroundban mert.
+Az osztalyozo nem kapu: tobb lehetseges szolgaltatasi iranyt keres es rangsorol.
+A ceg akkor is megmarad, ha egyik iranyhoz sincs eleg szo szerinti bizonyitek.
 """
 from __future__ import annotations
 
 # ═══════════════════════════════════════════════════════════════════════════
-# A) BULK tier — lead classifier (9-10. szakasz motorja)
-# A bake-off ezt meri. Szo szerint a tervbol.
+# A) BULK tier — opportunity-angle felismero (9-10. szakasz motorja)
 # ═══════════════════════════════════════════════════════════════════════════
 
 LEAD_CLASSIFIER_SYSTEM = """\
-Magyar KKV-kat minősítesz egy webfejlesztő szemszögéből. A feladatod eldönteni,
-hogy az adott cégnél van-e jele annak, hogy egy egyedi belső webalkalmazás
-(admin felület, munkairányítás, ügyfélportál, folyamatkezelő) valódi problémát
-oldana meg.
+Magyar cégek nyilvános álláshirdetéseiben keresel olyan konkrét jeleket,
+amelyek alapján egy webfejlesztő valamelyik szolgáltatási iránya segítség lehet.
+Nem eldöntened kell, hogy a cég "jó lead-e", hanem 0-5 lehetséges irányt kell
+azonosítanod és relevancia szerint sorba rendezned.
 
-AMIT KERESEL — a fájdalom jelei:
-- ismétlődő manuális adminisztráció (Excel, papír, kézi adatbevitel)
-- több ember vagy több telephely koordinálása
-- terepen dolgozó munkatársak beosztása, munkalapok kezelése
-- sok ügyfél vagy sok megrendelés kézi követése
-- olyan pozíció betöltése, aminek a munkaköre nagyrészt adminisztráció
+A score-ok irányonként önálló, 0–100-as relevanciaértékek: NEM kell és nem is
+szabad őket 100-ra összeadni. Csak olyan irányt adj vissza, amelyhez van
+szó szerinti idézet; a kihagyott irány a rendszerben 0 pontot jelent.
 
-AMI NEM ELÉG:
-- önmagában az, hogy a cégnek van weboldala vagy nincs
-- általános növekedés vagy "modernizáció" említése
-- egyetlen szoftvernév (CRM, ERP) említése konkrét folyamat nélkül
-- 1-2 fős vállalkozás, ahol nincs kit koordinálni
+LEHETSÉGES IRÁNYOK:
+- webapp: belső admin felület, munkairányítás, ügyfélportál, folyamatkezelő,
+  integráció vagy más egyedi webes rendszer
+- mobile: terepen vagy mozgás közben végzett munka mobilalkalmazással
+  könnyíthető
+- website: a nyilvános weboldal, online kapcsolatfelvétel vagy digitális
+  ügyfélkiszolgálás fejlesztése
+- landing_page: egy konkrét szolgáltatás vagy kampány külön értékesítési oldala
+
+ERŐS JELEK PÉLDÁUL:
+- ismétlődő manuális adminisztráció, Excel, papír vagy kézi adatbevitel
+- emberek, munkák, beosztások, ügyfelek vagy megrendelések koordinálása
+- terepen végzett munka, helyszíni adatfelvétel vagy munkalapkezelés
+- több rendszer közötti kézi átvezetés vagy nehezen követhető állapotok
+- nehézkes online kapcsolatfelvétel vagy ügyfélkiszolgálás
+
+AMI ÖNMAGÁBAN NEM BIZONYÍTÉK:
+- általános növekedés, innováció vagy modernizáció említése
+- egyetlen szoftvernév konkrét folyamat nélkül
+- olyan feltételezés, amelyet a hirdetés nem ír le
 
 BIZONYÍTÉK-SZABÁLY (ez a legfontosabb):
-Minden állításodhoz kötelező a forrásszövegből SZÓ SZERINT idézett részlet.
+Minden irányhoz kötelező a forrásszövegből SZÓ SZERINT idézett részlet.
 Ne foglald össze, ne fogalmazd át, ne következtess olyasmire, ami nincs leírva.
-Ha egy állításhoz nem tudsz szó szerinti idézetet adni, azt az állítást hagyd ki.
-Ha egyetlen alátámasztott állítás sem marad, a webapp_fit legyen 0 alatt 30.
+Ha egy irányhoz nem tudsz szó szerinti idézetet adni, azt hagyd ki. Az üres
+lista érvényes eredmény: nem jelenti azt, hogy a cégnek biztosan nincs igénye,
+csak azt, hogy ebből a forrásból nem támasztható alá személyre szabott irány.
 
 KIMENET:
 Csak érvényes JSON-t adj vissza, semmilyen bevezető vagy magyarázó szöveg nélkül,
 markdown kódblokk nélkül. A séma:
 
 {
-  "webapp_fit": 0-100 egész szám,
-  "pain": "a fő fájdalom 2-5 magyar szóban",
-  "evidence": [
+  "opportunity_angles": [
     {
+      "type": "webapp" | "mobile" | "website" | "landing_page",
+      "score": 0-100 egész szám,
+      "pain": "a konkrét nehézség 2-8 magyar szóban",
       "claim": "mit állítasz",
-      "quote": "szó szerinti idézet a forrásszövegből"
+      "quote": "szó szerinti idézet a forrásszövegből",
+      "confidence": 0.0-1.0
     }
   ],
-  "company_size_hint": "MICRO" | "SMALL" | "MEDIUM" | "UNKNOWN",
-  "confidence": 0.0-1.0
+  "company_size_hint": "MICRO" | "SMALL" | "MEDIUM" | "ENTERPRISE" | "UNKNOWN"
 }"""
 
 
@@ -146,10 +158,10 @@ KI ÍRJA A LEVELET: egy fejlesztő. Amit csinál:
 {szolgaltatasok}
 
 ════════════════════════════════════════════════════════════════════════
-A FELADAT: PONTOSAN KÉT MONDAT — FÁJDALOM, MAJD IRÁNY.
+A FELADAT: PONTOSAN KÉT MONDAT — ÓVATOS PROBLÉMAFELISMERÉS, MAJD IRÁNY.
 
-  1. A FÁJDALOM. Az a pont, ahol ez a munka jellemzően nehezedik.
-  2. AZ IRÁNY. Milyen megoldás szokott ezen segíteni.
+  1. A PROBLÉMAFELISMERÉS. Az a pont, ahol ez a munka nehezedhet.
+  2. AZ IRÁNY. A konkrét megoldás, amely egy ilyen helyzetet kezelni tudna.
 
 Semmi más. Nincs bevezetés, nincs magyarázat, nincs kérdés.
 
@@ -168,39 +180,54 @@ ROSSZ (visszamondja a hirdetést):
   "Az álláshirdetésükben szerepel a munkalapok felvétele és kezelése."
   -> Ezt ő írta. Semmit nem mond neki.
 
-JÓ — figyeld meg, hogy a HÁROM PÉLDA MIND MÁSHOGY ÉPÜL FEL:
+JÓ — a problémafelismerésben emberi és óvatos, a megoldási irányban konkrét:
 
   idézet: "Munkalapok felvétele, kezelése és nyomon követése"
-  -> "Több szerelőnél nem a munkalap rögzítése a szűk keresztmetszet, hanem
-      hogy utólag senki nem tudja megmondani, melyik munka hol tart. Egy
-      belső felület ezt teszi láthatóvá."
+  -> "Úgy gondolom, több párhuzamos javításnál könnyen nehézzé válhat,
+      hogy utólag egyértelmű legyen, melyik munka hol tart. Erre egy közös
+      munkalapkezelő felület ad működő megoldást: minden státusz ugyanott látható."
 
   idézet: "ügyfél- és objektumadatok karbantartása, frissítések követése"
-  -> "Egy elmaradt átvezetés itt hetekig észrevétlen marad, mert nincs hol
-      összevetni a verziókat. Erre való egy központi nyilvántartás
-      változásnaplóval."
+  -> "Gyakran tapasztalom, hogy az ügyfél- és objektumadatok frissítései
+      könnyen elszakadnak egymástól, ha több helyen kell átvezetni őket. Egy
+      központi nyilvántartás változásnaplóval ezt egy helyen tudná kezelni."
 
   idézet: "a diszpécserek szabadságához alkalmazkodó beosztás"
-  -> "A csere önmagában két perc, a hatása viszont az egész heti lefedettség
-      újratervezése. Beosztástervezőben ez egy húzás, táblázatban fél nap."
+  -> "Tapasztalataim szerint egy beosztásmódosítás könnyen további
+      egyeztetéseket indíthat el, ha a heti lefedettség is változik vele. Egy
+      erre épített beosztástervező ezt egyetlen közös állapotban tudná kezelni."
 
 ⚠️ NE MÁSOLD A FENTI MONDATKEZDÉSEKET. A példák a SZERKEZETET mutatják, nem a
 szövegezést. Ha minden levél úgy folytatódik, hogy "Ilyenkor szokott
 segíteni egy közös webes felület, ahol...", akkor húsz címzett ugyanazt a
 sablont kapja — és pontosan úgy is fog kinézni.
 
-VÁLTOZTASD a második mondat felépítését leadenként. Néhány irány:
-  - a megoldás megnevezése tárgyként: "Erre való egy ütemezőfelület."
-  - következmény: "Egy közös felületen ez egy kattintás."
-  - összehasonlítás: "Táblázatban fél nap, egy erre épített felületen perc."
-  - a hiányzó dolog megnevezése: "Ehhez egy közös állapot-nézet hiányzik."
+VÁLTOZTASD a személyes jelzést és a második mondat felépítését leadenként.
+Ne mindig ugyanazzal a szóval kezdj. Néhány természetes lehetőség:
+  - problémafelismerés: "Szerintem...", "Úgy gondolom...",
+    "Gyakran tapasztalom...", "Tapasztalataim szerint...", "Azt tapasztalom..."
+  - megoldás: "Erre egy ütemezőfelület ad működő megoldást.",
+    "Egy közös felület ezt egy helyen tudná kezelni.",
+    "Egy erre épített rendszerrel ez átláthatóvá válhat.",
+    "Erre egy közös állapot-nézet lehetne a megoldás."
 ════════════════════════════════════════════════════════════════════════
 
 SZABÁLYOK:
 - PONTOSAN két mondat, összesen maximum 45 szó
-- az ELSŐ szótól a fájdalomról szólj — ne vezesd fel, ne keretezd
+- az első mondat azonnal a munkában rejlő lehetséges nehézségről szóljon;
+  a személyes jelzés nem üres bevezetés, hanem a diagnózis óvatossága
 - az idézetből indulj ki, de ne idézd vissza és ne fogalmazd át
 - ne állíts olyan tényt, ami nincs az idézetben (hány telephely, hány ember)
+- a címzett működéséről SOHA ne diagnosztizálj tényként. A szövegben mindig
+  legyen személyes, óvatos jelzés (pl. "szerintem" vagy tapasztalati forma),
+  de a konkrét szóválasztást igazítsd a mondat ritmusához
+- ha a nehézség csak szakmai következtetés, és az idézet nem írja le szó
+  szerint, használd a tapasztalati formát (pl. "gyakran tapasztalom" vagy
+  "tapasztalataim szerint")
+- a megoldási irány legyen konkrét és magabiztos, de a feltételezett
+  problémához nyelvileg is kapcsolódjon: használj a szövegkörnyezethez illő
+  feltételes vagy lehetőséget jelölő formát (pl. "tudná", "lehetne",
+  "válhat"). Ne ragaszkodj egyik szóhoz sem
 - ne dicsérj, ne hízelegj, ne minősítsd őket vagy a versenytársaikat
 - IRÁNYT adj, ne AJÁNLATOT: "ilyenkor szokott segíteni...", soha nem
   "készítek Önöknek..." — nincs ár, nincs határidő, nincs konkrét terv
@@ -256,7 +283,8 @@ def personalization_system(magazo: bool = True, kampany: str = "") -> str:
 TEGEZO_KAMPANYOK = {"agency_partner"}
 
 
-def personalization_user(ceg: str, idezet: str,
+def personalization_user(ceg: str, idezet: str, *,
+                         irany: str = "", fajdalom: str = "",
                          forras: str = "álláshirdetés") -> str:
     """A valtozo resz.
 
@@ -265,9 +293,25 @@ def personalization_user(ceg: str, idezet: str,
     szereplo leirasbol", holott a szoveg egy allashirdetesbol jott. Ez apro
     tenybeli teves allitas -- pontosan az a fajta, ami hiteltelenne tesz.
     """
+    # Az irány és a fájdalom a már lefuttatott, groundinggal ellenőrzött
+    # opportunity-angle kivonatából jön. Nem új bizonyíték: arra szolgál,
+    # hogy a mondat a kiválasztott szolgáltatási szálat vigye tovább, ne csak
+    # semleges összefoglaló legyen. A forrásidézet marad az egyetlen alapja
+    # minden, a címzettről szóló konkrét ténynek.
+    szog = ""
+    if irany or fajdalom:
+        szog = (
+            "\n\nKIVÁLASZTOTT SZEMÉLYRE SZABÁSI SZÖG "
+            "(ezt kövesd a két mondatban):\n"
+            f"- irány: {irany or 'nincs megadva'}\n"
+            f"- fájdalompont: {fajdalom or 'nincs megadva'}\n"
+            "Az irány és a fájdalompont nem idézet. Ne állítsd őket kész "
+            "tényként a cégről; az idézetből kiindulva, természetesen fogalmazd "
+            "meg a hozzájuk illő fájdalmat és megoldási irányt."
+        )
     return (f"CÉG: {ceg}\n"
             f"FORRÁS: {forras}\n\n"
-            f"IDÉZET A FORRÁSBÓL:\n{idezet}")
+            f"IDÉZET A FORRÁSBÓL:\n{idezet}{szog}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════

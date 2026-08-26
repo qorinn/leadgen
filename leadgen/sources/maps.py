@@ -10,7 +10,7 @@ kotelezo vedokorlat, es minden futas kiirja a tenyleges koltseget.
 """
 from __future__ import annotations
 
-from .. import db
+from .. import db, storage
 from ..blocklist import resolve_company_key
 from ..engines import EngineDef
 from . import apify
@@ -42,30 +42,7 @@ def _upsert_company(cur, item: dict, engine: EngineDef) -> str | None:
         do update set
               last_seen_at = now(),
               phone = coalesce(companies.phone, excluded.phone),
-              city  = coalesce(companies.city, excluded.city),
-              -- EGY MASIK ENGINE UJRA ERTEKELHETI A "NEM FIT" CEGET.
-              -- A `rejected` azt jelenti: "ehhez a kampanyhoz nem illik" --
-              -- NEM azt, hogy "ez a ceg sosem lehet lead". Egy ceg, amit az
-              -- ugynoksegi engine elutasitott (nincs marketing kulcsszo),
-              -- kivalo lead lehet az allashirdetes-engine-nek.
-              -- A `suppressed` viszont NEM allitodik vissza: a leiratkozas,
-              -- a versenytars es a bounce a CEG tulajdonsaga, nem a kampanye.
-              status = case
-                  when companies.status = 'rejected'
-                   and companies.campaign is distinct from excluded.campaign
-                  then 'new' else companies.status end,
-              campaign = case
-                  when companies.status = 'rejected'
-                   and companies.campaign is distinct from excluded.campaign
-                  then excluded.campaign else companies.campaign end,
-              best_offer = case
-                  when companies.status = 'rejected'
-                   and companies.campaign is distinct from excluded.campaign
-                  then excluded.best_offer else companies.best_offer end,
-              status_note = case
-                  when companies.status = 'rejected'
-                   and companies.campaign is distinct from excluded.campaign
-                  then null else companies.status_note end
+              city  = coalesce(companies.city, excluded.city)
           returning id, (xmax = 0) as uj_sor
         """,
         (item.get("title"), normalize_company_name(item.get("title") or ""),
@@ -165,28 +142,41 @@ def ingest(engine: EngineDef, max_results: int = 50, dry: bool = False,
             stats["lekerdezes"] += 1
             maradek -= len(items)
 
-            for item in items:
+            # RAW-FIRST: ez a kulon tranzakcio commitol, mielott a ceghez
+            # kapcsolas elkezdodik. Egy kesobbi upsert-hiba sem gorgetheti
+            # vissza a mar kifizetett scraper-talalatokat.
+            nyers_rekordok = []
+            with db.connect() as raw_conn, raw_conn.cursor() as raw_cur:
+                for item in items:
+                    source_url = storage.stable_source_url(
+                        item, "maps", ("placeId", "place_id", "cid"))
+                    raw = dict(item)
+                    raw["_ingest_context"] = {"term": term, "location": loc,
+                                               "engine": engine.key}
+                    source_id, uj_forras = storage.save_source(
+                        raw_cur, engine.key, source_url, raw,
+                        processing_status="discovered")
+                    nyers_rekordok.append((item, source_id, uj_forras))
+
+            for item, source_id, uj_forras in nyers_rekordok:
                 stats["talalat"] += 1
+
                 company_id = _upsert_company(cur, item, engine)
                 if company_id is None:
+                    cur.execute(
+                        """
+                        update sources
+                           set processing_status = 'unmatched',
+                               processing_note = 'nincs stabil cegazonosito'
+                         where id = %s
+                        """,
+                        (source_id,),
+                    )
                     stats["kulcs_nelkul"] += 1
                     continue
 
-                cur.execute(
-                    """
-                    insert into sources (company_id, source_type, source_url, raw_signal)
-                         values (%s, %s, %s, %s)
-                    on conflict (source_type, source_url) do nothing
-                      returning id
-                    """,
-                    (company_id, engine.key,
-                     item.get("url") or f"maps:{item.get('placeId')}",
-                     db.Json({"title": item.get("title"),
-                              "category": item.get("categoryName"),
-                              "website": item.get("website"),
-                              "term": term, "location": loc})),
-                )
-                if cur.fetchone():
+                storage.link_source(cur, source_id, company_id)
+                if uj_forras:
                     stats["uj_ceg"] += 1
                 else:
                     stats["mar_ismert"] += 1

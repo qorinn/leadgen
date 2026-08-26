@@ -324,6 +324,17 @@ A promptok egy helyen vannak ([leadgen/prompts.py](leadgen/prompts.py)), mert a
 prompt caching **stabil prefixet** kíván — a változó lead-adat mindig külön
 paraméter, sosem a rendszer-prompthoz fűzve.
 
+**A leadadat és a megkereshetőség két külön réteg.** Minden scraper-találatot
+előbb teljes nyers payloadként ments a `sources` táblába; a `company_id` lehet
+NULL, ha még nincs stabil cégazonosító. Gyenge vagy hiányzó szolgáltatási jel,
+domain, kontakt vagy personalization miatt új kód **nem állíthat `rejected`-et**:
+használj `scored`/`review`/`hold` státuszt és `company_labels` címkét. Az AI
+`opportunity_angles` listát ad, a pontszám rangsorol, nem kizár. Suppression csak
+leiratkozás, negatív válasz, hard bounce, meglévő ügyfél, kézi tiltás vagy
+bizonyítható közvetlen versenytárs. Az export továbbra is csak `ready` +
+használható kontakt + jóváhagyott kampány esetén enged, és külön viszi a lead
+eredetét (`lead_source_*`) és a kontakt forrását (`contact_source_url`).
+
 **A prompt few-shot példái SABLONNÁ válnak — ezt hat kimenet együtt látszik.**
 Mérve 2026-08-25: a personalization mind a 6 mondata ugyanúgy folytatódott
 (*„Ilyenkor szokott segíteni egy közös webes felület, ahol…"*), mert a prompt

@@ -8,7 +8,7 @@
 
 ---
 
-## 📍 Állapot — 2026-08-21 (péntek)
+## 📍 Állapot — 2026-08-25
 
 | Szakasz | Állapot |
 |---|---|
@@ -23,8 +23,40 @@
 | **7. Email-validáció** | 🟡 **agent-rész kész — az ingyenes szűrő ÉLES, a fizetős kulcsra vár** |
 | **8. Halott fejlesztő (8.2)** | 🟡 **agent-rész kész — 0 találat a mai listán (ügynökségek), a 9. fázistól lesz értéke** |
 | **9. Ops Pain, A rész (forrás)** | 🟡 **agent-rész kész — 0.3 előteszt ÁTMENT, 100 cég betöltve** |
-| **10. Classifier + grounding** | 🟡 **agent-rész kész — kulcsra és a sablonok átírására vár** |
+| **10. Classifier + grounding** | ✅ **KÉSZ, 2026-08-25-én átállítva többirányú, nem kizáró minősítésre** |
 | 11-13. | ⬜ nem kezdődött el |
+
+### 2026-08-25 — Kötelezően megőrző leadmodell (felülírja a régi fit-kaput)
+
+Ez a döntés felülír minden későbbi, történeti részt, amely szerint a
+`webapp_fit < 70`, a hiányzó email vagy a hiányzó személyre szabási bizonyíték
+automatikusan `rejected` állapotot jelent.
+
+- Minden scraper által visszaadott forráselem először a `sources` táblába kerül.
+  Ha még nem kapcsolható céghez, `company_id = null` és `unmatched` címke mellett
+  is megmarad a teljes nyers payload.
+- A cég, a forrás és a kapcsolat nem törlődik attól, hogy most nem kereshető meg.
+- A kampányalkalmasság külön réteg: `company_labels` és
+  `opportunity_angles`. A `rejected` új automatikus feldolgozásban nem használt.
+- Az AI 0-5 lehetséges irányt keres (`webapp`, `mobile`, `website`,
+  `landing_page`), szó szerinti idézettel. A legerősebb irány nyerheti az egyetlen
+  aktív kampányt, a többi irány is elmentődik.
+- Nincs 70 pontos kizárási kapu. A pontszám rangsorol. Bizonyíték nélkül nincs
+  személyre szabott állítás, de a cég megmarad `scored` állapotban.
+- `contact_missing`, `domain_missing`, `personalization_missing`,
+  `manual_review`, `campaign_missing` és `enterprise_hint` újraértékelhető címke.
+- A `enterprise_hint` önmagában nem biztos multi-bizonyíték, ezért nem tesz
+  automatikusan `hold` állapotba. A biztos méretadat a 11. szakasz feladata.
+- Valódi tiltás csak suppression: leiratkozás, negatív válasz, hard bounce,
+  meglévő ügyfél, kézi tiltás vagy bizonyítható közvetlen versenytárs.
+- Az export csak `ready`, használható kapcsolattal és jóváhagyott kampánnyal
+  rendelkező céget ad ki; a lead eredete és a kontakt forrása külön CSV-mező.
+- A 30 esetes bake-off opcionális modellminőség-mérés, nem implementációs kapu.
+- Az új kampányok levélszövege továbbra is külön emberi jóváhagyási kapu.
+
+Adatbázis-migráció: `010_retention_and_angles.sql`. A migráció nem töröl céget,
+forrást vagy kapcsolatot; a suppression nélküli régi `rejected` sorokat
+`scored` állapotba és `legacy_rejected` címkére vezeti át.
 
 **A teljes lánc szárazon végigfutott valódi adattal.** Ami hátravan az 5. szakaszból,
 az egyetlen emberi lépés: elolvasni a 10 levelet, és elindítani a `--live` futást.
@@ -34,7 +66,7 @@ export ......................... 10 sor, 0 új sorba állítva (mind folyamatban
 guards.py (önállóan) ........... IMAP OK, 0 üzenet, 0 hiba
 sender.py --dry (guards-szal) .. 10 levél a tervben, mai keret 20, 0 placeholder
 preview.py --limit 1 ........... teljes levél átnézve, aláírás + leiratkozás rendben
-pytest ......................... 103 teszt zöld
+pytest ......................... 298 teszt zöld (2026-08-25)
 ```
 
 ### ⏩ Módosított cél (2026-08-20, felhasználói döntés)
@@ -127,6 +159,10 @@ session mást akarna csinálni, előbb ezt olvassa el — mindegyik mögött ind
 
 ### 2026-08-21 — Kizárás: mi globális és mi kampány-specifikus
 
+> **Történeti döntés, 2026-08-25-én felülírva:** kampányspecifikus
+> `rejected` helyett `scored` + címkék vannak; új forrás nem írja át a cég
+> kampányát, hanem új bizonyítékként kapcsolódik hozzá.
+
 | | |
 |---|---|
 | **A kérdés** | A felhasználó vetette fel: *„lehet, hogy vannak olyan scraperek, ahol az egyik scraperben rossz lead, de a másikban jó lead, ugyanaz a cég."* |
@@ -158,7 +194,7 @@ cég másik engine-nél → marad `suppressed`.
 
 | | |
 |---|---|
-| **Döntés** | Hard bounce után a cég `rejected` státuszba kerül, és **nem próbálkozunk másik címmel ugyanannál a cégnél**. A cím `manual_block` suppressionbe kerül, a kapcsolat `invalid` lesz, az outreach `stopped`. |
+| **Döntés** | Hard bounce után a cég adatai megmaradnak, de `suppressed` státuszba kerül, és **nem próbálkozunk másik címmel ugyanannál a cégnél**. A cím `hard_bounce` suppressionbe kerül, a kapcsolat `invalid` lesz, az outreach `stopped`. |
 | **Elvetve** | A megengedőbb változat (`ready` + 30 napos cooldown), ami egy másik címmel újrapróbálkozott volna. |
 | **Indok** | A felhasználó döntése: *„Ne rontsuk a domain reputációt."* A bounce az egyetlen hiba a rendszerben, ami **visszamenőleg** is kárt okoz — rontja a küldő domain hírnevét, és onnantól a jó leadeknek sem érkezik meg a levél. Egyetlen cég megmentése nem éri meg ezt, főleg úgy, hogy a második cím ugyanabból a nyilvánvalóan elavult forrásból származik. |
 | **Ára** | Egy elavult `info@` cím miatt elveszíthetünk egy egyébként jó céget. Ez magyar KKV-knál nem ritka. |

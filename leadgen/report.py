@@ -33,20 +33,23 @@ from . import config, db, validate
 # A `companies.status` eletciklus sorrendben. A riport ebben a sorrendben ir,
 # nem darabszam szerint: igy latszik, hol AKAD EL a tolcser.
 STATUS_ORDER = [
-    "new", "enriched", "ready", "queued", "sent", "replied", "done",
-    "review", "rejected", "suppressed", "error",
+    "new", "enriching", "enriched", "scored", "ready", "queued", "sent",
+    "replied", "done", "review", "hold", "rejected", "suppressed", "error",
 ]
 
 STATUS_LABEL = {
     "new": "uj (enrichmentre var)",
+    "enriching": "enrichment folyamatban",
     "enriched": "feldolgozva (minositesre var)",
+    "scored": "ertekelve (most nem exportalhato)",
     "ready": "kesz (exportalhato)",
     "queued": "sorban all (leads.csv-ben)",
     "sent": "level kiment",
     "replied": "VALASZOLT -- ember kezelje",
     "done": "szekvencia lezarult",
     "review": "emberi dontesre var",
-    "rejected": "elutasitva",
+    "hold": "kampanybol ideiglenesen visszatartva",
+    "rejected": "regi elutasitott allapot",
     "suppressed": "tiltolistan",
     "error": "hiba (pl. elerhetetlen weboldal)",
 }
@@ -165,6 +168,17 @@ def funnel() -> int:
         print(f"\nTILTOLISTA ({sum(supp.values())})")
         for reason, n in sorted(supp.items(), key=lambda x: -x[1]):
             print(f"  {reason:<16} {n:>4}")
+
+    cimkek = _counts("select label as k, count(*) as n from company_labels group by 1")
+    if cimkek:
+        print(f"\nCIMKEK ({sum(cimkek.values())})")
+        for label, n in sorted(cimkek.items(), key=lambda x: (-x[1], x[0])):
+            print(f"  {label:<24} {n:>4}")
+
+    paratlan = db.query("select count(*) as n from sources where company_id is null")
+    if paratlan and paratlan[0]["n"]:
+        print(f"\nNYERS FORRASELEMEK")
+        print(f"  ceghez meg nem kapcsolt          {paratlan[0]['n']:>4}")
 
     out = _counts("select status as k, count(*) as n from outreach group by 1")
     if out:
@@ -310,8 +324,9 @@ def grounding() -> int:
     tesz. Ezert itt egyutt latszik a mondat ES az idezet, amibol keszult.
     """
     rows = db.query("""
-        select company_name, normalized_domain, webapp_fit, website_fit,
-               personalization, evidence, grounding_dropped, score_model
+        select id, company_name, normalized_domain, webapp_fit, website_fit, mobile_fit,
+               best_offer, status, personalization, evidence, grounding_dropped,
+               score_model
           from companies
          where scored_at is not null
          order by scored_at desc limit 30
@@ -324,23 +339,71 @@ def grounding() -> int:
     ossz = db.query("""
         select count(*) as n,
                sum(grounding_dropped) as eldobott,
-               count(*) filter (where status = 'ready') as fit
+               count(*) filter (where status = 'ready') as ready
           from companies where scored_at is not null
     """)[0]
-    print(f"MINOSITETT CEGEK ({ossz['n']})   fit: {ossz['fit']}   "
-          f"eldobott allitas: {ossz['eldobott'] or 0}")
+    print(f"MINOSITETT CEGEK ({ossz['n']})   ready: {ossz['ready']}   "
+          f"eldobott irany: {ossz['eldobott'] or 0}")
+
+    # Az uj schema az opportunity_angles tablan tarolja az egyes iranyok
+    # tenyleges pontszamat, paint es idezetet. Ez a kanonikus adat; a
+    # companies.evidence csak a kompatibilis, osszefoglalo masolat.
+    # Egyetlen lekerdezesben olvassuk ki a 30 megjelenitett ceghez, nem
+    # cegenkent nyitunk uj kapcsolatot.
+    ids = [r["id"] for r in rows]
+    angle_rows = db.query("""
+        select company_id, rank, angle_type, score, pain, claim, quote, selected
+          from opportunity_angles
+         where company_id = any(%s)
+         order by company_id, rank
+    """, (ids,))
+    angles_by_company: dict[object, list[dict]] = {}
+    for angle in angle_rows:
+        angles_by_company.setdefault(angle["company_id"], []).append(angle)
 
     for r in rows:
         ev = (r["evidence"] or {})
-        megtartott = ev.get("evidence") or []
+        uj_angles = angles_by_company.get(r["id"], [])
+        megtartott = uj_angles or ev.get("angles") or ev.get("evidence") or []
         eldobott = ev.get("dropped") or []
+        scores = {
+            tipus: max((float(a.get("score") or 0) for a in uj_angles
+                        if a.get("angle_type") == tipus), default=0.0)
+            for tipus in ("webapp", "website", "mobile", "landing_page")
+        }
+        # A korabbi, egyiranyu schema meg csak a harom oszlopot tarolta.
+        # Itt nem talalunk ki negyedik pontszamot: a kiiras jelezze, hogy a
+        # reszletes angle-adat nem letezik ehhez a regi futashoz.
+        legacy = not uj_angles and bool(megtartott)
+        if legacy:
+            scores.update({
+                "webapp": float(r["webapp_fit"] or 0),
+                "website": float(r["website_fit"] or 0),
+                "mobile": float(r["mobile_fit"] or 0),
+            })
         print(f"\n  {r['company_name']}   "
-              f"(webapp={r['webapp_fit'] or 0:.0f} website={r['website_fit'] or 0:.0f})")
+              f"(status={r['status']} kiemelt={r['best_offer'] or '-'}; "
+              f"webapp={scores['webapp']:.0f} "
+              f"website={scores['website']:.0f} "
+              f"mobile={scores['mobile']:.0f} "
+              f"landing_page={scores['landing_page']:.0f})")
         if r["personalization"]:
             print(f"    ➜ A LEVELBE MENO MONDAT:")
             print(f"      \"{r['personalization']}\"")
-        for e in megtartott[:2]:
-            print(f"    ✓ {str(e.get('claim'))[:70]}")
+        if legacy:
+            print("    ℹ régi futás: az egyes szögek típusa és pontszáma "
+                  "nem lett eltárolva")
+        for e in megtartott[:5]:
+            tipus = e.get("angle_type") or e.get("type")
+            score = e.get("score")
+            if uj_angles:
+                jel = "★" if e.get("selected") else "✓"
+                print(f"    {jel} [{tipus} {float(score or 0):.0f}] "
+                      f"{str(e.get('claim'))[:70]}")
+                if e.get("pain"):
+                    print(f"      pain: {str(e['pain'])[:100]}")
+            else:
+                print(f"    ✓ [régi adat] {str(e.get('claim'))[:70]}")
             print(f"      idezet: \"{str(e.get('quote'))[:70]}\"")
         for e in eldobott[:2]:
             print(f"    ✗ ELDOBVA ({e.get('indok')}): \"{str(e.get('quote'))[:60]}\"")

@@ -118,11 +118,10 @@ class TestOfferArbitration:
         assert ajanlat == "website"
         assert kampany == "dead_dev"
 
-    def test_kuszob_alatt_nincs_kampany(self):
-        """Ha egyik ajanlat sem eri el a kuszobot, NEM valasztunk
-        'legkevesbe rosszat' -- a lead egyszeruen nem fit."""
+    def test_nincs_automatikus_fit_kuszob(self):
+        """A pontszam rangsorol, de nem dob ki egy groundolt lehetoseget."""
         ajanlat, kampany, _ = score.arbitral(50, 40, 10)
-        assert kampany == ""
+        assert (ajanlat, kampany) == ("webapp", "ops_pain")
 
     def test_dontetlennel_a_webapp_nyer(self):
         # A terv legerosebb engine-je, ott a legmagasabb a projekt-ertek.
@@ -140,6 +139,32 @@ class TestOfferArbitration:
 
     def test_hianyzo_ertekek_nem_dobnak(self):
         assert score.arbitral(None, None, None)[1] == ""
+
+    def test_a_landing_page_megmarad_kampany_nelkul(self):
+        ajanlat, kampany, _ = score.arbitral(0, 0, 0, 65)
+        assert ajanlat == "landing_page"
+        assert kampany == ""
+
+
+class TestOpportunityAngles:
+    def test_tobb_iranyt_is_megoriz(self):
+        angles = score._szogek({"opportunity_angles": [
+            {"type": "webapp", "score": 42, "pain": "kezi admin",
+             "claim": "kezi", "quote": "Munkalapok kezelese es kovetese",
+             "confidence": 0.8},
+            {"type": "mobile", "score": 31, "pain": "terepi munka",
+             "claim": "terep", "quote": "Helyszini felmeresek elvegzese",
+             "confidence": 0.6},
+        ]})
+        assert [a["type"] for a in angles] == ["webapp", "mobile"]
+
+    def test_regi_valaszt_nem_veszit_el(self):
+        angles = score._szogek({
+            "webapp_fit": 80, "pain": "kezi admin", "confidence": 0.9,
+            "evidence": [{"claim": "x", "quote": "Munkalapok kezelese es kovetese"}],
+        })
+        assert angles[0]["type"] == "webapp"
+        assert angles[0]["score"] == 80
 
 
 class TestWebsiteFit:

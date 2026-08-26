@@ -24,8 +24,8 @@ import config
 # Ha csak az egyik oldalt irod at, a tests/test_contract.py elhasal.
 LEADS_HEADER = [
     "email", "company", "contact_name", "website", "industry", "city", "notes",
-    "campaign", "personalization", "source_url", "scraped_at", "company_id",
-    "unsub_url",
+    "campaign", "personalization", "lead_source_type", "lead_source_url",
+    "contact_source_url", "source_url", "scraped_at", "company_id", "unsub_url",
 ]
 SENT_HEADER = ["ts", "email", "domain", "stage", "template", "subject", "account"]
 DNC_HEADER = ["ts", "email", "reason", "notes"]

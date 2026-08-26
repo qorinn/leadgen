@@ -34,7 +34,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from . import config, db
+from . import config, db, labels
 from .normalize import normalize_email
 
 # A cegek allapota, amit a feedback NEM irhat felul. Ha valaki mar valaszolt
@@ -228,11 +228,7 @@ def _import_dnc(cur, rows: list[dict], stats: FeedbackStats) -> None:
             # nem eri meg ezt a kockazatot -- foleg ugy, hogy a masodik cim
             # ugyanabbol a (nyilvanvaloan elavult) forrasbol szarmazik.
             #
-            # MIKOR TERJUNK VISSZA RA: ha mar van ugyfel es a lead-utanpotlas
-            # valik szuk keresztmetszette. Akkor a 'rejected' helyett
-            # 'ready' + cooldown johet, de csak olyan masodik cimre, amit a
-            # Reoon 'valid'-nak mert. Reszletek: INTEGRATION-PLAN.md Dontesnaplo.
-            _suppress(cur, email, "manual_block", "hard bounce")
+            _suppress(cur, email, "hard_bounce", "hard bounce")
             stats.suppressed += 1
             if contact:
                 cur.execute(
@@ -250,13 +246,15 @@ def _import_dnc(cur, rows: list[dict], stats: FeedbackStats) -> None:
                 cur.execute(
                     """
                     update companies
-                       set status = 'rejected',
+                       set status = 'suppressed',
                            status_note = 'hard bounce: ' || %s
                                          || ' -- ujraprobalas kikapcsolva (reputacio-vedelem)'
                      where id = %s and status <> all(%s)
                     """,
                     (email, contact["company_id"], list(_TERMINAL)),
                 )
+                labels.set_label(cur, contact["company_id"], "contact_invalid",
+                                 {"email": email, "reason": "hard_bounce"})
             continue
 
         # Ismeretlen ok -> nem talalgatunk, de naplozzuk.

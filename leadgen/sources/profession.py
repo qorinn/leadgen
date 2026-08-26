@@ -47,7 +47,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from .. import blocklist, db, normalize
+from .. import blocklist, db, labels, normalize, storage
 from ..engines import EngineDef
 from . import apify
 
@@ -229,7 +229,8 @@ def ingest(engine: EngineDef, max_results: int = 50, dry: bool = False,
         keret -= len(items)
 
         for hirdetes in items:
-            _feldolgoz(hirdetes, resolve_maps, stats, verbose)
+            _feldolgoz(hirdetes, resolve_maps, stats, verbose,
+                       term=kifejezes, location=location)
 
         # A LEKERDEZES rogzitese -- ez akadalyozza meg, hogy ugyanazert a
         # keresesert ma megegyszer fizessunk.
@@ -253,30 +254,68 @@ def _alapkifejezesek(engine: EngineDef) -> tuple[str, ...]:
     return _OPS_PAIN_SEARCHES
 
 
-def _feldolgoz(hirdetes: dict, maps: bool, stats: dict, verbose: bool) -> None:
-    url = (hirdetes.get("url") or "").strip()
+def _feldolgoz(hirdetes: dict, maps: bool, stats: dict, verbose: bool,
+               term: str = "", location: str = "") -> None:
+    source_url = storage.stable_source_url(
+        hirdetes, "profession", ("jobId", "id", "positionId", "professionId"))
     cegnev = (hirdetes.get("companyName") or "").strip()
-    if not url or not cegnev:
-        stats["kihagyva"] += 1
-        return
+    raw = dict(hirdetes)
+    raw["_ingest_context"] = {"term": term, "location": location,
+                              "actor": ACTOR}
 
-    # ── INKREMENTALITAS: lattuk mar ezt a hirdetest? ──────────────────
-    mar = db.query("select 1 from sources where source_type = %s and source_url = %s",
-                   (SOURCE_TYPE, url))
-    if mar:
-        stats["mar_ismert"] += 1
-        return
-
-    stats["uj_hirdetes"] += 1
-    domain, honnan = _feloldas(hirdetes, maps)
-    varos = hirdetes.get("addressLocality") or ""
-    kulcs = normalize.normalize_company_name(cegnev)
-
-    if verbose:
-        jel = "✅" if domain else "❔"
-        print(f"    {jel} {cegnev[:34]:<36} {domain or '(nincs domain)':<24} {honnan}")
+    # RAW-FIRST: kulon commit. A cegfeloldas vagy upsert kesobbi hibaja nem
+    # torolheti el a mar visszakapott hirdetest.
+    with db.connect() as raw_conn, raw_conn.cursor() as raw_cur:
+        source_id, uj_forras = storage.save_source(
+            raw_cur, SOURCE_TYPE, source_url, raw,
+            processing_status="discovered")
 
     with db.connect() as conn, conn.cursor() as cur:
+        if not uj_forras:
+            cur.execute("select company_id from sources where id = %s", (source_id,))
+            mar = cur.fetchone()
+            if mar and mar["company_id"]:
+                stats["mar_ismert"] += 1
+                return
+
+        if not cegnev:
+            cur.execute(
+                """
+                update sources set processing_status = 'unmatched',
+                                   processing_note = 'hianyzik a cegnev'
+                 where id = %s
+                """,
+                (source_id,),
+            )
+            stats["kihagyva"] += 1
+            if uj_forras:
+                stats["uj_hirdetes"] += 1
+            return
+
+        if uj_forras:
+            stats["uj_hirdetes"] += 1
+
+        domain, honnan = _feloldas(hirdetes, maps)
+        varos = hirdetes.get("addressLocality") or ""
+        kulcs = normalize.normalize_company_name(cegnev)
+
+        if verbose:
+            jel = "✅" if domain else "❔"
+            print(f"    {jel} {cegnev[:34]:<36} "
+                  f"{domain or '(nincs domain)':<24} {honnan}")
+
+        if not domain and not kulcs:
+            cur.execute(
+                """
+                update sources set processing_status = 'unmatched',
+                                   processing_note = 'nincs stabil cegazonosito'
+                 where id = %s
+                """,
+                (source_id,),
+            )
+            stats["kihagyva"] += 1
+            return
+
         # A ceg: domain szerint, vagy ha nincs, nev+telepules szerint.
         if domain:
             cur.execute("select id from companies where normalized_domain = %s", (domain,))
@@ -306,24 +345,17 @@ def _feldolgoz(hirdetes: dict, maps: bool, stats: dict, verbose: bool) -> None:
             if not domain:
                 stats["domain_nelkul"] += 1
 
-        # A HIRDETES a bizonyitek. A teljes szoveget megorizzuk: a 10. szakasz
-        # AI-classifiere ezt kapja bemenetkent, es az evidence grounding
-        # ebben a szovegben ellenorzi majd az idezeteket.
-        cur.execute("""
-            insert into sources (company_id, source_type, source_url, raw_signal)
-                 values (%s, %s, %s, %s)
-            on conflict (source_type, source_url) do nothing
-        """, (company_id, SOURCE_TYPE, url, db.Json({
-            "title": hirdetes.get("title"),
-            "company": cegnev,
-            "location": hirdetes.get("location"),
-            "posted_at": hirdetes.get("postedAt"),
-            "category": hirdetes.get("category"),
-            "description": hirdetes.get("description"),
-            "responsibilities": hirdetes.get("responsibilities"),
-            "requirements": hirdetes.get("requirements"),
-            "domain_resolution": honnan,
-        })))
+        # A teljes, eredeti hirdetes mar a cegazonositas ELOTT bekerult. Itt
+        # csak hozzakapcsoljuk a ceghez es feljegyezzuk a feloldas modjat.
+        raw["domain_resolution"] = honnan
+        storage.save_source(cur, SOURCE_TYPE, source_url, raw,
+                            company_id=company_id, processing_status="linked")
+        storage.link_source(cur, source_id, company_id)
+        if domain:
+            labels.clear_label(cur, company_id, "domain_missing")
+        else:
+            labels.set_label(cur, company_id, "domain_missing",
+                             {"resolution": honnan}, source_id)
 
 
 def resolve_pending(limit: int = 20, dry: bool = False,
@@ -394,12 +426,14 @@ def resolve_pending(limit: int = 20, dry: bool = False,
         stats["feloldva"] += 1
         if verbose:
             print(f"    ✅ {row['company_name'][:40]:<42} {domain}")
-        db.execute("""
-            update companies
-               set normalized_domain = %s, domain = %s,
-                   status = 'new', status_note = 'domain feloldva: google maps'
-             where id = %s
-        """, (domain, f"https://{domain}", row["id"]))
+        with db.connect() as conn, conn.cursor() as cur:
+            cur.execute("""
+                update companies
+                   set normalized_domain = %s, domain = %s,
+                       status = 'new', status_note = 'domain feloldva: google maps'
+                 where id = %s
+            """, (domain, f"https://{domain}", row["id"]))
+            labels.clear_label(cur, row["id"], "domain_missing")
 
     if verbose:
         print(f"\n  feloldva={stats['feloldva']}  sikertelen={stats['sikertelen']}")

@@ -179,11 +179,13 @@ Ez kell a válasz-értelmezéshez. Amíg nincs, a válaszokat kézzel nézed át
 Ha egyet is rosszul sorolt `unsubscribe`-ként, **azonnal szólj** — az
 visszafordíthatatlan.
 
-### 3.3 A 30 teszteset (bake-off)  — *nem sürgős, de a 9-10. fázis kapuja*
+### 3.3 A 30 teszteset (bake-off) — *opcionális, nem blokkol semmit*
 
-Formátum és útmutató: [evals/README.md](evals/README.md). ~40 perc.
-Ez dönti el, melyik olcsó modellre építsük a nagy volumenű leadgyűjtést.
-**A 10 határeset a te üzleti döntésed** — ezt AI nem tudja helyetted.
+Ezt nem kell elvégezned az alkalmazás következő szakaszai előtt. A rendszer már
+nem használ bináris „jó lead / rossz lead" AI-kaput: több lehetséges irányt
+ment el, és csak a biztos kizárásokat tiltja. A bake-off akkor hasznos, ha később
+két modell közül szeretnéd kiválasztani azt, amelyik jobb idézeteket és
+relevánsabb sorrendet ad. Formátum: [evals/README.md](evals/README.md).
 
 ### 3.4 A `dead_dev` kampány szövegének átírása *(8. fázis)*
 

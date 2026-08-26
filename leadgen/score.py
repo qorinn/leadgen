@@ -15,15 +15,14 @@
 ════════════════════════════════════════════════════════════════════════════
 NEGY SZABALY, AMI ITT NEM KOZMETIKA
 
-1. A BAKE-OFF PROMPTOT SZO SZERINT HASZNALJUK.
-   A `prompts.LEAD_CLASSIFIER_SYSTEM` az, amit a bake-offon mertunk. Ha itt
-   "csiszolnank" rajta, a meres ervenytelenne valna: nem tudnank, hogy a
-   valasztott modell tenyleg jobb-e, vagy csak mas promptot kapott.
+1. A FUTAS ES AZ OPCIONALIS EVAL UGYANAZT A PROMPTOT HASZNALJA.
+   A `prompts.LEAD_CLASSIFIER_SYSTEM` az egyetlen igazsagforras. Modell-
+   osszehasonlitasnal minden jelolt pontosan ezt kapja.
 
 2. A GROUNDING NEM AI-HIVAS.
    Sima string-kereses. Ami nem talalhato meg szo szerint a forrasban, azt
-   az ALLITAST eldobjuk. Ha egyetlen alatamasztott allitas sem marad, a lead
-   `rejected`. Inkabb menjen ki kevesebb level, mint egy magabiztosan teves.
+   az IRANYT eldobjuk. Ha egyetlen alatamasztott irany sem marad, a ceg
+   megmarad `scored` allapotban, de nem kap kitalalt szemelyre szabast.
 
 3. A PERSONALIZATION BUKASA NEM EJTI KI A LEADET.
    Ha a `personalization_quote` nem ellenorizheto, a lead SABLON-emailre esik
@@ -40,14 +39,15 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 
-from . import config, db, grounding, llm, pricing, prompts
+from . import config, db, grounding, labels, llm, pricing, prompts
 
-# A terv A/5 kuszobe: e felett FIT. Ugyanaz a szam, amit a bake-off mer.
+# Visszamenoleges kompatibilitas az eval-riporttal es a dead-dev pontszammal.
+# Ez mar NEM automatikus kizarasi kuszob.
 FIT_KUSZOB = 70
 
-# A personalization csak a jo leadekre keszul -- ez a QUALITY tier, ami
-# dragabb. Nincs ertelme egy 30 pontos leadre magyar mondatot iratni.
-PERSONALIZATION_KUSZOB = 70
+# Mar egyetlen groundolt irany is eleg ahhoz, hogy megprobaljuk a ketmondatos
+# szemelyre szabast. A kampany jovahagyasa ettol kulon exportkapu.
+PERSONALIZATION_KUSZOB = 1
 
 # Ha a grounding-bukas aranya e folott van, a modell hallucinal.
 HALLUCINACIO_RIASZTAS = 0.20
@@ -83,7 +83,8 @@ class ScoreStats:
 _AJANLAT_KAMPANY = {
     "webapp": "ops_pain",
     "website": "dead_dev",
-    "mobile": "mobile",       # meg nincs sablonja -- lasd `arbitral()`
+    "mobile": "",              # meg nincs jovahagyhato kampanysablon
+    "landing_page": "",        # kesobbi kampanyirany
 }
 
 
@@ -103,50 +104,47 @@ def website_fit(row: dict) -> float:
     return min(pont, 100.0)
 
 
-def arbitral(webapp: float, website: float, mobile: float) -> tuple[str, str, float]:
+def arbitral(webapp: float, website: float, mobile: float,
+             landing_page: float = 0.0) -> tuple[str, str, float]:
     """A harom fit-bol egy ajanlat es egy kampany. (ajanlat, kampany, pont).
 
     Dontetlennel a WEBAPP nyer: az a terv legerosebb engine-je, es ott a
     legmagasabb a projekt-ertek.
     """
     jeloltek = [("webapp", webapp or 0.0), ("website", website or 0.0),
-                ("mobile", mobile or 0.0)]
+                ("mobile", mobile or 0.0),
+                ("landing_page", landing_page or 0.0)]
     jeloltek.sort(key=lambda x: (-x[1], x[0] != "webapp"))
     ajanlat, pont = jeloltek[0]
 
-    if pont < FIT_KUSZOB:
+    if pont <= 0:
         return "", "", pont
 
     kampany = _AJANLAT_KAMPANY.get(ajanlat, "")
-    # Ha egy ajanlathoz meg nincs sablonkeszlet, NEM kuldunk levelet vaktaban:
-    # a `templates.for_campaign` visszaesne az alapertelmezett (ugynoksegi)
-    # sablonra, ami egy KKV-nak teljesen ertelmetlen levelet jelentene.
-    if kampany == "mobile":
-        return ajanlat, "", pont
     return ajanlat, kampany, pont
 
 
 # ─── A minosites ───────────────────────────────────────────────────────────
 
-def _forrasszoveg(company_id) -> tuple[str, dict]:
+def _forrasszoveg(company_id) -> tuple[str, dict, object | None]:
     """A hirdetes szovege -- EZ a grounding forrasa es a prompt bemenete."""
     rows = db.query("""
-        select raw_signal from sources
+        select id, raw_signal from sources
          where company_id = %s and source_type = 'profession'
          order by detected_at desc limit 1
     """, (company_id,))
     if not rows:
-        return "", {}
+        return "", {}, None
     rs = rows[0]["raw_signal"] or {}
     szoveg = "\n".join(filter(None, (
         rs.get("description"), rs.get("responsibilities"), rs.get("requirements"))))
-    return szoveg, rs
+    return szoveg, rs, rows[0]["id"]
 
 
 def _osztalyoz(rs: dict, szoveg: str) -> tuple[dict, str, object]:
     user = prompts.lead_classifier_user(
         forras="Profession.hu allashirdetes",
-        ceg=rs.get("company") or "(ismeretlen)",
+        ceg=rs.get("company") or rs.get("companyName") or "(ismeretlen)",
         pozicio=rs.get("title") or "(ismeretlen)",
         szoveg=szoveg[:12000],
     )
@@ -163,6 +161,46 @@ def _szam(ertek, alap: float = 0.0) -> float:
         return alap
 
 
+def _szogek(data: dict) -> list[dict]:
+    """Az uj tobbiranyu JSON normalizalasa, regi valasz kompatibilitassal."""
+    raw = data.get("opportunity_angles")
+    if not isinstance(raw, list):
+        # A mar futott/atmenetileg regi promptot koveto modell valasza se
+        # vesszen el: egyetlen webapp irannya alakitjuk.
+        raw = []
+        if data.get("evidence"):
+            for ev in data.get("evidence") or []:
+                if isinstance(ev, dict):
+                    raw.append({
+                        "type": "webapp", "score": data.get("webapp_fit", 0),
+                        "pain": data.get("pain"), "claim": ev.get("claim"),
+                        "quote": ev.get("quote"),
+                        "confidence": data.get("confidence"),
+                    })
+
+    eredmeny = []
+    for angle in raw:
+        if not isinstance(angle, dict):
+            continue
+        tipus = str(angle.get("type") or "").strip().lower()
+        if tipus not in _AJANLAT_KAMPANY:
+            continue
+        eredmeny.append({
+            "type": tipus,
+            "score": _szam(angle.get("score")),
+            "pain": str(angle.get("pain") or "")[:200],
+            "claim": str(angle.get("claim") or "")[:500],
+            "quote": str(angle.get("quote") or "")[:1000],
+            "confidence": min(max(_szam(angle.get("confidence"), 0.0), 0.0), 1.0),
+        })
+    return eredmeny[:5]
+
+
+def _fit_by_type(angles: list[dict], tipus: str) -> float:
+    return max((_szam(a.get("score")) for a in angles
+                if a.get("type") == tipus), default=0.0)
+
+
 def _personalization(rs: dict, evidence: list, szoveg: str,
                      stats: ScoreStats, kampany: str = "") -> str:
     """A QUALITY tier magyar mondata. Bukas eseten URES -> sablon-email.
@@ -173,14 +211,19 @@ def _personalization(rs: dict, evidence: list, szoveg: str,
     """
     if not evidence:
         return ""
-    idezet = str(evidence[0].get("quote") or "")
+    # Egy irányhoz több bizonyíték is érkezhet. A legerősebbet adjuk át,
+    # különben egy gyengébb, korábban felsorolt idézet elvihetné a mondatot.
+    selected = max(evidence, key=lambda e: _szam(e.get("score")))
+    idezet = str(selected.get("quote") or "")
     if not idezet:
         return ""
     try:
         magazo = kampany not in prompts.TEGEZO_KAMPANYOK
         r = llm.quality(prompts.personalization_system(magazo, kampany),
                         prompts.personalization_user(
-                            rs.get("company") or "", idezet,
+                            rs.get("company") or rs.get("companyName") or "", idezet,
+                            irany=str(selected.get("type") or ""),
+                            fajdalom=str(selected.get("pain") or ""),
                             forras="Profession.hu álláshirdetés"),
                         # 1000, nem 300: a reasoning-modellek (gpt-5.6-*)
                         # a BELSO gondolkodasra is a kimeneti keretbol
@@ -202,14 +245,13 @@ def _personalization(rs: dict, evidence: list, szoveg: str,
 
 
 def run(limit: int = 20, dry: bool = False, verbose: bool = True) -> ScoreStats:
-    """A meg nem pontozott ops_pain cegek minositese."""
+    """A meg nem pontozott, Profession-forrassal rendelkezo cegek minositese."""
     stats = ScoreStats()
     rows = db.query("""
         select c.id, c.company_name, c.normalized_domain, c.city,
-               c.dev_state, c.signal_score
+               c.dev_state, c.dev_evidence, c.signal_score
           from companies c
-         where c.campaign = 'ops_pain'
-           and c.scored_at is null
+         where c.scored_at is null
            and c.status not in ('suppressed', 'rejected')
            and exists (select 1 from sources s
                         where s.company_id = c.id and s.source_type = 'profession')
@@ -230,7 +272,7 @@ def run(limit: int = 20, dry: bool = False, verbose: bool = True) -> ScoreStats:
 
     for row in rows:
         stats.vizsgalt += 1
-        szoveg, rs = _forrasszoveg(row["id"])
+        szoveg, rs, source_id = _forrasszoveg(row["id"])
         if not szoveg:
             stats.hiba += 1
             continue
@@ -247,36 +289,46 @@ def run(limit: int = 20, dry: bool = False, verbose: bool = True) -> ScoreStats:
             continue
 
         # ─── GROUNDING: ingyen, string-kereses ────────────────────────
-        g = grounding.ellenoriz(data.get("evidence"), szoveg)
+        g = grounding.ellenoriz(_szogek(data), szoveg)
         stats.megtartott_allitas += len(g.megtartott)
         stats.eldobott_allitas += len(g.eldobott)
 
-        wa = _szam(data.get("webapp_fit"))
-        ws = website_fit(row)
-        mo = 0.0                        # app-store engine meg nincs
+        angles = list(g.megtartott)
+        for angle in angles:
+            angle["_source_id"] = source_id
+        objektiv_website = website_fit(row)
+        if objektiv_website and row.get("dev_evidence"):
+            angles.append({
+                "type": "website", "score": objektiv_website,
+                "pain": "weboldal karbantartasi kockazata",
+                "claim": "a korabbi fejleszto elerhetosege bizonytalan",
+                "quote": str(row["dev_evidence"])[:1000],
+                "confidence": 1.0, "_source_id": None,
+            })
+        wa = _fit_by_type(angles, "webapp")
+        ws = _fit_by_type(angles, "website")
+        mo = _fit_by_type(angles, "mobile")
+        lp = _fit_by_type(angles, "landing_page")
 
-        # KEMENY SZABALY: nincs bizonyitek -> nincs allitas -> nincs email.
-        # A `webapp_fit`-et nullazzuk, mert az AI allitasa alatamasztatlan.
-        # A `website_fit` MEGMARAD: az nem AI-bol jott, hanem a footer-
-        # felismeresbol, aminek sajat bizonyiteka van (`dev_evidence`).
-        if not g.van_bizonyitek and wa >= FIT_KUSZOB:
+        if not g.van_bizonyitek:
             stats.grounding_bukas += 1
-            wa = 0.0
 
-        ajanlat, kampany, pont = arbitral(wa, ws, mo)
-        fit = bool(kampany)
+        ajanlat, kampany, pont = arbitral(wa, ws, mo, lp)
+        van_irany = bool(ajanlat)
 
-        if fit:
+        if van_irany:
             stats.fit += 1
-            stats.kampanyok[kampany] = stats.kampanyok.get(kampany, 0) + 1
+            if kampany:
+                stats.kampanyok[kampany] = stats.kampanyok.get(kampany, 0) + 1
         else:
             stats.nem_fit += 1
 
         if verbose:
-            jel = "✅" if fit else " ·"
+            jel = "✅" if van_irany else " ·"
             print(f"  {jel} {row['company_name'][:32]:<34} "
-                  f"webapp={wa:.0f} website={ws:.0f} -> "
-                  f"{kampany or 'nem fit'}")
+                  f"webapp={wa:.0f} website={ws:.0f} "
+                  f"mobile={mo:.0f} landing_page={lp:.0f} -> "
+                  f"{kampany or ajanlat or 'nincs groundolt irany'}")
             for e in g.eldobott:
                 print(f"       ⚠ eldobott allitas: {e['indok']}")
                 print(f"         \"{e['quote'][:70]}\"")
@@ -285,52 +337,109 @@ def run(limit: int = 20, dry: bool = False, verbose: bool = True) -> ScoreStats:
             continue
 
         szemelyre = ""
-        if fit and wa >= PERSONALIZATION_KUSZOB:
-            szemelyre = _personalization(rs, g.megtartott, szoveg, stats, kampany)
+        selected_evidence = [a for a in angles if a.get("type") == ajanlat]
+        if selected_evidence and pont >= PERSONALIZATION_KUSZOB:
+            szemelyre = _personalization(rs, selected_evidence, szoveg, stats, kampany)
 
-        _atvezet(row, wa, ws, mo, ajanlat, kampany, fit, g, data,
-                 model, szemelyre)
+        _atvezet(row, wa, ws, mo, lp, ajanlat, kampany, angles, g, data,
+                 model, szemelyre, source_id)
 
     if verbose:
         _riport(stats, dry)
     return stats
 
 
-def _atvezet(row, wa, ws, mo, ajanlat, kampany, fit, g, data,
-             model, szemelyre) -> None:
+def _atvezet(row, wa, ws, mo, lp, ajanlat, kampany, angles, g, data,
+             model, szemelyre, source_id) -> None:
     osszegzes = "; ".join(
         str(e.get("claim") or "")[:80] for e in g.megtartott[:2])
-    db.execute("""
-        update companies
-           set webapp_fit = %s, website_fit = %s, mobile_fit = %s,
-               evidence = %s, grounding_dropped = %s,
-               scored_at = now(), score_model = %s,
-               best_offer = %s,
-               campaign = coalesce(nullif(%s, ''), campaign),
-               personalization = nullif(%s, ''),
-               signal_summary = coalesce(nullif(%s, ''), signal_summary),
-               signal_score = greatest(coalesce(signal_score, 0), %s),
-               status = %s,
-               status_note = %s
-         where id = %s
-    """, (wa, ws, mo,
-          db.Json({"evidence": g.megtartott, "dropped": g.eldobott,
-                   "pain": data.get("pain"),
-                   "confidence": data.get("confidence"),
-                   "company_size_hint": data.get("company_size_hint")}),
-          len(g.eldobott), model, ajanlat or None, kampany, szemelyre,
-          osszegzes, max(wa, ws),
-          # A `ready` a kesz lead. A `rejected` NEM torles: a ceg bent marad,
-          # csak nem kap levelet -- egy kesobbi, mas engine ujra minositheti.
-          "ready" if fit else "rejected",
-          None if fit else "AI-minosites: nem fit"
-          + (" (nincs alatamasztott bizonyitek)" if not g.van_bizonyitek else ""),
-          row["id"]))
+    with db.connect() as conn, conn.cursor() as cur:
+        cur.execute("delete from opportunity_angles where company_id = %s", (row["id"],))
+        rendezett = sorted(
+            angles,
+            key=lambda a: (-_szam(a.get("score")), a.get("type") != "webapp"),
+        )
+        for rank, angle in enumerate(rendezett, start=1):
+            cur.execute(
+                """
+                insert into opportunity_angles
+                  (company_id, source_id, rank, angle_type, pain, claim, quote,
+                   score, confidence, selected, model)
+                values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (row["id"], angle.get("_source_id"), rank, angle.get("type"), angle.get("pain"),
+                 angle.get("claim"), angle.get("quote"), angle.get("score"),
+                 angle.get("confidence"), rank == 1 and bool(ajanlat), model),
+            )
+
+        publikus_angles = [
+            {k: v for k, v in angle.items() if not k.startswith("_")}
+            for angle in angles
+        ]
+        cur.execute("""
+            select count(*) as n from contacts
+             where company_id = %s
+               and local_check is distinct from 'fail'
+               and coalesce(verify_result, '') <> 'invalid'
+               and coalesce(bounce_state, '') <> 'hard_bounce'
+        """, (row["id"],))
+        van_kapcsolat = int(cur.fetchone()["n"]) > 0
+        kuldheto = bool(kampany and szemelyre and van_kapcsolat)
+        if kuldheto:
+            status, note = "ready", None
+        elif not van_kapcsolat:
+            status, note = "scored", "nincs hasznalhato kapcsolat"
+        elif not ajanlat:
+            status, note = "scored", "nincs alatamasztott szemelyre szabasi irany"
+        elif not kampany:
+            status, note = "scored", f"nincs kesz kampany ehhez az iranyhoz: {ajanlat}"
+        else:
+            status, note = "scored", "a szemelyre szabas nem keszult el"
+
+        cur.execute("""
+            update companies
+               set webapp_fit = %s, website_fit = %s, mobile_fit = %s,
+                   evidence = %s, grounding_dropped = %s,
+                   scored_at = now(), score_model = %s,
+                   best_offer = %s,
+                   campaign = nullif(%s, ''),
+                   personalization = nullif(%s, ''),
+                   signal_summary = coalesce(nullif(%s, ''), signal_summary),
+                   signal_score = greatest(coalesce(signal_score, 0), %s),
+                   status = %s, status_note = %s
+             where id = %s
+        """, (wa, ws, mo,
+              db.Json({"angles": publikus_angles, "dropped": g.eldobott,
+                       "landing_page_fit": lp,
+                       "company_size_hint": data.get("company_size_hint")}),
+              len(g.eldobott), model, ajanlat or None, kampany, szemelyre,
+              osszegzes, max(wa, ws, mo, lp), status, note, row["id"]))
+
+        if van_kapcsolat:
+            labels.clear_label(cur, row["id"], "contact_missing")
+        else:
+            labels.set_label(cur, row["id"], "contact_missing",
+                             {"stage": "scoring"}, source_id)
+        if szemelyre:
+            labels.clear_label(cur, row["id"], "personalization_missing")
+        else:
+            labels.set_label(cur, row["id"], "personalization_missing",
+                             {"reason": note or "nincs groundolt idezet"}, source_id)
+        if ajanlat and not kampany:
+            labels.set_label(cur, row["id"], "campaign_missing",
+                             {"angle": ajanlat}, source_id)
+        else:
+            labels.clear_label(cur, row["id"], "campaign_missing")
+        if str(data.get("company_size_hint") or "").upper() == "ENTERPRISE":
+            labels.set_label(cur, row["id"], "enterprise_hint",
+                             {"source": "ai", "automatic_hold": False}, source_id)
+        else:
+            labels.clear_label(cur, row["id"], "enterprise_hint")
 
 
 def _riport(stats: ScoreStats, dry: bool) -> None:
-    print(f"\nvizsgalt: {stats.vizsgalt}   fit: {stats.fit}   "
-          f"nem fit: {stats.nem_fit}   hiba: {stats.hiba}")
+    print(f"\nvizsgalt: {stats.vizsgalt}   talalt irany: {stats.fit}   "
+          f"nincs groundolt irany: {stats.nem_fit}   hiba: {stats.hiba}")
     for kampany, n in sorted(stats.kampanyok.items()):
         print(f"  -> {kampany:<14} {n}")
 
@@ -339,8 +448,8 @@ def _riport(stats: ScoreStats, dry: bool) -> None:
     print(f"  ELDOBOTT allitas  : {stats.eldobott_allitas} "
           f"({stats.grounding_arany * 100:.0f}%)")
     if stats.grounding_bukas:
-        print(f"  {stats.grounding_bukas} lead esett ki, mert egyetlen")
-        print("  alatamasztott allitas sem maradt.")
+        print(f"  {stats.grounding_bukas} cegnel nem maradt alatamasztott irany;")
+        print("  az adat megmaradt, de szemelyre szabott level nem keszult.")
 
     if stats.grounding_arany > HALLUCINACIO_RIASZTAS:
         print(f"\n  ⚠️  A BUKASI ARANY {HALLUCINACIO_RIASZTAS * 100:.0f}% FELETT VAN.")
@@ -360,5 +469,7 @@ def _riport(stats: ScoreStats, dry: bool) -> None:
     if dry:
         print("\n[SZARAZ FUTAS] Semmi nem lett elmentve.")
     elif stats.fit:
-        print(f"\n>>> {stats.fit} uj lead `ready` allapotban.")
+        print(f"\n>>> {stats.fit} cegnel talaltunk legalabb egy lehetseges iranyt.")
+        print("    Csak a kapcsolattal, szemelyre szabassal es kesz kampannyal")
+        print("    rendelkezo cegek kerultek `ready` allapotba.")
         print("    NEZD AT a mondatokat: ./leadgen.sh report --grounding")

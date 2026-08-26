@@ -237,11 +237,12 @@ class TestPromptok:
         assert "other" in prompts.REPLY_CLASSIFIER_SYSTEM
         assert "kétséges" in prompts.REPLY_CLASSIFIER_SYSTEM
 
-    def test_a_lead_prompt_a_tervbol_valo(self):
-        # Szo szerint egyeznie kell a SCRAPER-PLAN fuggelekevel, kulonben a
-        # gepi meres nem osszehasonlithato a playgroundos meressel.
+    def test_a_lead_prompt_tobb_iranyt_keres(self):
         assert "BIZONYÍTÉK-SZABÁLY" in prompts.LEAD_CLASSIFIER_SYSTEM
-        assert "webapp_fit" in prompts.LEAD_CLASSIFIER_SYSTEM
+        assert "opportunity_angles" in prompts.LEAD_CLASSIFIER_SYSTEM
+        for angle in ("webapp", "mobile", "website", "landing_page"):
+            assert angle in prompts.LEAD_CLASSIFIER_SYSTEM
+        assert "jó lead-e" in prompts.LEAD_CLASSIFIER_SYSTEM
 
     def test_van_prompt_injection_teszteset(self):
         nevek = [n for n, _ in evals.ROBUSZTUSSAG]
