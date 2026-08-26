@@ -166,6 +166,16 @@ class TestOpportunityAngles:
         assert angles[0]["type"] == "webapp"
         assert angles[0]["score"] == 80
 
+    def test_ismetelt_tipusbol_a_erossebb_marad(self):
+        angles = score._szogek({"opportunity_angles": [
+            {"type": "webapp", "score": 31, "pain": "elso",
+             "claim": "elso", "quote": "Elso, eleg hosszu forrasszoveg"},
+            {"type": "webapp", "score": 74, "pain": "masodik",
+             "claim": "masodik", "quote": "Masodik, eleg hosszu forrasszoveg"},
+        ]})
+        assert len(angles) == 1
+        assert angles[0]["score"] == 74
+
 
 class TestWebsiteFit:
     """A weboldal-fit NEM AI-bol jon -- a 8.2 halott fejleszto jelbol."""

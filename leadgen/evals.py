@@ -414,7 +414,8 @@ def mondatok(models: list[str], limit: int = 10,
         magazo = b["kampany"] not in prompts.TEGEZO_KAMPANYOK
         for model in models:
             try:
-                r = llm.call(model, prompts.personalization_system(magazo, b['kampany']),
+                r = llm.call(model, prompts.personalization_system(
+                                 magazo, b['kampany'], b['irany']),
                              prompts.personalization_user(
                                  b["ceg"], b["idezet"],
                                  irany=b["irany"], fajdalom=b["fajdalom"],

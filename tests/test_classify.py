@@ -240,9 +240,19 @@ class TestPromptok:
     def test_a_lead_prompt_tobb_iranyt_keres(self):
         assert "BIZONYÍTÉK-SZABÁLY" in prompts.LEAD_CLASSIFIER_SYSTEM
         assert "opportunity_angles" in prompts.LEAD_CLASSIFIER_SYSTEM
+        assert "0-4 lehetséges irány" in prompts.LEAD_CLASSIFIER_SYSTEM
+        assert "legfeljebb egyszer" in prompts.LEAD_CLASSIFIER_SYSTEM
         for angle in ("webapp", "mobile", "website", "landing_page"):
             assert angle in prompts.LEAD_CLASSIFIER_SYSTEM
         assert "jó lead-e" in prompts.LEAD_CLASSIFIER_SYSTEM
+
+    def test_a_szemelyre_szabo_nem_esik_vissza_webappra_mas_iranynal(self):
+        system = prompts.personalization_system(
+            magazo=True, kampany="", irany="mobile")
+        assert "mobilalkalmazások" in system
+        assert "weboldalak, landing oldalak, webes rendszerek" in system
+        assert "KIVÁLASZTOTT SZEMÉLYRE SZABÁSI SZÖG" in system
+        assert "kiemelhető szolgáltatási irány" in system
 
     def test_van_prompt_injection_teszteset(self):
         nevek = [n for n, _ in evals.ROBUSZTUSSAG]

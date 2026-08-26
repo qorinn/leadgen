@@ -178,22 +178,28 @@ def _szogek(data: dict) -> list[dict]:
                         "confidence": data.get("confidence"),
                     })
 
-    eredmeny = []
+    eredmeny: dict[str, dict] = {}
     for angle in raw:
         if not isinstance(angle, dict):
             continue
         tipus = str(angle.get("type") or "").strip().lower()
         if tipus not in _AJANLAT_KAMPANY:
             continue
-        eredmeny.append({
+        normalizalt = {
             "type": tipus,
             "score": _szam(angle.get("score")),
             "pain": str(angle.get("pain") or "")[:200],
             "claim": str(angle.get("claim") or "")[:500],
             "quote": str(angle.get("quote") or "")[:1000],
             "confidence": min(max(_szam(angle.get("confidence"), 0.0), 0.0), 1.0),
-        })
-    return eredmeny[:5]
+        }
+        # Hibasan ismetelt type eseten se mentsunk ket versengo webapp- vagy
+        # mobile-angle-t. A prompt eleve tiltja; ez a masodik, determinisztikus
+        # vedelmi vonal, es a magasabb score a hasznosabb jel.
+        elozo = eredmeny.get(tipus)
+        if elozo is None or normalizalt["score"] > elozo["score"]:
+            eredmeny[tipus] = normalizalt
+    return list(eredmeny.values())
 
 
 def _fit_by_type(angles: list[dict], tipus: str) -> float:
@@ -219,7 +225,8 @@ def _personalization(rs: dict, evidence: list, szoveg: str,
         return ""
     try:
         magazo = kampany not in prompts.TEGEZO_KAMPANYOK
-        r = llm.quality(prompts.personalization_system(magazo, kampany),
+        r = llm.quality(prompts.personalization_system(
+                            magazo, kampany, str(selected.get("type") or "")),
                         prompts.personalization_user(
                             rs.get("company") or rs.get("companyName") or "", idezet,
                             irany=str(selected.get("type") or ""),

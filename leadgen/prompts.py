@@ -28,21 +28,25 @@ from __future__ import annotations
 LEAD_CLASSIFIER_SYSTEM = """\
 Magyar cégek nyilvános álláshirdetéseiben keresel olyan konkrét jeleket,
 amelyek alapján egy webfejlesztő valamelyik szolgáltatási iránya segítség lehet.
-Nem eldöntened kell, hogy a cég "jó lead-e", hanem 0-5 lehetséges irányt kell
+Nem eldöntened kell, hogy a cég "jó lead-e", hanem 0-4 lehetséges irányt kell
 azonosítanod és relevancia szerint sorba rendezned.
 
 A score-ok irányonként önálló, 0–100-as relevanciaértékek: NEM kell és nem is
 szabad őket 100-ra összeadni. Csak olyan irányt adj vissza, amelyhez van
 szó szerinti idézet; a kihagyott irány a rendszerben 0 pontot jelent.
+Egy `type` legfeljebb egyszer szerepelhet. Ha ugyanahhoz az irányhoz több jel
+van, a legerősebbet válaszd.
 
 LEHETSÉGES IRÁNYOK:
 - webapp: belső admin felület, munkairányítás, ügyfélportál, folyamatkezelő,
   integráció vagy más egyedi webes rendszer
 - mobile: terepen vagy mozgás közben végzett munka mobilalkalmazással
   könnyíthető
-- website: a nyilvános weboldal, online kapcsolatfelvétel vagy digitális
-  ügyfélkiszolgálás fejlesztése
-- landing_page: egy konkrét szolgáltatás vagy kampány külön értékesítési oldala
+- website: csak akkor, ha a forrás közvetlenül említ nyilvános weboldalt,
+  online kapcsolatfelvételt, űrlapot, foglalást, rendelést vagy más publikus
+  digitális ügyfélfolyamatot
+- landing_page: csak akkor, ha konkrét kampány, hirdetés, promóció, ajánlat
+  vagy leadgyűjtési folyamat szerepel
 
 ERŐS JELEK PÉLDÁUL:
 - ismétlődő manuális adminisztráció, Excel, papír vagy kézi adatbevitel
@@ -54,6 +58,8 @@ ERŐS JELEK PÉLDÁUL:
 AMI ÖNMAGÁBAN NEM BIZONYÍTÉK:
 - általános növekedés, innováció vagy modernizáció említése
 - egyetlen szoftvernév konkrét folyamat nélkül
+- telefonos ügyfélkezelés vagy általános adminisztráció: ezek önmagukban nem
+  bizonyítanak weboldal- vagy landing page-igényt
 - olyan feltételezés, amelyet a hirdetés nem ír le
 
 BIZONYÍTÉK-SZABÁLY (ez a legfontosabb):
@@ -150,6 +156,17 @@ AMIT SOHA NE ÍGÉRJ EBBEN A RÉSZBEN:
 
 _SZOLGALTATAS_ALAP = SZOLGALTATASOK["ops_pain"]
 
+# Opportunity-angle alapu szemelyre szabasnal a levélíró teljes kompetenciája
+# latszik, de a user prompt egyertelmuen megmondja, hogy ebbol csak az adott
+# iranyt viheti tovabb. Igy mobile/landing/website szognel nem kap tevesen
+# webapp-korlatozott rendszeruzenetet.
+_SZOLGALTATASOK_ANGLE = (
+    "weboldalak, landing oldalak, webes rendszerek és mobilalkalmazások "
+    "fejlesztése vállalkozásoknak; olyan megoldások, amelyek a napi munkát "
+    "és az ügyfélfolyamatokat könnyítik"
+)
+_ANGLE_TIPUSOK = {"webapp", "mobile", "website", "landing_page"}
+
 
 _PERSONALIZATION_ALAP = """\
 Egy hideg üzleti email személyre szabott részét írod meg magyarul.
@@ -164,6 +181,10 @@ A FELADAT: PONTOSAN KÉT MONDAT — ÓVATOS PROBLÉMAFELISMERÉS, MAJD IRÁNY.
   2. AZ IRÁNY. A konkrét megoldás, amely egy ilyen helyzetet kezelni tudna.
 
 Semmi más. Nincs bevezetés, nincs magyarázat, nincs kérdés.
+
+A bemenetben megadott KIVÁLASZTOTT SZEMÉLYRE SZABÁSI SZÖG az egyetlen
+kiemelhető szolgáltatási irány. A többi szolgáltatást ne sorold fel, és ne
+tereld a mondatot más típusú megoldás felé.
 
 ⚠️ NE MAGYARÁZD EL, MI A MUNKA.
 A címzett munkairányító vagy cégvezető — PONTOSAN TUDJA, mit jelent a saját
@@ -184,8 +205,8 @@ JÓ — a problémafelismerésben emberi és óvatos, a megoldási irányban kon
 
   idézet: "Munkalapok felvétele, kezelése és nyomon követése"
   -> "Úgy gondolom, több párhuzamos javításnál könnyen nehézzé válhat,
-      hogy utólag egyértelmű legyen, melyik munka hol tart. Erre egy közös
-      munkalapkezelő felület ad működő megoldást: minden státusz ugyanott látható."
+      hogy utólag egyértelmű legyen, melyik munka hol tart. Egy közös
+      munkalapkezelő felület ezt egy helyen tudná átláthatóvá tenni."
 
   idézet: "ügyfél- és objektumadatok karbantartása, frissítések követése"
   -> "Gyakran tapasztalom, hogy az ügyfél- és objektumadatok frissítései
@@ -206,10 +227,13 @@ VÁLTOZTASD a személyes jelzést és a második mondat felépítését leadenk�
 Ne mindig ugyanazzal a szóval kezdj. Néhány természetes lehetőség:
   - problémafelismerés: "Szerintem...", "Úgy gondolom...",
     "Gyakran tapasztalom...", "Tapasztalataim szerint...", "Azt tapasztalom..."
-  - megoldás: "Erre egy ütemezőfelület ad működő megoldást.",
+  - megoldás: "Erre egy ütemezőfelület lehetne a konkrét megoldás.",
     "Egy közös felület ezt egy helyen tudná kezelni.",
     "Egy erre épített rendszerrel ez átláthatóvá válhat.",
     "Erre egy közös állapot-nézet lehetne a megoldás."
+  A tapasztalati formák választhatók, nem kötelezők: csak akkor használd őket,
+  ha természetesen illenek a szövegbe. Máskor a "szerintem" vagy az "úgy
+  gondolom" ugyanúgy megfelelő.
 ════════════════════════════════════════════════════════════════════════
 
 SZABÁLYOK:
@@ -218,16 +242,20 @@ SZABÁLYOK:
   a személyes jelzés nem üres bevezetés, hanem a diagnózis óvatossága
 - az idézetből indulj ki, de ne idézd vissza és ne fogalmazd át
 - ne állíts olyan tényt, ami nincs az idézetben (hány telephely, hány ember)
+- ne találj ki konkrét működési részletet sem (pl. papír, több eszköz,
+  késések, egyeztetések), ha azt sem az idézet, sem a megadott fájdalompont
+  nem tartalmazza
 - a címzett működéséről SOHA ne diagnosztizálj tényként. A szövegben mindig
   legyen személyes, óvatos jelzés (pl. "szerintem" vagy tapasztalati forma),
   de a konkrét szóválasztást igazítsd a mondat ritmusához
 - ha a nehézség csak szakmai következtetés, és az idézet nem írja le szó
-  szerint, használd a tapasztalati formát (pl. "gyakran tapasztalom" vagy
-  "tapasztalataim szerint")
+  szerint, különösen fontos az óvatos, személyes keret. Ehhez választhatod a
+  tapasztalati formát (pl. "gyakran tapasztalom" vagy "tapasztalataim
+  szerint"), de ez soha nem kötelező szófordulat
 - a megoldási irány legyen konkrét és magabiztos, de a feltételezett
-  problémához nyelvileg is kapcsolódjon: használj a szövegkörnyezethez illő
-  feltételes vagy lehetőséget jelölő formát (pl. "tudná", "lehetne",
-  "válhat"). Ne ragaszkodj egyik szóhoz sem
+  problémához nyelvileg is kapcsolódjon: a második mondatban mindig használj
+  a szövegkörnyezethez illő feltételes vagy lehetőséget jelölő formát (pl.
+  "tudná", "lehetne", "válhat"). Ne ragaszkodj egyik szóhoz sem
 - ne dicsérj, ne hízelegj, ne minősítsd őket vagy a versenytársaikat
 - IRÁNYT adj, ne AJÁNLATOT: "ilyenkor szokott segíteni...", soha nem
   "készítek Önöknek..." — nincs ár, nincs határidő, nincs konkrét terv
@@ -260,7 +288,8 @@ PERSONALIZATION_SYSTEM = (
     _PERSONALIZATION_ALAP.format(szolgaltatasok=_SZOLGALTATAS_ALAP) + _MAGAZO)
 
 
-def personalization_system(magazo: bool = True, kampany: str = "") -> str:
+def personalization_system(magazo: bool = True, kampany: str = "",
+                           irany: str = "") -> str:
     """A kampany hangnemehez illo valtozat.
 
     A hivo oldal (score.py) a kampanybol vezeti le -- nem talalgat.
@@ -272,9 +301,13 @@ def personalization_system(magazo: bool = True, kampany: str = "") -> str:
     lista. Ha oda olyan kerul, amit nem csinalsz, azt fogjuk sugallni.
     Ezert az a lista uzleti adat, es a felhasznalo felelossege.
     """
+    szolgaltatasok = (
+        _SZOLGALTATASOK_ANGLE
+        if irany in _ANGLE_TIPUSOK
+        else SZOLGALTATASOK.get(kampany, _SZOLGALTATAS_ALAP)
+    )
     alap = _PERSONALIZATION_ALAP.format(
-        szolgaltatasok=SZOLGALTATASOK.get(kampany, _SZOLGALTATAS_ALAP)
-        + "\n" + _SZOLGALTATAS_KORLATOK)
+        szolgaltatasok=szolgaltatasok + "\n" + _SZOLGALTATAS_KORLATOK)
     return alap + (_MAGAZO if magazo else _TEGEZO)
 
 
