@@ -163,6 +163,11 @@ def main() -> int:
             time.sleep(limits.send_delay())
         else:
             failed += 1
+            # A NAPLOZAS NEM ELHAGYHATO: a sender.log ember-olvasasra valo, a
+            # ramp viszont gepi szamot var. Enelkul a deliverability.py nem
+            # tudna, hany elutasitas volt ma, es a REJECT_RATE_ALERT kuszob
+            # soha nem sulne el (12. szakasz).
+            store.record_reject(addr, account["user"], err)
             store.log(f"HIBA [{stage}] {addr}: {err}")
 
     if live:

@@ -73,7 +73,18 @@ def evaluate_ramp(sent: int, bounces: int, rejects: int) -> dict:
         return state  # ma mar ertekeltunk
 
     bounce_rate = (bounces / sent) if sent else 0.0
-    reject_rate = (rejects / sent) if sent else 0.0
+    # A KET NEVEZO SZANDEKOSAN KULONBOZIK:
+    #
+    #   bounce -- a KIKULDOTT levelek hanyada pattant vissza  -> `sent`
+    #   reject -- a MEGKISERELT kuldesek hanyadat utasitottak el -> `sent + rejects`
+    #
+    # Az elutasitott level ki sem ment, tehat nincs benne a `sent`-ben. Ha
+    # itt is `sent`-tel osztanank, 20 kiserletbol 20 elutasitas eseten a
+    # nevezo NULLA lenne -- vagyis pont a legsulyosabb esetben adna 0%-ot es
+    # hallgatna a riasztas. (Ugyanez a keplet all a deliverability.py
+    # `reject_rate` mezojeben; a ketto egy szam, ne csusszon szet.)
+    attempted = sent + rejects
+    reject_rate = (rejects / attempted) if attempted else 0.0
     cap = int(state.get("cap", config.DAILY_CAP_START))
     action = "hold"
 
@@ -92,7 +103,8 @@ def evaluate_ramp(sent: int, bounces: int, rejects: int) -> dict:
     state["last_eval"] = today
     state.setdefault("history", []).append({
         "date": today, "sent": sent, "bounces": bounces, "rejects": rejects,
-        "bounce_rate": round(bounce_rate, 4), "cap_to": cap, "action": action,
+        "bounce_rate": round(bounce_rate, 4), "reject_rate": round(reject_rate, 4),
+        "cap_to": cap, "action": action,
     })
     state["history"] = state["history"][-90:]
     _save_state(state)

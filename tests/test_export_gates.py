@@ -58,3 +58,11 @@ def test_nem_jovahagyott_folyamatban_levo_kampany_sem_exportalodik(monkeypatch):
     rows, stats, _ = export.collect()
     assert rows == []
     assert stats.skipped_campaign == 1
+
+
+def test_a_webshop_growth_vazlat_nem_exportalodik(monkeypatch):
+    """A 8.3 sablon szovege a felhasznaloe -- amig at nem irja, nem megy ki."""
+    _setup(monkeypatch, candidates=[_row("webshop_growth")])
+    rows, stats, queued = export.collect()
+    assert rows == [] and queued == []
+    assert "webshop_growth" in stats.blocked_campaigns

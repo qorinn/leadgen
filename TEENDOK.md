@@ -363,6 +363,32 @@ Ha a bukási arány **20% felett** van, a modell hallucinál — akkor ne
 
 ---
 
+### 3.9 🔒 A `webshop_growth` kampány élesítése *(11. fázis)*
+
+**Ugyanaz a folyamat, mint a 3.6-nál, egy harmadik kampányra.** A 8.3
+(„kinőtte a webshopját") sablonja készen áll, de **vázlat** — nem megy ki
+belőle levél, amíg át nem írod.
+
+| Kampány | Kinek szól | Hangnem |
+|---|---|---|
+| `webshop_growth` | dobozos webshop-platformon futó, nagyobb forgalmú cégnek | magázó |
+
+**⚠️ Ennél a szövegnél két dologra vigyázz** — mindkettő benne van a
+sablonban kommentként is:
+
+1. **Ne mondd, hogy rossz a platformjuk.** Sokan tudatosan és elégedetten
+   használják, és gyakran igazuk is van. A támadás azonnal védekezést vált ki.
+   A levél egy konkrét korlátra kérdez rá, és a megoldás **kiegészítés, nem
+   csere** — az sokkal kisebb elköteleződés, tehát könnyebben mond igent.
+2. **Az árbevétel SOHA nem kerülhet a levélbe.** A szám nálunk csak
+   rangsorol. Leírva azt üzenné, hogy a címzett pénzügyi adatait bogarásszuk.
+
+```bash
+# 1. írd át:  cold-email-starter/templates.py -> webshop_cold, webshop_follow_up_1, ...
+# 2. nézd meg: cd cold-email-starter && python3 preview.py
+# 3. vedd fel: leadgen/contract.py -> APPROVED_CAMPAIGNS
+```
+
 ## 🟢 4. Külső szolgáltatások — a következő fázisokhoz
 
 ### 4.1 ✅ Apify token — *megvan, működik*
@@ -427,6 +453,139 @@ Ha a második futásnál **nem 0** a lekérdezés, azonnal állítsd vissza
 dönteni" indokkal, akkor a küszöb túl szigorú a jelenlegi listádra.
 A `.env`-ben állítható: `TIER_A_SCORE=70` → pl. `55`. Az export mindig
 kiírja, ki miért maradt ki, tehát ez látható lesz, nem néma.
+
+### 4.5 📄 Árbevétel-adat: mi ingyenes és mi nem *(11. fázis — OPCIONÁLIS)*
+
+> **Ez az egész rész opcionális.** Ha soha nem futtatod le, a rendszer
+> változatlanul működik. Az árbevétel csak **sorrendet** ad — nem zár ki senkit.
+
+**Nem kell minden céget lekérned.** Naponta 20 levél megy ki, tehát a sor
+tetején lévő **20-30 cégről** elég adat. A rendszer eleve a legjobb pontszámúakat
+teszi a lista elejére. A beszámolók évente frissülnek, tehát ez nem ismétlődő munka.
+
+**Három út van, és csak az első ingyenes:**
+
+| Út | Ár | Mikor éri meg |
+|---|---|---|
+| **Kézi lekérés a portálon** | **0 Ft** | most ez a helyes választás |
+| **Csoportos igénylés** (e-beszámoló) | egyedi árajánlat, **fizetős** | 50+ cégnél |
+| **Opten / Bisnode API** | nem publikus, ajánlatkérés | havi több száz cégnél |
+
+> ⚠️ **A csoportos igénylés FIZETŐS.** A hivatalos űrlap első fele számlázási
+> adatokat kér (számlakérő neve, számlázási cím, adószám, számlafogadó e-mail),
+> tehát költségtérítéses szolgáltatás. Az árat nem tünteti fel — ajánlatot adnak.
+> Viszonyításnak: az Opten webshopjában **egy** pénzügyi beszámoló **759 Ft**
+> (2026-08-27-i listaár) — 30 cég így kb. 23 000 Ft, kézzel ugyanez 30 perc.
+
+#### A) A kézi út — kezdd ezzel
+
+```bash
+./leadgen.sh enrich financials --limit 20     # listát ír data/financials_worklist.csv-be
+# kitöltöd (cégenként ~1 perc), majd:
+./leadgen.sh enrich financials --import data/financials_worklist.csv
+./leadgen.sh report --economic
+```
+
+Részletes leírás: [HOGYAN-HASZNALD.md](HOGYAN-HASZNALD.md) 14. folyamat.
+
+**Ha ez megvan, ebből döntsd el, kell-e egyáltalán fizetős forrás.** Lehet, hogy
+20 cég után kiderül, hogy neked ez az adat nem sokat mond — akkor megspóroltál
+egy előfizetést.
+
+#### B) A csoportos igénylés — csak ha a volumen indokolja
+
+1. Nyisd meg: <https://e-beszamolo.im.gov.hu/beszamolo_allomany_ertekesitese>
+2. Töltsd le a **„Csoportos beszámoló kérő lap"** űrlapot (`.docx`).
+3. Add meg a szűrési szempontokat, és jelöld be, mely adatokra tartasz igényt.
+   **Nekünk ez az öt kell** (mind szerepel az igényelhető mezők listájában):
+   - Értékesítés nettó árbevétele
+   - Átlagosan foglalkoztatottak száma a tárgyévi üzleti évben
+   - Mérlegfőösszeg
+   - Adózott eredmény
+   - **Cég adószáma** ← ez külön fontos, lásd lent
+4. Küldd el: **e-beszamolo@mkifk.hu** (kérdés: +36 (1) 795 5111, 3. menü → 3. almenü)
+5. A kapott fájl egy paranccsal betölthető:
+
+```bash
+./leadgen.sh enrich financials --import <a kapott fajl>.csv
+```
+
+> **Miért kérd az adószámot is:** jelenleg **0 cégnek van adószáma** a
+> rendszerben, a párosítás pedig `company_id → adószám → domain` sorrendben
+> megy. Cégnév alapján szándékosan soha nem párosítunk — egy téves névegyezés
+> rossz céghez írna árbevételt, és onnan az már egy levélbe kerülő téves állítás.
+> Ha a kapott fájlban csak cégnév van, szólj, és írok hozzá egy párosító lépést.
+
+### 4.6 📊 Kalibráld az árbevételi küszöböt *(a 4.5 vagy az első kézi kör UTÁN)*
+
+Ez **üzleti döntés, nem technikai** — a terv is így írja. Az alapértelmezés:
+
+| Küszöb | Alapérték | Mit jelent |
+|---|---|---|
+| `REVENUE_MEDIUM_HUF` | 100 000 000 | efölött MEDIUM |
+| `REVENUE_HIGH_HUF` | 500 000 000 | efölött HIGH (+15 pont) |
+| `HEADCOUNT_MEDIUM` / `HEADCOUNT_HIGH` | 5 / 25 | a létszám önmagában is emel |
+| `WEBSHOP_REVENUE_MIN_HUF` | 300 000 000 | efölött érdekes a 8.3 („kinőtte") |
+
+Nézd meg az első 20-30 találatot (`./leadgen.sh report --economic`), és tedd
+fel a kérdést: **ettől a mérettől várható, hogy fizet egy egyedi
+fejlesztésért?** Ha nem, emeld; ha túl kevés cég marad, csökkentsd. A gyökér
+`.env`-ben állítható, kódot nem kell módosítani.
+
+---
+
+## 🟣 4.6 Automatikus napi futás — *a kód kész, ez a te két lépésed*
+
+A 12. fázis elkészült: a gyűjtés, feldolgozás és átadás mehet magától
+minden reggel 7:30-kor. A küldés szándékosan a kezedben marad.
+
+### 4.6.1 Kapcsold be az ütemezést
+
+```bash
+./leadgen.sh schedule install
+./leadgen.sh schedule status     # ellenőrzés
+```
+
+Ez **nem indít el semmit azonnal** — az első automatikus futás másnap reggel
+lesz. Bármikor kikapcsolható: `./leadgen.sh schedule uninstall`.
+
+**Amit tudnod kell róla:**
+
+- A lánc **naponta ~$0,22-t költ** az Apify-gyűjtésre (50 találat).
+  Ha ezt sokallod, a `leadgen/schedule.py` `lepesek()` függvényében a
+  `--max-results 50` szám csökkenthető.
+- Ha a géped 7:30-kor alszik, a futás **nem marad el** — felébredés
+  után bepótolja. (Ezért launchd, és nem cron.)
+- A napló: `cold-email-starter/data/leadgen_daily.log`.
+
+### 4.6.2 Add meg a riasztási email-címed
+
+A gyökér `.env`-be:
+
+```
+ALERT_EMAIL=sajat@cimed.hu
+```
+
+Enélkül a riasztások **nem vesznek el** — bekerülnek a
+`cold-email-starter/data/alerts.log` fájlba, és megjelennek a
+`./leadgen.sh report --daily` tetején. Csak az email-értesítés marad el.
+
+Három dologról fogsz szólást kapni:
+
+| Riasztás | Miért fontos |
+|---|---|
+| kézbesítési gond | a domain reputációja romlik — ezt időben kell látni |
+| 3 napja nincs kiküldhető lead | valahol elakadt a tölcsér |
+| **24 órája megválaszolatlan érdeklődő** | **ez a legdrágább lead a rendszerben** |
+
+### 4.6.3 Egy hét múlva: döntsd el, mehet-e a küldés is automatikusan
+
+Most a `sender.py --live` kézi. Ez a javasolt indulás: amíg nem látod
+stabilnak a válaszarányt és a bounce-okat, olvasd el, mi megy ki.
+
+Ha egy-két hét után a számok rendben vannak, a küldés is betehető a láncba.
+**Ez tudatos döntés legyen, ne csúszás** — onnantól a gép a te nevedben ír
+embereknek, anélkül hogy előtte elolvasnád.
 
 ---
 

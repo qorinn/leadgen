@@ -18,9 +18,11 @@ from __future__ import annotations
 
 import argparse
 import sys
+from pathlib import Path
 
-from . import (classify, config, db, deadev, dev, engines, evals, export,
-               feedback, labels, llm, llmcheck, pipeline, report, score)
+from . import (alerts, classify, config, db, deadev, dev, engines, evals,
+               export, feedback, financials, labels, llm, llmcheck, pipeline,
+               report, schedule, score, webshop)
 from .sources import maps, profession
 
 
@@ -162,6 +164,46 @@ def _cmd_enrich_deadev(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_enrich_financials(args: argparse.Namespace) -> int:
+    """7.1 -- KEZI/IMPORTALT adat. A portalt nem kerdezzuk le automatikusan;
+    az indoklas a leadgen/financials.py fejleceben all."""
+    if args.import_file:
+        path = Path(args.import_file)
+        if not path.exists():
+            print(f"HIBA: nincs ilyen fajl: {path}")
+            return 1
+        stats = financials.import_csv(path, dry=args.dry)
+        return 0 if not stats.hibas else 1
+
+    if args.set:
+        rows = db.query("select id, company_name from companies "
+                        "where normalized_domain = %s", (args.set,))
+        if not rows:
+            print(f"Nincs ilyen ceg: {args.set}")
+            return 1
+        if args.missing:
+            financials.jelold_hianyzonak(rows[0]["id"])
+            print(f"{rows[0]['company_name']}: nincs kozzetett beszamolo (megjelolve)")
+            return 0
+        if args.revenue is None and args.headcount is None:
+            print("HIBA: adj meg legalabb --revenue vagy --headcount erteket")
+            print("  (vagy --missing, ha nincs kozzetett beszamoloja)")
+            return 1
+        ertek = financials.ment(rows[0]["id"], revenue=args.revenue,
+                                headcount=args.headcount, financial_year=args.year,
+                                forras="manual")
+        print(f"{rows[0]['company_name']}: economic_value = {ertek}")
+        return 0
+
+    financials.run(limit=args.limit)
+    return 0
+
+
+def _cmd_webshop(args: argparse.Namespace) -> int:
+    webshop.run(limit=args.limit, mind=args.all, dry=args.dry)
+    return 0
+
+
 def _cmd_qualify(args: argparse.Namespace) -> int:
     engine = engines.get(args.engine)
     print(f"Engine: {engine.label}")
@@ -169,7 +211,35 @@ def _cmd_qualify(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_alert(args: argparse.Namespace) -> int:
+    """12. szakasz: eszreveszi, ha baj van, es szol -- egyszer."""
+    talalatok = alerts.run(dry=args.dry,
+                           skip_deliverability=args.skip_deliverability)
+    # A KIMENETI KOD JELZES, NEM HIBA -- ugyanaz a minta, mint a
+    # deliverability.py-nal: 1 = van riasztas. Cronban ezt ne ertelmezd
+    # hibanak; pont ezert nem 2-vel vagy kivetellel jelzunk.
+    return 1 if talalatok else 0
+
+
+def _cmd_daily(args: argparse.Namespace) -> int:
+    """A teljes napi lanc egy paranccsal (12. szakasz)."""
+    return schedule.napi_lanc(dry=args.dry, limit=args.limit,
+                              skip_ingest=args.skip_ingest)
+
+
+def _cmd_schedule(args: argparse.Namespace) -> int:
+    if args.action == "install":
+        return schedule.telepit(dry=args.dry)
+    if args.action == "uninstall":
+        return schedule.eltavolit()
+    return schedule.allapot()
+
+
 def _cmd_report(args: argparse.Namespace) -> int:
+    if args.economic:
+        return report.economic()
+    if args.campaign:
+        return report.campaign(args.campaign)
     if args.grounding:
         return report.grounding()
     if args.signal == "dead_dev":
@@ -394,7 +464,38 @@ def build_parser() -> argparse.ArgumentParser:
                     help="egy signal reszletes bontasa (pl. dead_dev)")
     rp.add_argument("--grounding", action="store_true",
                     help="az AI-allitasok es a hozzajuk tartozo idezetek")
+    rp.add_argument("--economic", action="store_true",
+                    help="7.1: LOW/MEDIUM/HIGH bontas es a penzugyi adatok")
+    rp.add_argument("--campaign", metavar="NEV",
+                    help="egy kampany cegei (pl. webshop_growth)")
     rp.set_defaults(func=_cmd_report)
+
+    al = sub.add_parser("alert", help="riasztasok ellenorzese es kikuldese (12. szakasz)")
+    al.add_argument("--dry", action="store_true",
+                    help="csak megmutatja -- nem ir DB-be es nem kuld emailt")
+    al.add_argument("--skip-deliverability", action="store_true",
+                    help="a kuldo kezbesitesi orjarata nelkul (az IMAP-ot igenyel)")
+    al.set_defaults(func=_cmd_alert)
+
+    dl = sub.add_parser("daily", help="a teljes napi lanc egy paranccsal (12. szakasz)")
+    dl.add_argument("--dry", action="store_true",
+                    help="csak megmutatja, mit futtatna -- semmit nem hajt vegre")
+    dl.add_argument("--limit", type=int, default=0,
+                    help="export-adagolas: ennyi UJ leadnel tobbet ne allitson sorba")
+    dl.add_argument("--skip-ingest", action="store_true",
+                    help="a FIZETOS forras-lekerdezes nelkul (a lanc tobbi resze fut)")
+    dl.set_defaults(func=_cmd_daily)
+
+    sh = sub.add_parser("schedule", help="a napi lanc utemezese (launchd)")
+    sh_sub = sh.add_subparsers(dest="action", required=True)
+    sh_i = sh_sub.add_parser("install", help="launchd bejegyzes telepitese")
+    sh_i.add_argument("--dry", action="store_true",
+                      help="csak kiirja a plist tartalmat -- nem telepit")
+    sh_i.set_defaults(func=_cmd_schedule)
+    sh_sub.add_parser("uninstall", help="az utemezes eltavolitasa").set_defaults(
+        func=_cmd_schedule)
+    sh_sub.add_parser("status", help="fut-e az utemezes, es mikor futott utoljara").set_defaults(
+        func=_cmd_schedule)
 
     cr = sub.add_parser("classify-replies", help="AI valasz-osztalyozas (6. szakasz)")
     cr.add_argument("--dry", action="store_true",
@@ -504,10 +605,39 @@ def build_parser() -> argparse.ArgumentParser:
                     help="csak megmutatja -- semmit nem ir")
     dd.set_defaults(func=_cmd_enrich_deadev)
 
+    fin = en_sub.add_parser(
+        "financials",
+        help="7.1: arbevetel/letszam (KEZI vagy importalt -- nincs portal-lekeres)")
+    fin.add_argument("--limit", type=int, default=20,
+                     help="ennyi ceg kerul a kezi worklistbe")
+    fin.add_argument("--import", dest="import_file", metavar="FAJL",
+                     help="kitoltott worklist vagy csoportos beszamolo-export beolvasasa")
+    fin.add_argument("--set", metavar="DOMAIN",
+                     help="egyetlen ceg adata a parancssorbol")
+    fin.add_argument("--revenue", type=float, metavar="FT",
+                     help="ertekesites netto arbevetele FORINTBAN (nem ezer Ft-ban!)")
+    fin.add_argument("--headcount", type=int, metavar="FO")
+    fin.add_argument("--year", type=int, metavar="EV",
+                     help="melyik uzleti ev beszamoloja")
+    fin.add_argument("--missing", action="store_true",
+                     help="--set mellett: nincs kozzetett beszamoloja")
+    fin.add_argument("--dry", action="store_true",
+                     help="--import mellett: csak megmutatja, mit irna be")
+    fin.set_defaults(func=_cmd_enrich_financials)
+
     ql = sub.add_parser("qualify", help="minosites (`enriched` -> `ready`/`scored`/`review`)")
     ql.add_argument("--engine", default="agency_partner")
     ql.add_argument("--limit", type=int, default=200)
     ql.set_defaults(func=_cmd_qualify)
+
+    ws = sub.add_parser("webshop-growth",
+                        help="8.3: dobozos webshop platform + magas arbevetel")
+    ws.add_argument("--limit", type=int, default=200)
+    ws.add_argument("--all", action="store_true",
+                    help="a mar megvizsgaltakat is ujra nezi")
+    ws.add_argument("--dry", action="store_true",
+                    help="csak megmutatja -- semmit nem ir")
+    ws.set_defaults(func=_cmd_webshop)
 
     dev_parser = sub.add_parser("dev", help="fejlesztoi eszkozok")
     dev_sub = dev_parser.add_subparsers(dest="action", required=True)

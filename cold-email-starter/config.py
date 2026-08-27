@@ -108,5 +108,20 @@ BOUNCE_CSV = DATA / "bounces.csv"
 # (AI valasz-osztalyozas). Enelkul a valasz szovege eldobodna: eddig csak
 # egy DNC-sor maradt belole, ok-koddal.
 REPLIES_CSV = DATA / "replies.csv"
+# Az SMTP-elutasitasok naploja. EZ TOLTI BE A RAMP VAK FOLTJAT: a
+# deliverability.py korabban fixen nullat adott at a `rejects` parameternek,
+# igy a REJECT_RATE_ALERT kuszob SOHA nem sult el. A sender.py mar szamolta a
+# sikertelen kuldeseket, csak nem mentette sehova -- ez a fajl az a hely.
+#
+# Miert kulon fajl es nem a bounces.csv: a bounce a FOGADO oldal kesobbi
+# valasza (a cim nem letezik), a reject a KULDES pillanataban tortenik (a
+# sajat szerverunk vagy a fogado MTA utasitja el). A ketto mas jelenseg, mas
+# a kuszobe (REJECT_RATE_ALERT vs BOUNCE_RATE_ALERT), es osszekeverve
+# egyikbol sem lehetne tanulni.
+REJECTS_CSV = DATA / "rejects.csv"
 RAMP_JSON = DATA / "ramp_state.json"
 LOG_FILE = DATA / "sender.log"
+# A riasztasok naploja (12. szakasz). A `leadgen alert` irja, a
+# `report --daily` olvassa. Kulon fajl a sender.log-tol, mert azt a napi
+# futasok elarasztjak -- egy riasztas ott elveszne.
+ALERTS_LOG = DATA / "alerts.log"

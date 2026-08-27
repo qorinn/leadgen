@@ -69,6 +69,12 @@ cd .. && ./leadgen.sh feedback   # a nap eredménye vissza az adatbázisba
 
 Küldeni **hétköznap 8:00 és 17:00 között** lehet. Hétvégén a program nem küld.
 
+> **Ez a rutin rövidebb lesz, ha bekapcsolod az automatikus futást.**
+> A gyűjtést, a feldolgozást és az átadást a gép is elvégezheti minden
+> reggel — akkor neked csak az átnézés és a küldés marad.
+> Lásd a [16. folyamatot](#16-folyamat--az-automatikus-napi-futás-12-fázis).
+> A küldés akkor is a te kezedben marad.
+
 ---
 
 # A folyamatok egyenként
@@ -587,11 +593,249 @@ elmélet — a scrapelt oldalak szövegét idegenek írják.
 
 ---
 
+## 14. folyamat — „Mekkora ez a cég?"  *(árbevétel és létszám)*
+
+**Mikor:** ha egy körben sok új cég jött be, és el kell dönteni, kivel
+foglalkozz először.
+
+**Az ötlet:** a magyar cégek éves beszámolói nyilvánosak. Ebből kiderül két
+szám: **mennyi az árbevétel** és **hányan dolgoznak ott**. Ez a különbség a
+„nagy cég rossz weboldallal" (a legjobb lead, ami létezik) és a „kis cég rossz
+weboldallal" (majdnem értéktelen) között.
+
+### ⚠️ Ezt a részt kézzel kell csinálni — és ennek oka van
+
+Megnéztük a hivatalos portált (e-beszamolo.im.gov.hu). **Nem szabad géppel
+lekérdezni**, két okból:
+
+- a keresője elé captcha van kötve;
+- a Felhasználási Feltételek szerint a szolgáltatás **hitelezővédelmi célra**
+  való, és a korlátozás technikai megkerülése **feljelentéssel** járhat.
+
+Ezért a rendszer nem kérdezi le magától. Helyette **listát ír neked**, te
+kitöltöd, és visszatöltöd. Egy cég kb. 1 perc.
+
+```bash
+./leadgen.sh enrich financials --limit 20
+```
+
+Ez kiír egy fájlt ide: `data/financials_worklist.csv`. Nyisd meg (Excel vagy
+Numbers is jó), és minden sorhoz töltsd ki:
+
+| Oszlop | Mit írj bele |
+|---|---|
+| `revenue_huf` | értékesítés nettó árbevétele — **FORINTBAN** |
+| `headcount` | átlagos statisztikai állományi létszám |
+| `financial_year` | melyik év beszámolója (pl. 2024) |
+
+> ### 🔴 A leggyakoribb hiba: az ezer forint
+>
+> A beszámoló űrlapja **ezer forintban** mutatja a számokat („adatok E Ft-ban").
+> Ha ott 350 000 áll, az **350 millió forint** — ide `350000000`-t írj, nem
+> `350000`-et. A rendszer szól, ha valami gyanúsan kicsi, de nem tudja
+> kijavítani helyetted.
+
+Ha egy cégnek nincs közzétett beszámolója, **hagyd üresen a sort** — a
+következő listában újra elő fog jönni.
+
+Aztán töltsd vissza:
+
+```bash
+./leadgen.sh enrich financials --import data/financials_worklist.csv
+./leadgen.sh report --economic
+```
+
+Egyetlen céget gyorsabban is fel lehet venni:
+
+```bash
+./leadgen.sh enrich financials --set pelda.hu --revenue 420000000 --headcount 12 --year 2024
+```
+
+### Mi lesz az eredmény
+
+| Érték | Mit jelent |
+|---|---|
+| 🔥 **HIGH** | 500 M Ft felett vagy 25 fő felett — **+15 pont** |
+| ⭐ **MEDIUM** | 100 M Ft felett vagy 5 fő felett |
+| **LOW** | ez alatt |
+
+> **A LOW nem kizárás.** A cég bent marad, csak hátrébb kerül a sorban. Aki
+> nem került be a listába, azzal sem történik semmi rossz — egyszerűen nincs
+> róla adatunk.
+
+A három küszöb üzleti döntés, nem technikai. A gyökér `.env`-ben állítható:
+`REVENUE_MEDIUM_HUF`, `REVENUE_HIGH_HUF`, `WEBSHOP_REVENUE_MIN_HUF`.
+
+### Nem kell minden céget lekérned
+
+**Ez az egész folyamat opcionális.** Ha soha nem futtatod le, a rendszer
+ugyanúgy működik — az árbevétel csak sorrendet ad.
+
+És ha lefuttatod, akkor sem kell mind a 100 cég. Naponta 20 levél megy ki,
+tehát **a sor tetején lévő 20-30 cégről elég adat** — a lista eleve a legjobb
+pontszámúakkal kezdődik. A beszámolók évente frissülnek, tehát ez nem
+ismétlődő munka: egyszer 20-30 perc, és hetekig nem kell hozzányúlni.
+
+### Van gyorsabb út is — de az fizetős
+
+A portálnak van hivatalos, **csoportos** lekérdezése: kitöltesz egy „Csoportos
+beszámoló kérő lap" nevű űrlapot, és elküldöd az `e-beszamolo@mkifk.hu` címre.
+Az így kapott fájl egy paranccsal betölthető.
+
+> ⚠️ **Ez költségtérítéses.** Az űrlap első fele számlázási adatokat kér. Az árat
+> nem tünteti fel — ajánlatot adnak rá. Viszonyításnak: egy cég pénzügyi
+> beszámolója az Opten webshopjában 759 Ft, tehát 30 cég kb. 23 000 Ft — ugyanez
+> kézzel 30 perc.
+
+**A javaslatom:** csináld meg előbb kézzel 20 céggel, és abból döntsd el, kell-e
+egyáltalán fizetős forrás. Részletek: [TEENDOK.md](TEENDOK.md) 4.5.
+
+---
+
+## 15. folyamat — „Kinőtte a webshopját"  *(8.3)*
+
+**Mikor:** a 14. folyamat után, vagy ha új cégeket dolgoztál fel.
+
+**Az ötlet:** a dobozos webshop-rendszerek (Shoprenter, Unas, Shopify, Wix,
+WooCommerce) induláskor kiválóak, de növekedéskor konkrét korlátokba ütköznek.
+Ha egy cég **sok pénzt forgat** ilyen platformon, jó eséllyel már ütközik.
+
+Nincs hozzá új gyűjtés: a weboldalt már letöltöttük, az árbevétel a 14.
+folyamatból van.
+
+```bash
+./leadgen.sh webshop-growth --dry     # először nézd meg
+./leadgen.sh webshop-growth           # élesben
+./leadgen.sh report --campaign webshop_growth
+```
+
+### ⚠️ Amit a rendszer szándékosan NEM csinál
+
+- **Nem hiszi el a kulcsszót.** Ha egy ügynökség weboldalán ott van, hogy
+  „Shoprenter webshop készítés", az az **ő szolgáltatásuk**, nem az ő
+  rendszerük. Csak akkor számít találatnak, ha a weboldal **tényleg a
+  platformról tölti be a fájljait**, és van rajta kosár.
+- **Nem írja felül a meglévő kampányt.** Ha a cég már egy másik kampányban
+  van, a webshop-irány csak megjegyzésként mentődik el.
+- **Nem írja bele az árbevételt a levélbe.** Soha. A levél csak annyit mond,
+  hogy melyik platformot látta.
+
+### A hangnem — ez itt a legfontosabb
+
+A sablon **nem mondja, hogy rossz a platformjuk.** Sokan tudatosan és
+elégedetten használják, és gyakran igazuk is van. A levél egy konkrét
+korlátra kérdez rá, és a megoldás **kiegészítés, nem csere**.
+
+> ### 🔒 Ez a kampány még nem küld levelet
+>
+> A `webshop_growth` sablon szövege **vázlat** — az én szövegem, nem a tiéd.
+> Amíg át nem írod és fel nem veszed a jóváhagyott kampányok közé, ezek a
+> leadek **nem kerülnek ki** a `leads.csv`-be. Lépések:
+> [TEENDOK.md](TEENDOK.md) 3.9.
+
+---
+
+## 16. folyamat — Az automatikus napi futás  *(12. fázis)*
+
+**Mikor:** egyszer beállítod, utána magától megy.
+
+Eddig minden parancsot te indítottál el. Ettől a fázistól a gép **minden
+reggel 7:30-kor** végigcsinálja a gyűjtést, a feldolgozást és az átadást —
+neked csak a levelek kiküldése marad.
+
+### Mit csinál magától
+
+Reggel 7:30-kor sorban lefut:
+
+| Lépés | Mit csinál |
+|---|---|
+| 1. gyűjtés | új cégek a Google Mapsről *(ez pénzbe kerül, napi 50 találat a keret)* |
+| 2. feldolgozás | letölti és elolvassa a weboldalukat |
+| 3. fejlesztő-keresés | ki készítette az oldalt, él-e még |
+| 4. AI-értékelés | ki a jó lead, és mi legyen a levél első mondata |
+| 5. webshop-vizsgálat | dobozos platformon van-e a boltjuk |
+| 6. visszajelzés | ki válaszolt, ki iratkozott le, mi pattant vissza |
+| 7. válasz-besorolás | az AI elolvassa az új válaszokat |
+| 8. átadás | megírja a `leads.csv`-t a küldőnek |
+| 9. ellenőrzés | van-e baj, amiről szólni kell |
+
+### Amit szándékosan NEM csinál magától
+
+**A levélküldést.** A `sender.py --live` marad a te kezedben.
+
+Ez nem hiányosság, hanem döntés: a kiküldés visszafordíthatatlan, és a levél
+**a te nevedben** megy ki. A gép előkészít, te elolvasod, és te küldöd el.
+
+Ugyanígy kézi marad az esti `deliverability.py` is — az a küldés után futtatandó.
+
+### A beállítás
+
+```bash
+./leadgen.sh schedule install     # ettől kezdve minden reggel 7:30-kor fut
+./leadgen.sh schedule status      # fut-e, és mikor futott utoljára
+./leadgen.sh schedule uninstall   # ha mégsem kell
+```
+
+Az `install` **nem indít el semmit azonnal** — az első futás másnap reggel lesz.
+
+Ha a géped 7:30-kor alszik, a futás **nem marad el**: felébredés után bepótolja.
+
+### A napi rutinod ezután
+
+```bash
+# ── REGGEL ─────────────────────────────────────────────────────
+./leadgen.sh report --daily   # a gép már dolgozott — mi a helyzet?
+./leadgen.sh review           # ha van bizonytalan cég: TE döntesz
+
+cd cold-email-starter
+python3 sender.py --dry       # MI MEGY KI MA? — olvasd el
+python3 sender.py --live      # ÉLES KÜLDÉS
+
+# ── ESTE, 17:00 után ───────────────────────────────────────────
+python3 deliverability.py     # napi jelentés
+cd .. && ./leadgen.sh feedback
+```
+
+A `report` és az `export` kikerült a reggeli rutinból: azokat a gép már
+elvégezte. A `report --daily` viszont maradt — **ez mutatja meg, mi történt.**
+
+### Ha kézzel akarod lefuttatni a láncot
+
+```bash
+./leadgen.sh daily --dry          # mit csinálna? (semmit nem futtat)
+./leadgen.sh daily                # az egész lánc, most
+./leadgen.sh daily --skip-ingest  # ugyanaz, de a FIZETŐS gyűjtés nélkül
+```
+
+### Riasztások — ha baj van, szólni fog
+
+A gép magától fut, tehát ha valami elromlik, senki nem olvassa a kimenetet.
+Ezért három dologra figyel, és ezekről **emailt küld a saját címedre**:
+
+| Riasztás | Mit jelent |
+|---|---|
+| **kézbesítési gond** | túl sok levél pattan vissza, vagy a Google elutasítja a küldést |
+| **elfogytak a leadek** | 3 napja nincs kiküldhető cég — valahol elakadt a folyamat |
+| **megválaszolatlan érdeklődő** | valaki érdeklődött, és 24 órája nem válaszoltál neki |
+
+Az utolsó a legfontosabb: **ez a legdrágább lead a rendszerben.**
+
+Ugyanezek megjelennek a `./leadgen.sh report --daily` tetején is, és bekerülnek
+a `cold-email-starter/data/alerts.log` fájlba.
+
+**Ugyanarról a bajról naponta csak egyszer kapsz emailt.** Ha minden reggel
+ugyanaz az üzenet jönne, egy hét múlva szűrőt tennél rá — és akkor a valódi
+riasztást sem vennéd észre.
+
+Ha nem érkezik email, a riasztás akkor is megvan a fájlban és a riportban.
+Beállítás: `ALERT_EMAIL=sajat@cimed.hu` a gyökér `.env`-ben.
+
+---
+
 # Mi nincs még kész
 
 | Mi hiányzik | Melyik fázis | Mit jelent ez most |
 |---|---|---|
-| **Időzítés (cron)** | 12. | **Semmi nem fut magától.** Minden parancsot te indítasz el. |
 | **Webes felület** | 13. | Minden parancssorból megy. |
 
 ---
@@ -608,6 +852,12 @@ elmélet — a scrapelt oldalak szövegét idegenek írják.
 | `deliverability.py` 1-es hibakód | **riasztás**, nem programhiba | olvasd el a kiírt üzenetet |
 | teszt-domainek a listában | `.invalid` címek maradtak bent | `./leadgen.sh dev clear-seed` |
 | `helyi szuro KIZART: ...` | egy cím nem ment át az ellenőrzésen | ez helyes működés, nem hiba |
+| a napi lánc nem futott le | alvó gép vagy hibás beállítás | `./leadgen.sh schedule status` |
+| `A(z) ... lepes hibara futott` | egy lépés elakadt, a többi ment tovább | nézd meg a naplót: `cold-email-starter/data/leadgen_daily.log` |
+| `a riasztasi email NEM ment ki` | az értesítés nem ért célba | a riasztás ettől megvan: `data/alerts.log` és `report --daily` |
+| `arbevetel gyanusan kicsi` | valószínűleg ezer forintot írtál | szorozd meg 1000-rel a `revenue_huf` mezőt |
+| `NINCS ILYEN CEG` az importnál | a sor nem párosítható | töltsd ki a `company_id` vagy a `normalized_domain` oszlopot |
+| `nincs letoltott oldal` a 8.3-nál | a cég weboldala még nincs feldolgozva | `./leadgen.sh enrich` |
 | `EMAIL_VALIDATION=full, de nincs REOON_API_KEY` | hiányzik a kulcs | csak az ingyenes szűrő fut, a küldés megy |
 
 **Ha elakadsz:** `./leadgen.sh report` szinte mindig megmondja, mi a következő

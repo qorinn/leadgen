@@ -72,6 +72,11 @@ class SenderState:
     sent_today: int = 0
     remaining: int = 0
     leads_rows: int = 0
+    # 12. szakasz: a napi kezbesitesi kep is ide tartozik. A `report --daily`
+    # celja, hogy EGY KEPERNYON lasd, mi tortenik ma -- ha a bounce-arany
+    # miatt kulon parancsot kell futtatni, azt a napi rutinban kihagyod.
+    bounces_today: int = 0
+    rejects_today: int = 0
     error: str = ""
 
 
@@ -82,13 +87,21 @@ def _sender_state() -> SenderState:
     Pythonjaval importaljuk a kuldo moduljait: a ket interpretert nem
     keverjuk (CLAUDE.md), meg akkor sem, ha stdlib-only kod mindkettovel menne.
     """
+    # A `deliverability.daily_report()`-ot hivjuk, nem szamoljuk ujra a
+    # bounce-aranyt: az a fuggveny tudja azt a ket szabalyt, amit ket valodi
+    # hamis riasztas tanitott meg (a bounce csak a mai cimzettekre szamit, es
+    # a soft bounce nem reputacio-jelzes). Egy masodik implementacio itt
+    # csendben mas szamot adna.
     code = (
-        "import json, limits, store; "
+        "import json, deliverability, limits, store; "
+        "rep = deliverability.daily_report(); "
         "print(json.dumps({"
         "'cap': limits.daily_cap(), "
         "'sent_today': store.sent_today_count(), "
         "'remaining': limits.remaining_today(), "
-        "'leads_rows': len(store.leads())}))"
+        "'leads_rows': len(store.leads()), "
+        "'bounces_today': rep['bounces_reputation'], "
+        "'rejects_today': rep['rejects']}))"
     )
     try:
         proc = subprocess.run(
@@ -200,7 +213,46 @@ def funnel() -> int:
 
 # ─── A mai kep ─────────────────────────────────────────────────────────────
 
+def _riasztas_blokk() -> None:
+    """A fennallo riasztasok, A RIPORT TETEJEN.
+
+    MIERT ELOL: a 12. szakasz utan a lanc magatol fut, es ez a riport az
+    egyetlen kepernyo, amit a napi rutin biztosan megnyit. Ha a riasztas a
+    riport aljara kerulne, pont az veszne el, amiert az egesz monitoring van.
+    A riasztasokat a `leadgen alert` allitja elo; itt csak OLVASSUK oket.
+    """
+    from . import alerts
+
+    try:
+        aktiv = alerts.aktiv_riasztasok()
+    except Exception as exc:  # noqa: BLE001
+        # Ha a riasztas-tabla meg nem letezik (migracio nem futott), az nem
+        # allithatja meg a napi riportot -- de hallgatni sem szabad rola.
+        print(f"RIASZTASOK: nem olvashatok ({type(exc).__name__}). "
+              f"Futott mar a `db migrate`?\n")
+        return
+    if not aktiv:
+        return
+
+    print("=" * 68)
+    print(f">>> {len(aktiv)} RIASZTAS ALL FENN")
+    print("=" * 68)
+    for a in aktiv:
+        elso = a["first_seen"]
+        kor = ""
+        if elso:
+            import datetime as _dt
+            napok = (_dt.datetime.now(_dt.timezone.utc) - elso).days
+            kor = f"  ({napok} napja)" if napok else "  (ma)"
+        print(f"\n  [{a['tipus']}]{kor}")
+        print("  " + (a["uzenet"] or "").replace("\n", "\n  "))
+    print(f"\n  Teljes naplo: {config.ALERTS_LOG}")
+    print("=" * 68 + "\n")
+
+
 def daily() -> int:
+    _riasztas_blokk()
+
     st = _sender_state()
     allapot = company_statuses()
 
@@ -215,6 +267,14 @@ def daily() -> int:
         print(f"  ma mar kikuldve     {st.sent_today}")
         print(f"  ma meg kikuldheto   {st.remaining}")
         print(f"  leads.csv sorai     {st.leads_rows}")
+        # A kezbesitesi jelek csak akkor jelennek meg, ha van mit mutatni:
+        # egy allando "bounce: 0" sor harom nap alatt lathatatlanna valik,
+        # es akkor a nem-nulla erteket sem venned eszre.
+        if st.bounces_today:
+            print(f"  bounce ma           {st.bounces_today}  (reputacio-relevans)")
+        if st.rejects_today:
+            print(f"  SMTP-elutasitas ma  {st.rejects_today}  "
+                  f"-> cold-email-starter/data/rejects.csv")
     else:
         print(f"  A kuldo allapota NEM OLVASHATO: {st.error}")
         print(f"  (varom itt: {config.SENDER_DIR})")
@@ -465,6 +525,111 @@ def dead_dev() -> int:
             print(f"    fejleszto: {r['dev_name']} -> https://{r['dev_domain']}")
             print(f"    a footerben: \"{(r['dev_evidence'] or '')[:90]}\"")
         print("\n  Ha egy talalat teves: ./leadgen.sh review --reject <ceg-domain>")
+    return 0
+
+
+# ─── 7.1 penzugyi ertek + 8.3 webshop ──────────────────────────────────────
+
+def economic() -> int:
+    """A penzugyi kep (`report --economic`).
+
+    A LOW ERTEK NEM KIZARAS. A 2026-08-25-i megorzo leadmodell szerint a
+    penzugyi ertek RANGSOROL, nem szur: a LOW ceg is exportalhato, csak
+    hatrebb all a sorban. Ezert ez a riport nem "kiesettek" listat mutat,
+    hanem azt, hogy hany cegrol tudunk egyaltalan valamit.
+    """
+    ertekek = _counts("""
+        select coalesce(economic_value, '(nincs adat)') as k, count(*) as n
+          from companies group by 1
+    """)
+    megvizsgalt = db.query("""
+        select count(*) filter (where financials_checked_at is not null) as nezve,
+               count(*) filter (where revenue is not null) as van_szam,
+               count(*) as ossz
+          from companies
+    """)[0]
+
+    print(f"PENZUGYI ERTEK ({megvizsgalt['ossz']} ceg)")
+    for k in ("HIGH", "MEDIUM", "LOW", "(nincs adat)"):
+        if ertekek.get(k):
+            print(f"  {k:<14} {ertekek[k]:>4}")
+    print(f"\n  megvizsgalva : {megvizsgalt['nezve']:>4}")
+    print(f"  van arbevetel: {megvizsgalt['van_szam']:>4}")
+    print(f"\n  kuszobok (.env): MEDIUM >= {config.REVENUE_MEDIUM_HUF / 1e6:.0f} M Ft "
+          f"vagy {config.HEADCOUNT_MEDIUM} fo   |   "
+          f"HIGH >= {config.REVENUE_HIGH_HUF / 1e6:.0f} M Ft vagy "
+          f"{config.HEADCOUNT_HIGH} fo")
+
+    if not megvizsgalt["van_szam"]:
+        print("\n  Meg egy cegrol sincs penzugyi adat.")
+        print("  Kezdd itt: ./leadgen.sh enrich financials")
+        return 0
+
+    rows = db.query("""
+        select company_name, normalized_domain, revenue, headcount,
+               financial_year, economic_value, webshop_platform, signal_score
+          from companies
+         where revenue is not null
+         order by revenue desc nulls last limit 25
+    """)
+    print(f"\n{'ceg':<38} {'arbevetel':>12} {'fo':>4}  {'ev':>4} {'ertek':<7} platform")
+    print("-" * 88)
+    for r in rows:
+        arb = f"{float(r['revenue']) / 1e6:,.0f} M Ft" if r["revenue"] else "-"
+        print(f"{(r['company_name'] or '')[:36]:<38} {arb:>12} "
+              f"{r['headcount'] or '-':>4}  {r['financial_year'] or '-':>4} "
+              f"{r['economic_value'] or '-':<7} {r['webshop_platform'] or ''}")
+
+    hianyzo = _counts("""
+        select label as k, count(*) as n from company_labels
+         where label in ('financials_missing', 'low_economic_value',
+                         'webshop_platform', 'webshop_growth')
+         group by 1
+    """)
+    if hianyzo:
+        print()
+        for k, n in sorted(hianyzo.items()):
+            print(f"  {k:<22} {n:>4}")
+    return 0
+
+
+def campaign(nev: str) -> int:
+    """Egy kampany cegei (`report --campaign webshop_growth`).
+
+    A JOVAHAGYASI ALLAPOT AZ ELSO SOR, mert az donti el, hogy ezek a leadek
+    egyaltalan kimehetnek-e. Egy vazlat sablonu kampany barmennyi `ready`
+    ceget gyujthet, exportalni akkor sem fog (contract.APPROVED_CAMPAIGNS).
+    """
+    from .contract import APPROVED_CAMPAIGNS
+
+    rows = db.query("""
+        select company_name, normalized_domain, status, economic_value,
+               revenue, webshop_platform, signal_score, personalization
+          from companies where campaign = %s
+         order by signal_score desc nulls last, company_name
+    """, (nev,))
+
+    jovahagyva = nev in APPROVED_CAMPAIGNS
+    print(f"KAMPANY: {nev}   ({len(rows)} ceg)")
+    print(f"  sablon: {'JOVAHAGYVA -- exportalhato' if jovahagyva else 'VAZLAT -- NEM exportalhato'}")
+    if not jovahagyva:
+        print("  A szoveget at kell irni (cold-email-starter/templates.py), majd")
+        print("  felvenni a leadgen/contract.py APPROVED_CAMPAIGNS listajaba.")
+    if not rows:
+        print("\n  Meg egy ceg sincs ebben a kampanyban.")
+        return 0
+
+    allapot: dict[str, int] = {}
+    for r in rows:
+        allapot[r["status"]] = allapot.get(r["status"], 0) + 1
+    print("\n  " + "   ".join(f"{k}: {n}" for k, n in sorted(allapot.items())))
+
+    print(f"\n{'ceg':<36} {'allapot':<10} {'ertek':<7} {'platform':<12} pont")
+    print("-" * 82)
+    for r in rows[:40]:
+        print(f"{(r['company_name'] or '')[:34]:<36} {r['status']:<10} "
+              f"{r['economic_value'] or '-':<7} {r['webshop_platform'] or '-':<12} "
+              f"{r['signal_score']:>5.1f}")
     return 0
 
 

@@ -107,18 +107,23 @@ A scraper **külön interpreteren fut**: saját venv Python 3.12-vel. A `python3
 .venv/bin/python -m leadgen.cli db migrate     # idempotens, bármikor újrafuttatható
 .venv/bin/python -m leadgen.cli db check       # táblák és sorszámok
 .venv/bin/python -m leadgen.cli report         # hol tart a tölcsér + a mai keret
+.venv/bin/python -m leadgen.cli daily          # a teljes napi lánc (12. szakasz)
+.venv/bin/python -m leadgen.cli alert --dry    # riasztás-ellenőrzés, írás nélkül
+.venv/bin/python -m leadgen.cli schedule status  # fut-e az ütemezés
 .venv/bin/pytest                               # a normalizáló réteg tesztjei
 ```
 
 ## A napi rutin — 5. szakasz óta ez a rendszer üzemmódja
 
-Cron **nincs** (az a 12. szakasz). A rendszer napi kézi futtatásra van tervezve:
-minden lépés rövid, batch-elt és újrafuttatható, tehát egy kihagyott nap nem
+**A 12. szakasz óta a scraper-oldal futhat magától** (`./leadgen.sh schedule
+install` → launchd, minden reggel 7:30). A küldés szándékosan kézi maradt.
+Minden lépés rövid, batch-elt és újrafuttatható, tehát egy kihagyott nap nem
 borít fel semmit — a következő futás onnan folytatja.
 
 ```bash
 # ── reggel, 5 perc ────────────────────────────────────────────────────────
-./leadgen.sh report                   # mi vár rám, és mi fér a mai keretbe
+# (ütemezett futásnál a report/export lépést a lánc már elvégezte 7:30-kor)
+./leadgen.sh report --daily           # riasztások + mi fér a mai keretbe
 ./leadgen.sh review                   # ha van átnézendő: TE döntesz
 ./leadgen.sh export                   # feedback-import + leads.csv újraírás
 
@@ -147,6 +152,11 @@ cd .. && ./leadgen.sh feedback        # a nap eredménye vissza a DB-be
   fölé megy, adagolni kell (`export --limit 20`): a follow-up mindig veri a
   friss cold-ot ugyanabban a napi keretben, tehát egy nagy export nem gyorsít,
   csak várakozó sort épít.
+- **A `--live` NEM kerülhet be az ütemezett láncba.** A `leadgen/schedule.py`
+  szándékosan csak a scraper-oldalt futtatja; tesztsor őrzi
+  (`test_a_lanc_soha_nem_kuld_eles_levelet`). Ez felhasználói döntés
+  (2026-08-27), nem technikai korlát — ha valaha megváltozik, az legyen
+  kimondott döntés, ne egy „beteszem a láncba is" módosítás mellékhatása.
 - **Az utolsó visszafordítható pont a `sender.py --dry`.** Amit ott látsz, az
   megy ki. Ha egy lead mégsem kell, `./leadgen.sh review --reject <domain>` —
   ez már exportált (`queued`) leadre is működik, lezárja az outreach sort, és
@@ -387,6 +397,100 @@ kapna jogot, az anon kulcs pedig szándékosan publikus. A scrapert ez nem
 A leiratkozás érvényesítése az exportnál történik (a lead kimarad a
 `leads.csv`-ből, az `outreach` sora `stopped` lesz) — **a `do-not-contact.csv`
 marad a `guards.py` tulajdona.**
+
+**Az e-beszámoló portált NEM kérdezzük le géppel — ez jogi, nem technikai
+korlát.** A 0.3 előteszt (2026-08-26) három dolgot talált: Altcha
+proof-of-work captchát a kereső előtt; a Felhasználási Feltételekben a
+rendeltetésszerű használat definícióját (*„a Cégtörvényben meghatározott
+**hitelezővédelmi célból**"* — egy értékesítési céllista nem az); és azt, hogy
+a *„különféle technikai megoldások igénybevételével"* történő megkerülés
+**rendőrségi feljelentéssel** jár. A [leadgen/financials.py](leadgen/financials.py)
+ezért worklist + `--import` + `--set` úton dolgozik, és **tesztsor tiltja,
+hogy bárki HTTP-klienst hozzon be a modulba**. A hivatalos tömeges út létezik:
+„Csoportos beszámoló kérő lap" → `e-beszamolo@mkifk.hu` (TEENDOK.md 4.5).
+
+**Az `economic_value` rangsorol, nem szűr, és a `signal_score` bónusz
+idempotens.** A terv eredeti *„csak MEDIUM+ megy outreachbe"* mondatát a
+2026-08-25-i megőrző leadmodell felülírja: a `LOW` címke, nem elutasítás. A
+bónusz (`+15` magas árbevétel, `+25` dobozos webshop + magas árbevétel) azért
+külön `financial_bonus` oszlopban tárolódik, mert a `signal_score` kumulatív —
+`signal_score + 15` alakban írva minden újrafuttatás újra hozzáadná, és a
+rangsor csendben elromlana. Minden újraszámolás `régi le, új fel`.
+**Az árbevétel FORINTBAN van**: a beszámoló űrlapja „adatok E Ft-ban" formában
+mutat, ezért az importer minden 1 M Ft alatti értékre hangosan szól.
+
+**A 8.3-ban a `tech.platform` mező 100%-ban tévedett.** Mérve a 49 letöltött
+oldalon (2026-08-26): 12 találat, **0 valódi saját webshop** — partner-logók,
+egy `partners/shoprenter.png` képfájl, egy `szakertok.shoprenter.hu` link,
+szolgáltatás-szövegek, egy téma-CSS `.woocommerce` szelektora és egy
+**kikommentelt** stylesheet. A [leadgen/webshop.py](leadgen/webshop.py) ezért
+három feltételt köt össze: a marker a betöltött **eszköz URL-jének hostjában**
+(SaaS platform) vagy a **konkrét plugin-útvonalban** (saját üzemeltetésű) van +
+van **bolt-gépezet** (kosár/termék link) + **parszolunk, nem regexelünk** (a
+kikommentelt elem így fel sem merül — ezt ne írd vissza regexre). Mérve: 0
+hamis pozitív a 49 oldalon, 3/3 valódi webshop felismerve. **A Magento és a
+PrestaShop szándékosan nincs a „dobozos" halmazban** — azok nyílt, bővíthető
+rendszerek, ott a „kinőtted" állítás nem igaz.
+
+**A kampány és a personalization mondat együtt alkot egy levelet.** Élesben
+látszott: a cég megkapta a `webshop_growth` kampányt, de a `personalization`
+mezőben egy korábbi, **ügynökségi** szögből született mondat maradt — a levél
+webshopról szólt volna, a nyitómondata viszont másról. Kampányváltáskor
+mindkettőt frissítsd. A 8.3 emellett **nem írja felül a meglévő kampányt** (a
+domain lock miatt, és mert egy ember által átnézett kampányt nem cserélhet le
+csendben); a szög ilyenkor `opportunity_angles` sorként akkor is elmentődik.
+**Az árbevétel soha nem kerülhet a levélbe** — tesztsor őrzi, hogy a 8.3
+mondata ne tartalmazzon számjegyet.
+
+**Az ütemezett futás három dolgot tör el, ami kézi futtatásnál nem
+látszik.** (12. szakasz) (1) **A `store._append` lock nélkül nem biztonságos**:
+a 12. szakasz óta két folyamat ír a `data/` alá (a launchd lánca és a kézzel
+indított küldő), és egy félig kiírt `sent.csv` sor csendben rossz napi keretet
+vagy rossz szekvencia-fokot okoz — ezért `flock` van minden íráson **és**
+olvasáson. (2) **A Python fájlba irányítva blokkosan pufferel**: élesben mérve
+50 másodperc futás után a launchd naplója még teljesen üres volt, tehát egy
+beragadt láncnál pont az nem látszana, hol akadt el. A plist ezért
+`PYTHONUNBUFFERED=1`-et ad az egész folyamatfának. (3) **A launchd nagyon szűk
+környezettel indít** — a `PATH`-ban nincs benne a Homebrew, ahol a venv
+Pythonja van. Mindhárom hibát csak éles launchd-futás mutatta meg, kézi
+futtatás soha.
+
+**A riasztás akkor ér valamit, ha ritka.** A feltételek napokig fennállnak
+(„3 napja nincs `ready` lead"), tehát fékezés nélkül ugyanaz a mondat menne ki
+minden reggel — három nap múlva a felhasználó szűrőt tenne rá, és onnantól a
+*valódi* riasztást sem látná. Ezért van az `alerts` tábla `last_notified`
+oszlopa és a 24 órás cooldown. A dedup kulcsa a riasztás **tárgyát** is
+tartalmazza (`unanswered_interested:<email>`), különben a második érdeklődő
+elnyomva maradna, amíg az elsőt meg nem válaszolod.
+
+**A riasztási email best-effort, a fájl az igazságforrás.** Egy SMTP-kimaradás
+pontosan az a helyzet, amikor a riasztás a legfontosabb — és pont akkor nem
+működik az email út. Ezért az `alerts._emailben()` **soha nem dob kivételt**,
+hanem a hibaszöveget adja vissza, ami maga is bekerül a naplóba. A sorrend
+kötött: fájl → DB → email.
+
+**A `deliverability.py` fixen nullát adott át a rampnak.** Emiatt a
+`REJECT_RATE_ALERT` küszöb **soha nem sült el**, és a ramp csak a
+visszapattanásokból tanult — nem látta, ha a Google *elutasítja* a küldést. A
+`sender.py` már számolta a sikertelen küldéseket, csak nem mentette gépi
+olvasásra alkalmas formában; most `rejects.csv`. A két arány **nevezője
+szándékosan különbözik**: a bounce a kiküldött (`sent`), a reject a
+megkísérelt (`sent + rejects`) levelekre vetül — utóbbi nélkül 20 kísérletből
+20 elutasítás esetén a nevező nulla lenne, és pont a legsúlyosabb eset adna
+0%-ot.
+
+**A napi lánc egy hibás lépés után tovább megy — a `feedback` kivételével.**
+Egy elszállt `ingest` (Apify-kimaradás) nem eshet ki egy egész napot: a többi
+lépésnek van mit feldolgoznia tegnapról. A `feedback` viszont `kotelezo=True`,
+és utána a lánc megáll: visszajelzés nélkül exportálni annyi, mint újra
+levelet küldeni annak, aki tegnap nemet mondott. Tesztsor őrzi a sorrendet is.
+
+**A Profession jogi cégnevet ad, a Maps márkanevet.** Mérve a 100 cégen: a
+Profession-leadek 75%-ánál (30/40) szerepel a jogi forma a névben, a
+Maps-leadeknél 22%-ánál (13/60) — a cégjegyzék viszont jogi néven keres.
+A DB-ben jelenleg **0 cégnek van adószáma**, ezért a pénzügyi import
+párosítása `company_id → adószám → domain` sorrendben megy; **cégnév szerint
+szándékosan soha**, mert egy téves névegyezés rossz céghez írna árbevételt.
 
 **A domain lock adatbázis-szinten él:** részleges UNIQUE index az
 `outreach (company_id) WHERE status IN ('queued','sent')` feltétellel. A küldő ezt

@@ -377,11 +377,84 @@ Ha most nem aktuális, semmi gond — akkor is szívesen hallom a választ.
             "template": "follow_up_2"}
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# WEBSHOP KINOVES kampany (8.3)  --  ⚠️ VAZLAT, A SZOVEGET A FELHASZNALO IRJA
+#
+# Cimzett: egy ceg, akinek a webshopja DOBOZOS platformon fut (Shoprenter,
+# Unas, Shopify, Wix, WooCommerce), es az arbevetele mar akkora, hogy
+# valoszinuleg utkozik a platform korlataiba.
+#
+# ⚠️ A TERV KIFEJEZETT FIGYELMEZTETESE: "Ne mondd, hogy rossz a platformjuk."
+# Sokan tudatosan es elegedetten hasznaljak, es gyakran igazuk is van. A
+# tamadas azonnal vedekezest valt ki. Ezert:
+#
+#   - nem migraciot ajanlunk, hanem a KONKRET KORLATRA kerdezunk ra
+#   - a pitch KIEGESZITES, nem csere (kisebb elkotelezodes -> konnyebb igen)
+#
+# ⚠️ ES AMI SOHA NEM KERULHET A LEVELBE: AZ ARBEVETEL. A szam a mi
+# rangsorolasunk bemenete. Leirva azt uzenne, hogy a cimzett penzugyi
+# adatait bogaraszszuk -- ez a leggyorsabb ut a torles gombhoz. A
+# personalization mondat ezert csak a PLATFORMOT emliti, a merethez pedig
+# altalanositva nyulunk ("ilyen forgalomnal").
+# ═══════════════════════════════════════════════════════════════════════════
+
+def webshop_cold(lead: dict) -> dict:
+    """1. level. Kerdessel zarul, nem ajanlattal."""
+    body = f"""{_greeting(lead)}
+
+Egyedi webes rendszereket fejlesztek kis- és középvállalatoknak.
+
+{_personalization(lead, "Láttam, hogy dobozos platformon fut a webshopjuk.")}
+
+Ilyen forgalomnál a leggyakoribb, hogy az egyedi árazás vagy a rendszerek közti integráció kezd szűk keresztmetszet lenni.
+
+Önöknél ez okoz most fejfájást, vagy megoldották valahogy?
+
+{_unsubscribe(lead, magazo=True)}
+
+{_signature()}"""
+    return {"subject": "Egyedi árazás és integráció", "body": body,
+            "template": "cold"}
+
+
+def webshop_follow_up_1(lead: dict) -> dict:
+    """2. level. ONALLO -- a cimzett tobbnyire NEM latta az elsot."""
+    body = f"""{_greeting(lead)}
+
+Webshopok mellé építek olyan kiegészítő rendszereket, amiket a platform maga nem tud: egyedi B2B árazás, készlet- és számlázó integráció, viszonteladói felület.
+
+Nem platformcserét jelent. A meglévő webshop marad, csak mellé kerül az, ami hiányzik.
+
+Van most ilyen igény Önöknél?
+
+{_unsubscribe(lead, magazo=True)}
+
+{_signature()}"""
+    return {"subject": "Ami a platformból hiányzik", "body": body,
+            "template": "follow_up_1"}
+
+
+def webshop_follow_up_2(lead: dict) -> dict:
+    """3. level. NEM igerunk "utoljara irok"-ot."""
+    body = f"""{_greeting(lead)}
+
+Utolsó kérdés a témában: van olyan folyamat a webshop körül, amit most kézzel oldanak meg, mert a platform nem tudja?
+
+Ha nincs, semmi gond — akkor jól működik, ami van.
+
+{_unsubscribe(lead, magazo=True)}
+
+{_signature()}"""
+    return {"subject": "Amit kézzel oldanak meg", "body": body,
+            "template": "follow_up_2"}
+
+
 CAMPAIGNS: dict[str, tuple] = {
     "agency_partner": (agency_cold, agency_follow_up_1, agency_follow_up_2),
     # ⚠️ VAZLAT -- a szoveget a felhasznalo irja at, mielott elesbe menne.
     "dead_dev": (deadev_cold, deadev_follow_up_1, deadev_follow_up_2),
     "ops_pain": (ops_pain_cold, ops_pain_follow_up_1, ops_pain_follow_up_2),
+    "webshop_growth": (webshop_cold, webshop_follow_up_1, webshop_follow_up_2),
 }
 
 DEFAULT_CAMPAIGN = "agency_partner"

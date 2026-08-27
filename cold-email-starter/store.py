@@ -2,16 +2,34 @@
 """CSV-alapu tarolas. Szandekosan nincs adatbazis: igy barmikor kezzel is
 megnyithato, verziokezelheto es athelyezheto.
 
-Negy fajl:
-  leads.csv          - a lead-lista (te toltod fel)
+Hat fajl:
+  leads.csv          - a lead-lista (a scraper irja)
   sent.csv           - minden kimeno level egy sor (igazsagforras a volumenre)
   do-not-contact.csv - suppression. Aki itt van, annak SOHA nem megy level.
   bounces.csv        - visszapattant cimek naploja
+  replies.csv        - a beerkezett valaszok szovege (az AI-osztalyozas bemenete)
+  rejects.csv        - SMTP-elutasitasok (a ramp ebbol tanul, 12. szakasz)
+
+FAJL-ZAROLAS (12. szakasz) -- MIERT VALT KOTELEZOVE:
+Amig ember inditott minden futast, egyszerre egy folyamat irt ide. A 12.
+szakasz utan a leadgen lanca cronbol/launchd-bol fut, es a kuldot te
+inditod kezzel -- tehat KET folyamat irhat ugyanabba a konyvtarba,
+egymastol fuggetlenul utemezve. Az `_append` sima szoveges hozzafuzes:
+lock nelkul ket egyideju iras egymasba csuszhat, es egy FELIG kiirt CSV-sor
+keletkezik. Az a sor ettol kezdve minden olvasasnal hibas -- es mivel a
+sent.csv az igazsagforras a napi volumenre ES a szekvencia-fokra, egy serult
+sor csendben rossz levelet kuld ki, vagy rossz keretet szamol.
+
+Ezert MINDEN iras es MINDEN olvasas `flock`-ot ker (`_locked`). A zar
+folyamatok kozott mukodik, es a fajl bezarasakor automatikusan felszabadul --
+tehat egy osszeomlott folyamat nem hagy beragadt zarat maga utan.
 """
 from __future__ import annotations
 
+import contextlib
 import csv
 import datetime
+import fcntl
 from pathlib import Path
 
 import config
@@ -35,12 +53,66 @@ BOUNCE_HEADER = ["ts", "email", "reason", "raw_subject"]
 # tobbszor is elenk kerul. Message-ID nelkul minden futas duplikalna.
 # `classified`: a scraper (6. szakasz) tolti ki, a kuldo nem nyul hozza.
 REPLIES_HEADER = ["ts", "msg_id", "email", "subject", "body", "classified"]
+# `error`: a nyers SMTP hibauzenet. AZ OK SZO SZERINT KELL, nem csak a tenye --
+# egy "rate limit exceeded" mast jelent, mint egy "policy rejected": az elso
+# atmeneti, a masodik reputacio-jelzes. Ha csak szamolnank az elutasitasokat,
+# a ramp visszavenne a keretbol, de nem tudnad, MIERT.
+REJECTS_HEADER = ["ts", "email", "account", "error"]
+
+
+# ─── Fajl-zarolas ──────────────────────────────────────────────────────────
+# A zar MAGAN A MEGNYITOTT FAJLON van, nem egy kulon .lock fajlon. Igy nem
+# maradhat arva zar-fajl a konyvtarban, es nincs olyan allapot, hogy a zar
+# letezik, de a vedett fajl mar nem.
+#
+# HAROM DOLOG, AMI ITT SZANDEKOS:
+#
+# 1. Az OLVASAS is zarol (megosztott, LOCK_SH). Enelkul egy olvaso pont egy
+#    felig kiirt sorra futhatna ra. Tobb olvaso egyszerre fut -- csak az iro
+#    (LOCK_EX) zarja ki oket.
+#
+# 2. A zar BLOKKOL, nem hibazik (nincs LOCK_NB). Egy CSV-sor kiirasa
+#    ezredmasodperc; ha kozben varni kell a masik folyamatra, az helyes
+#    viselkedes. Hibaval visszaterni itt azt jelentene, hogy egy kikuldott
+#    level NEM kerul be a sent.csv-be -- a rendszer legsulyosabb hibaja,
+#    mert a kovetkezo futas ujra kikuldene ugyanazt.
+#
+# 3. NEM helyettesiti a tranzakciot. Egyetlen `_append` hivast tesz atomiva,
+#    tobb fajlon atnyulo muveletet nem. A rendszernek erre nincs is szuksege:
+#    minden iras egyetlen sor egyetlen naploba.
+
+
+@contextlib.contextmanager
+def _locked(path: Path, mode: str, lock_type: int):
+    """Megnyitott es zarolt fajl. A zar a bezarassal automatikusan felszabadul.
+
+    Ha a folyamat osszeomlik, az operacios rendszer engedi el a zarat -- ezert
+    nem tud beragadni. (Egy kulon .lock fajl eseten ez nem lenne igaz.)
+    """
+    with path.open(mode, encoding="utf-8-sig" if "r" in mode else "utf-8",
+                   newline="") as f:
+        fcntl.flock(f.fileno(), lock_type)
+        try:
+            yield f
+        finally:
+            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
 
 
 def _ensure(path: Path, header: list[str]) -> None:
-    if not path.exists():
-        with path.open("w", encoding="utf-8", newline="") as f:
+    """Letrehozza a fajlt a fejleccel, ha meg nincs.
+
+    Az "x" mod az atomikus resz: ha ket folyamat egyszerre jut ide, az egyik
+    letrehozza, a masik FileExistsError-t kap es tovabbmegy. Egy `exists()`
+    ellenorzes utani `open("w")` ezt nem tudna -- a ket ellenorzes koze
+    beferne a masik folyamat, es a masodik iras FELULIRNA a mar meglevo
+    fajlt, fejlecre csonkitva. Vagyis pont az egesz naplot torolne.
+    """
+    try:
+        with path.open("x", encoding="utf-8", newline="") as f:
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
             csv.writer(f).writerow(header)
+    except FileExistsError:
+        pass
 
 
 def init_all() -> None:
@@ -49,18 +121,19 @@ def init_all() -> None:
     _ensure(config.DNC_CSV, DNC_HEADER)
     _ensure(config.BOUNCE_CSV, BOUNCE_HEADER)
     _ensure(config.REPLIES_CSV, REPLIES_HEADER)
+    _ensure(config.REJECTS_CSV, REJECTS_HEADER)
 
 
 def _read(path: Path) -> list[dict]:
     if not path.exists():
         return []
-    with path.open(encoding="utf-8-sig", newline="") as f:
+    with _locked(path, "r", fcntl.LOCK_SH) as f:
         return list(csv.DictReader(f))
 
 
 def _append(path: Path, header: list[str], row: dict) -> None:
     _ensure(path, header)
-    with path.open("a", encoding="utf-8", newline="") as f:
+    with _locked(path, "a", fcntl.LOCK_EX) as f:
         csv.DictWriter(f, fieldnames=header).writerow(row)
 
 
@@ -137,6 +210,34 @@ def record_bounce(email: str, reason: str, raw_subject: str = "") -> None:
     })
 
 
+# ─── SMTP-elutasitasok (a ramp bemenete) ───────────────────────────────────
+# A `sender.py` eddig szamolta a sikertelen kuldeseket (`failed += 1`), de
+# csak a sender.log-ba irta -- gepi olvasasra alkalmatlan formaban. A
+# `deliverability.py` ezert fixen nullat adott at a rampnak, es a
+# REJECT_RATE_ALERT kuszob soha nem sult el.
+#
+# MIERT SZAMIT: a bounce a cimlista oregedeserol szol, a reject viszont
+# ROLUNK -- a Google rate limitje vagy policy-elutasitasa. Ez az a jel, ami
+# IDOBEN szol, mielott komoly baj lesz. Napi 20 levelnel egy elutasitas meg
+# latszik a logban; a 12. szakasz utan viszont mar nem olvassa ember a
+# kimenetet, tehat gepi jelre van szukseg.
+
+def reject_rows() -> list[dict]:
+    return _read(config.REJECTS_CSV)
+
+
+def record_reject(email: str, account: str, error: str) -> None:
+    _append(config.REJECTS_CSV, REJECTS_HEADER, {
+        "ts": now(), "email": email.strip().lower(),
+        "account": account, "error": (error or "")[:300],
+    })
+
+
+def rejects_today_count() -> int:
+    d = today()
+    return sum(1 for r in reject_rows() if (r.get("ts") or "").startswith(d))
+
+
 # ─── Valasz-naplo ──────────────────────────────────────────────────────────
 # MIERT VAN ERRE SZUKSEG: a guards.py eddig beolvasta a valasz szoveget,
 # mintat illesztett ra, majd ELDOBTA. Csak egy DNC-sor maradt belole. Emiatt
@@ -172,5 +273,5 @@ def record_reply(msg_id: str, email: str, subject: str, body: str) -> None:
 def log(message: str) -> None:
     line = f"[{now()}] {message}"
     print(line, flush=True)
-    with config.LOG_FILE.open("a", encoding="utf-8") as f:
+    with _locked(config.LOG_FILE, "a", fcntl.LOCK_EX) as f:
         f.write(line + "\n")

@@ -34,7 +34,7 @@ create table if not exists schema_migrations (
 TABLES = (
     "companies", "sources", "contacts", "suppression",
     "outreach", "reply_events", "feedback_watermark",
-    "company_labels", "opportunity_angles",
+    "company_labels", "opportunity_angles", "alerts",
 )
 
 

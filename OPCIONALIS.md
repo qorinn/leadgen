@@ -119,6 +119,47 @@ csak olyan második címre, amit a Reoon `valid`-nak mért.
 
 ---
 
+### A7. Fizetős céginformációs adatforrás  `~3 óra + előfizetés`
+
+**A helyzet:** a 11. fázisban kiderült, hogy az e-beszámoló portál automatikus
+lekérdezése jogilag nem járható (captcha + „hitelezővédelmi cél" a
+Felhasználási Feltételekben). Marad a kézi lista és a hivatalos, e-mailben
+igényelt csoportos lekérdezés (TEENDOK.md 4.5).
+
+**Amit lehetne:** van fizetős magyar céginformációs API (Opten, Bisnode/Dun &
+Bradstreet, Céginfo). Ezek szerződéssel, gépi lekérdezéssel adják ugyanezt az
+adatot — árbevétel, létszám, adószám, jogi cégnév.
+
+**Mit adna:** ez oldaná meg azt is, hogy **jelenleg 0 cégnek van adószáma** a
+DB-ben, és hogy a Maps-leadek 78%-ánál csak márkanevet ismerünk, nem jogi
+cégnevet — ami a beszámoló-kereséshez kellene.
+
+**A kód készen áll rá:** a `financials.ment()` egy `forras` paramétert kap
+(`manual` / `csv_import` / `api:<nev>`). Egy adapter beírása után minden
+más — az `economic_value`, a bónusz, a 8.3 metszet — változatlanul működik.
+
+**Mit tudunk az árról (2026-08-27):** az API-előfizetéseknek **nincs publikus
+listaára** — Opten és Bisnode is ajánlatkérésre dolgozik. Viszonyítási pont a
+darabáras webshop: egy pénzügyi beszámoló **759 Ft**, egy hatályos cégadatlap
+1 320 Ft. Előfizetésben ez darabonként olcsóbb, de csak ajánlatból derül ki.
+
+**Mikor éri meg:** ha havonta több száz céget kell minősíteni. 20-30 leadnél
+a kézi út olcsóbb — és az e-beszámoló csoportos igénylése (szintén fizetős,
+TEENDOK.md 4.5) is olcsóbb lehet nála.
+
+### A8. Webshop-célzott Maps engine  `~30 perc (adat, nem kód)`
+
+**A helyzet:** a 8.3 („kinőtte a webshopját") kód kész és mért, de **a
+jelenlegi adathalmazon 0 találat** — a listánk marketingügynökségekből és
+álláshirdető cégekből áll, azok nem webshopok.
+
+**Amit lehetne:** egy új `EngineDef` blokk a `leadgen/engines.py`-ban
+webshop-jellegű keresésekkel („webáruház", „online bolt", + iparágak). Az
+iparág adat, nem kód — a scrapelés, enrichment, export változatlan marad.
+
+**Mit adna:** a 8.3-nak valódi bemenetet. Enélkül a 8.3 csak akkor talál
+valamit, ha véletlenül webshopos cég kerül be másik forrásból.
+
 ## B) Amit én javaslok
 
 ### B1. ~~A „stop" mintafelismerő elhagyása~~ — **ELVETVE (2026-08-22)**

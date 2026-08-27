@@ -5,6 +5,7 @@
     do-not-contact.csv  -> suppression, companies.status
     bounces.csv         -> contacts.bounce_state
     replies.csv         -> reply_events   (osztalyozatlanul, a 6. szakasz tolti)
+    rejects.csv         -> contacts.send_reject_count / send_error (12. szakasz)
 
 MIERT EZ A LEGFONTOSABB MODUL AZ EGESZ INTEGRACIOBAN: e nelkul a scraper
 holnap ujra kiadja azt a leadet, aki ma nemet mondott. A kuldo tudja, ki
@@ -53,12 +54,15 @@ class FeedbackStats:
     suppressed: int = 0
     bounce_rows: int = 0
     reply_rows: int = 0
+    reject_rows: int = 0
+    rejects_matched: int = 0
     unknown_emails: set[str] = field(default_factory=set)
     reset_files: list[str] = field(default_factory=list)
 
     @property
     def total(self) -> int:
-        return self.sent_rows + self.dnc_rows + self.bounce_rows + self.reply_rows
+        return (self.sent_rows + self.dnc_rows + self.bounce_rows
+                + self.reply_rows + self.reject_rows)
 
 
 class FeedbackError(RuntimeError):
@@ -286,6 +290,55 @@ def _import_bounces(cur, rows: list[dict], stats: FeedbackStats) -> None:
         cur.execute("update contacts set bounce_state = %s where email = %s", (reason, email))
 
 
+# ─── rejects.csv ───────────────────────────────────────────────────────────
+# AZ ELUTASITAS NEM ZAR KI SENKIT. A ramp mar tanul beloluk (volumen-szabalyozas);
+# ez az import azert kell, hogy a scraper CIMENKENT is lassa oket: "ezt a cimet
+# erdemes-e meg egyszer megprobalni?"
+#
+# Suppression SZANDEKOSAN nincs: az SMTP-hiba a KULDO oldalarol szol (rate
+# limit, atmeneti hiba), nem a cegrol. Suppressionbe tenni egy leadet azert,
+# mert a mi szerverunk epp limitbe utkozott, csendben megsemmisitene a listat.
+
+def _import_rejects(cur, rows: list[dict], stats: FeedbackStats) -> None:
+    """Az elutasitasok osszesitese cimenkent.
+
+    A SZAMLALOT NEM INKREMENTALJUK, HANEM BEALLITJUK. A watermark ujra
+    nullazodhat (ha a CSV megrovidul), es olyankor ugyanazokat a sorokat
+    megegyszer feldolgoznank -- `+ 1` alakban irva a szamlalo felfele
+    torzulna, es egy egeszseges cim ugy nezne ki, mint egy halott.
+    Ugyanaz a szabaly, mint a `financial_bonus`-nal: kumulativ oszlopot sosem
+    irunk `oszlop + x` alakban, ha a forras ujraolvashato.
+
+    Ezert a TELJES fajlbol szamolunk, nem csak az uj sorokbol -- a hivo oldal
+    ezt a `_read_all` jelzessel adja at.
+    """
+    szamlalo: dict[str, int] = {}
+    utolso: dict[str, tuple[str, str]] = {}
+    for row in rows:
+        stats.reject_rows += 1
+        email = normalize_email(row.get("email") or "")
+        if not email:
+            continue
+        szamlalo[email] = szamlalo.get(email, 0) + 1
+        utolso[email] = ((row.get("error") or "").strip(),
+                         (row.get("ts") or "").strip())
+
+    for email, darab in szamlalo.items():
+        hiba, ts = utolso[email]
+        cur.execute(
+            """
+            update contacts
+               set send_reject_count = %s,
+                   send_error        = %s,
+                   send_rejected_at  = %s::timestamptz
+             where email = %s
+            """,
+            (darab, hiba or None, ts or None, email),
+        )
+        if cur.rowcount:
+            stats.rejects_matched += 1
+
+
 # ─── replies.csv ───────────────────────────────────────────────────────────
 
 def _import_replies(cur, rows: list[dict], stats: FeedbackStats) -> None:
@@ -308,11 +361,19 @@ def _import_replies(cur, rows: list[dict], stats: FeedbackStats) -> None:
 
 # ─── Fo belepesi pont ──────────────────────────────────────────────────────
 
+# (fajlnev, feldolgozo, kotelezo-e, TELJES-fajlt-olvasunk-e)
+#
+# A negyedik mezo a `rejects.csv` miatt van. A tobbi importer INKREMENTALIS:
+# minden sor egy esemeny, amit egyszer kell feldolgozni. A rejects viszont egy
+# KUMULATIV szamlalot tolt (`send_reject_count`), es azt nem `+1`-gyel irjuk,
+# hanem beallitjuk -- kulonben egy watermark-nullazas felfele torzitana. Ehhez
+# viszont a TELJES fajl kell, nem csak az uj sorok.
 _FILES = (
-    ("sent.csv", _import_sent, True),
-    ("bounces.csv", _import_bounces, True),
-    ("do-not-contact.csv", _import_dnc, True),
-    ("replies.csv", _import_replies, False),   # csak a 3. szakasz ota letezik
+    ("sent.csv", _import_sent, True, False),
+    ("bounces.csv", _import_bounces, True, False),
+    ("do-not-contact.csv", _import_dnc, True, False),
+    ("replies.csv", _import_replies, False, False),   # csak a 3. szakasz ota letezik
+    ("rejects.csv", _import_rejects, False, True),    # csak a 12. szakasz ota letezik
 )
 
 
@@ -321,13 +382,23 @@ def run(verbose: bool = True) -> FeedbackStats:
     stats = FeedbackStats()
 
     with db.connect() as conn, conn.cursor() as cur:
-        for name, handler, required in _FILES:
+        for name, handler, required, teljes in _FILES:
             path = config.SENDER_DATA / name
             rows, total, was_reset = _read_new(cur, path, required=required)
             if not path.exists():
                 continue
             if was_reset:
                 stats.reset_files.append(name)
+            if teljes and total:
+                # Kumulativ szamlalohoz a teljes fajl kell (lasd _FILES).
+                # A watermark ettol fuggetlenul elorelep: a `total` a
+                # feldolgozott sorok szama, es ez akadalyozza meg, hogy
+                # ugyanaz a fajl minden futasnal ujra vegigolvasodjon,
+                # ha kozben nem valtozott.
+                if not rows and not was_reset:
+                    continue          # nincs uj sor -> nincs mit ujraszamolni
+                with path.open(encoding="utf-8-sig", newline="") as f:
+                    rows = list(csv.DictReader(f))
             handler(cur, rows, stats)
             _set_watermark(cur, path, total)
 
@@ -347,6 +418,9 @@ def _report(stats: FeedbackStats) -> None:
         print(f"  do-not-contact.csv : {stats.dnc_rows}")
     if stats.reply_rows:
         print(f"  replies.csv        : {stats.reply_rows}")
+    if stats.reject_rows:
+        print(f"  rejects.csv        : {stats.reject_rows} "
+              f"({stats.rejects_matched} cim frissitve)")
 
     if stats.replied:
         print(f"\n>>> {stats.replied} VALASZ erkezett -- ezeket EMBER kezelje, "

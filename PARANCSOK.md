@@ -214,6 +214,60 @@ LLM_QUALITY_MODEL=claude-haiku-4-5     # claude-*       → Anthropic
 
 > Nem kell hozzá új scrapelés: a footer már benne van a letöltött HTML-ben.
 
+## Árbevétel és létszám — 7.1 (11. szakasz)
+
+**A portált NEM kérdezzük le géppel** (captcha + a Felhasználási Feltételek
+hitelezővédelmi célt írnak elő). Kézi vagy importált adat.
+
+| Parancs | Mit csinál |
+|---|---|
+| `enrich financials --limit 20` | listát ír `data/financials_worklist.csv`-be, kitöltésre |
+| `enrich financials --import FAJL` | a kitöltött lista (vagy csoportos beszámoló-export) beolvasása |
+| `enrich financials --import FAJL --dry` | csak megmutatja, mit írna be |
+| `enrich financials --set DOMAIN --revenue FT --headcount FO --year EV` | egyetlen cég |
+| `enrich financials --set DOMAIN --missing` | nincs közzétett beszámolója |
+| `report --economic` | LOW / MEDIUM / HIGH bontás + a számok |
+
+> **FORINTBAN, nem ezer forintban.** A beszámoló űrlapja „adatok E Ft-ban"
+> formában mutat. Az importer minden 1 M Ft alatti árbevételre hangosan szól —
+> az szinte biztosan elírás.
+
+> **A LOW nem kizárás.** A pénzügyi érték **rangsorol**, nem szűr; a hiányzó
+> adat végképp nem állít le semmit.
+
+> **A küszöbök a gyökér `.env`-ben:** `REVENUE_MEDIUM_HUF` (100 M),
+> `REVENUE_HIGH_HUF` (500 M), `HEADCOUNT_MEDIUM` (5), `HEADCOUNT_HIGH` (25),
+> `WEBSHOP_REVENUE_MIN_HUF` (300 M). Ez üzleti döntés — kalibráld.
+
+> **Ez a lépés opcionális**, és nem kell minden céget lekérni: napi 20 levélnél
+> a sor tetején lévő 20-30 cégről elég adat.
+
+> **A tömeges, hivatalos út FIZETŐS:** „Csoportos beszámoló kérő lap" →
+> `e-beszamolo@mkifk.hu`, költségtérítéssel (az űrlap számlázási adatot kér).
+> A kapott fájl ugyanezzel az `--import`-tal megy be. Kérd bele az **adószámot**
+> is — a párosítás `company_id → adószám → domain` sorrendben megy, cégnév
+> szerint soha.
+
+## Webshop kinövés — 8.3 (11. szakasz)
+
+| Parancs | Mit csinál |
+|---|---|
+| `webshop-growth --dry` | megmutatja a találatokat — **nem ír** |
+| `webshop-growth` | élesben: platform + metszet az árbevétellel |
+| `webshop-growth --all` | a már megvizsgáltakat is újra nézi |
+| `report --campaign webshop_growth` | a kampány cégei + a jóváhagyási állapot |
+
+> **A kulcsszó nem elég.** Az `enrich` `tech.platform` mezője a 49 mért oldalon
+> **12-ből 12-szer tévedett** (partner-logó, szolgáltatás-szöveg, téma-CSS).
+> A 8.3 ezért a betöltött **eszköz hostját** vagy a **plugin-útvonalat** nézi,
+> és kosár-linket is kér mellé.
+
+> **Nem írja felül a meglévő kampányt.** Ha a cég már kampányban van, a
+> webshop-irány `opportunity_angles` sorként mentődik el.
+
+> **A `webshop_growth` sablon VÁZLAT** — amíg nincs az `APPROVED_CAMPAIGNS`
+> listában, ezek a leadek nem exportálódnak.
+
 ## Email-ellenőrzés (7. szakasz)
 
 Nincs külön parancsa — **az exportnál automatikusan lefut**. A gyökér `.env`
@@ -259,12 +313,35 @@ EMAIL_VALIDATION=full ./leadgen.sh export --dry   # egy futásra felülvezérelv
 > A 10 határeset kézi címkéje a te üzleti döntésed — a könnyű eseteken minden
 > modell jó lesz.
 
+## Automatikus futás és riasztás (12. szakasz)
+
+| Parancs | Mit csinál |
+|---|---|
+| `schedule install` | a napi lánc **minden reggel 7:30-kor** fut (launchd) |
+| `schedule status` | fut-e az ütemezés, és mikor futott utoljára |
+| `schedule uninstall` | az ütemezés kikapcsolása |
+| `schedule install --dry` | csak megmutatja a telepítendő beállítást |
+| `daily` | a **teljes napi lánc** most, kézzel |
+| `daily --dry` | mit futtatna? — semmit nem hajt végre |
+| `daily --skip-ingest` | a lánc a **fizetős** gyűjtés nélkül |
+| `daily --limit 20` | export-adagolás: ennyi új leadnél többet ne állítson sorba |
+| `alert` | riasztás-ellenőrzés + értesítés |
+| `alert --dry` | csak megmutatja — nem ír és nem küld emailt |
+| `alert --skip-deliverability` | a küldő kézbesítési körje nélkül (az IMAP-ot igényel) |
+
+**A lánc SOHA nem küld élesben.** A `sender.py --live` és a
+`deliverability.py` szándékosan kimarad belőle — azokat ember indítja.
+Tesztsor őrzi, hogy ez így is maradjon.
+
+**Az `alert` és a `deliverability.py` 1-es kilépési kódja jelzés, nem hiba:**
+azt jelenti, hogy *van* riasztás. Cronban ezt ne értelmezd programhibának.
+
 ## Áttekintés
 
 | Parancs | Mit csinál |
 |---|---|
 | `report` | **a teljes tölcsér** + a mai kép egyben |
-| `report --daily` | csak a mai kép: napi keret vs. sorbanállás |
+| `report --daily` | csak a mai kép: **riasztások**, napi keret vs. sorbanállás |
 | `report --replies` | a válaszok besorolás szerint |
 | `engines` | milyen iparágak vannak, melyik aktív |
 | `db check` | táblák és sorszámok |
@@ -340,3 +417,15 @@ működik.** Enélkül a saját tesztelésed egy valódi céget iratna le.
 **Minden parancs újrafuttatható.** Egyik sem duplikál: az `ingest` a már ismert
 cégeket kihagyja, az `enrich` a `status` oszlopból tudja, hol tart, az `export`
 ugyanabból az állapotból mindig ugyanazt a fájlt írja.
+
+**Az automatikus lánc egy hibás lépés után is tovább megy** — kivéve a
+`feedback`-et. Ha az elszáll, az `export` **nem fut le**: visszajelzés nélkül
+exportálni annyi, mint újra levelet küldeni annak, aki tegnap nemet mondott.
+Egy elszállt `ingest` viszont nem állítja meg a napot, mert a többi lépésnek
+van mit feldolgoznia a tegnapi cégekből.
+
+**A napi lánc naplója:** `cold-email-starter/data/leadgen_daily.log`.
+Ha egy reggel nem történt semmi, ez az első hely, ahova nézni kell.
+
+**Ugyanarról a riasztásról naponta csak egyszer megy email.** A fájl-napló
+(`data/alerts.log`) és a `report --daily` viszont mindig mutatja, amíg fennáll.

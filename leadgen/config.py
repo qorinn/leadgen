@@ -53,6 +53,61 @@ DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
 SENDER_DIR = _path("SENDER_DIR", BASE / "cold-email-starter")
 SENDER_DATA = SENDER_DIR / "data"
 
+# ─── Riasztasok (12. szakasz) ──────────────────────────────────────────────
+# A riasztasok naploja a KULDO data/ konyvtaraban van, nem a scrapereben:
+# a `report --daily` es a napi rutin ott keresi a tobbi allapotfajlt is, es
+# igy egy helyen van minden, amit egy uzemeltetesi kerdesnel meg kell nezni.
+ALERTS_LOG = SENDER_DATA / "alerts.log"
+
+# Ide megy a riasztasi ertesites. HA URES, CSAK A FAJL-NAPLO KESZUL EL --
+# a riasztas maga sosem marad el, csak a kenyelmi ertesites.
+#
+# Sajat cim legyen (a tied), nem ugyfele: ez uzemeltetesi ertesites.
+ALERT_EMAIL = os.environ.get("ALERT_EMAIL", "").strip()
+
+
+def _sender_env() -> dict[str, str]:
+    """A KULDO .env-je, beolvasva -- de a kornyezetbe NEM szivarogtatva.
+
+    MIERT NEM os.environ.setdefault, mint a sajat _load_dotenv()-ben: a kuldo
+    .env-je SMTP-jelszavakat tartalmaz. Ha ezeket beleraknank a scraper
+    kornyezetebe, minden kesobb inditott alfolyamat (Apify-hivas, subprocess)
+    orokolne oket. Egy uzemeltetesi ertesites kedveert nem terjesztunk
+    jelszot: beolvassuk, hasznaljuk, es itt marad.
+
+    A ket rendszernek KET kulon titok-fajlja van, es ez igy is marad
+    (CLAUDE.md). Ez a fuggveny csak OLVAS.
+    """
+    out: dict[str, str] = {}
+    env_path = SENDER_DIR / ".env"
+    if not env_path.exists():
+        return out
+    for line in env_path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        out[key.strip()] = value.strip()
+    return out
+
+
+def sender_smtp_accounts() -> list[dict]:
+    """A kuldo SMTP-fiokjai. Ugyanaz a formatum, mint a kuldo config.py-jaban."""
+    raw = _sender_env().get("SMTP_ACCOUNTS", "").strip()
+    out = []
+    for chunk in raw.split(","):
+        chunk = chunk.strip()
+        if not chunk or ":" not in chunk:
+            continue
+        user, password = chunk.split(":", 1)
+        out.append({"user": user.strip(), "password": password.strip()})
+    return out
+
+
+SENDER_SMTP_HOST = _sender_env().get("SMTP_HOST", "")
+SENDER_SMTP_PORT = int(_sender_env().get("SMTP_PORT", "465") or 465)
+SENDER_SMTP_SSL = _sender_env().get("SMTP_USE_SSL", "true").lower() in ("1", "true", "yes")
+
 # ─── Email validacio ───────────────────────────────────────────────────────
 EMAIL_VALIDATION = os.environ.get("EMAIL_VALIDATION", "local_only").strip().lower()
 REOON_API_KEY = os.environ.get("REOON_API_KEY", "").strip()
@@ -99,6 +154,27 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
 # domainre mutato leiratkozo link emberileg gyanus (adathalasznak nez ki),
 # es a szuroknek is rosszabb jel.
 UNSUB_BASE_URL = os.environ.get("UNSUB_BASE_URL", "").strip()
+
+# ─── Penzugyi kuszobok (11. szakasz, 7.1 + 8.3) ────────────────────────────
+# MIND FORINTBAN, nem ezer forintban. A beszamolo urlapja "adatok E Ft-ban"
+# formaban jelenik meg -- az atvaltas az importer dolga, itt mar forint van.
+#
+# AZERT .env-bol allithato, mert EZ NEM TECHNIKAI, HANEM UZLETI DONTES: azt
+# mondja meg, mekkora cegtol varhato, hogy fizet egy egyedi fejlesztesert.
+# A terv kimondja, hogy a kuszobot az ELSO TALALATOK ALAPJAN kell kalibralni,
+# tehat valtozni fog, es ehhez nem szabad kodot modositani.
+REVENUE_MEDIUM_HUF = float(os.environ.get("REVENUE_MEDIUM_HUF", "100000000"))   # 100 M Ft
+REVENUE_HIGH_HUF = float(os.environ.get("REVENUE_HIGH_HUF", "500000000"))       # 500 M Ft
+
+# Letszam-kuszobok. Onalloan is emelnek: egy 30 fos ceg akkor is MEDIUM+,
+# ha az arbevetele alacsony (pl. szolgaltato, alacsony arresu kereskedo).
+HEADCOUNT_MEDIUM = int(os.environ.get("HEADCOUNT_MEDIUM", "5"))
+HEADCOUNT_HIGH = int(os.environ.get("HEADCOUNT_HIGH", "25"))
+
+# 8.3: ettol az arbeveteltol erdekes a "kinotte a dobozos platformot" szog.
+# ALACSONYABB, mint a REVENUE_HIGH_HUF -- egy 300 M Ft-os webshop mar utkozik
+# a dobozos platform korlataiba, meg ha a ceg egeszekent nem is "nagy".
+WEBSHOP_REVENUE_MIN_HUF = float(os.environ.get("WEBSHOP_REVENUE_MIN_HUF", "300000000"))
 
 # ─── Forrasok (9. szakasztol) ──────────────────────────────────────────────
 APIFY_TOKEN = os.environ.get("APIFY_TOKEN", "").strip()
