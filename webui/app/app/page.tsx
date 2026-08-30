@@ -26,8 +26,12 @@ export default function Home() {
   }, []);
 
   return (
-    <div className="flex min-h-screen flex-col items-center gap-6 bg-zinc-50 p-16 dark:bg-black">
-      <h1 className="text-2xl font-semibold">leadgen — irányítópult</h1>
+    <div className="flex flex-col gap-6">
+      <h1 className="text-2xl font-semibold">Irányítópult</h1>
+      <p className="text-sm text-muted-foreground">
+        Ez a nézet még csak az F0 rendszerállapotát mutatja — a napi rutin
+        (F3) ezt fogja felváltani.
+      </p>
 
       {hiba && (
         <Card className="w-full max-w-md border-destructive">

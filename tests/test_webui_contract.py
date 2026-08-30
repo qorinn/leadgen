@@ -37,6 +37,15 @@ API_DIR = REPO / "webui" / "api"
 # benne szereplo nevek eppen hogy a Pythonbol szarmaznak, nem masolatok.
 _GENERALT = {"api-types.ts"}
 
+# A `shadcn add` altal telepitett komponens-konyvtarak KIVETELEK: ezeket nem
+# mi irjuk, es egy legkozelebbi `shadcn add` ujra felulirja oket -- tehat egy
+# talalat itt nem uzleti-szabaly-atszivargas, hanem veletlen szo-utkozes a
+# vendor sajat (uzlettol fuggetlen) szohasznalataval. Peldaul a Bklit
+# bar-chart sajat animacios allapotgepe a "ready" es "hold" szavakat hasznalja
+# chart-fazisokra -- ez nem a companies.status-t masolja, csak veletlenul
+# ugyanaz a ket angol szo (WEBUI-TERV.md F2, 2026-08-30-i dontes).
+_VENDOR_KONYVTARAK = {"ui", "charts"}
+
 
 def _frontend_forrasok() -> list[Path]:
     """A sajat (nem generalt, nem fuggoseg) frontend-forrasok."""
@@ -51,6 +60,9 @@ def _frontend_forrasok() -> list[Path]:
             if path.suffix not in (".ts", ".tsx") or path.name in _GENERALT:
                 continue
             if "node_modules" in path.parts:
+                continue
+            relativ = path.relative_to(gyoker).parts
+            if alkonyvtar == "components" and relativ and relativ[0] in _VENDOR_KONYVTARAK:
                 continue
             talalat.append(path)
     return talalat
