@@ -98,7 +98,21 @@ def test_a_frontend_nem_drotoz_be_uzleti_listat():
         szoveg = path.read_text(encoding="utf-8")
         for szo in tiltott:
             # Szo hataron keresunk, hogy a `readyState` ne legyen `ready`.
-            if re.search(rf"\b{re.escape(szo)}\b", szoveg):
+            #
+            # (?<!\.)  -- egy `.field` property-access (pl. `daily.review`)
+            # NEM talalat: ez egy MAR TIPUSOS API-valaszon (DailyResponse stb.)
+            # olvas mezot, amit a `npm run types` general a Pythonbol -- ha a
+            # mezo eltunik/atnevezodik, a `tsc` hibat ad, nem csendes
+            # elteres (WEBUI-TERV.md F3, 2026-08-30-i dontes).
+            #
+            # (?<!status=) -- egy `?status=<kulcs>` navigacios link (pl.
+            # "/cegek?status=review") sem talalat: ez EGY ISMERT mezonevre
+            # (a DailyResponse sajat `review`/`ready`/... mezojere) mutato
+            # fix kereszthivatkozas, nem egy masolt lista -- analog azzal,
+            # ahogy a Python `report.ACTIONABLE` dict is "review" ->
+            # "./leadgen.sh review" parost tarol (WEBUI-TERV.md F3,
+            # 2026-08-30-i dontes).
+            if re.search(rf"(?<!\.)(?<!status=)\b{re.escape(szo)}\b", szoveg):
                 talalatok.append(f"{path.relative_to(REPO)}: {szo!r}")
 
     assert not talalatok, (

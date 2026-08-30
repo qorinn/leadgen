@@ -36,7 +36,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
               <AppSidebar />
               <SidebarInset>
                 <SiteHeader />
-                <main className="flex-1 p-6">{children}</main>
+                {/* SidebarInset mar sajat <main>-t ad -- ez csak a belso
+                    tartalom-padding, nem masik landmark. */}
+                <div className="flex-1 p-6">{children}</div>
               </SidebarInset>
             </SidebarProvider>
           </TooltipProvider>
