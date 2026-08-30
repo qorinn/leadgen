@@ -21,6 +21,17 @@ az INTEGRATION-PLAN A) pontja kizar ("koncernenkent egy birtokos"). Ezert
 inkabb MEGKERDEZZUK a kuldot a sajat interpreteren, es csak olvasunk. Ha a
 kerdes nem megy at (nincs python3, mas a SENDER_DIR), a riport kiirja, hogy
 nem tudja -- nem talal ki szamot.
+
+MIERT VAN MINDEN RIPORTNAK EGY `*_adat()` IKERFUGGVENYE (13. szakasz, F1):
+A webes felulet API-ja adatot ad vissza, nem szoveget. Ha az API kulon
+lekerdezeseket irna, ket igazsag lenne ugyanarra a szamra -- ezert minden
+riport-fuggveny ketfele: a `*_adat()` dict-et ad vissza, a nyers (nem
+`_adat` vegzodesu) fuggveny EZT hivja es irja ki -- a CLI kimenete emiatt
+nem valtozik. A modul-szintu `_STATUSES` gyorsitotar emiatt is tunt el: egy
+hosszan futo API-folyamatban beragadt volna, es ket parhuzamos keres kozott
+csendben regi szamot adott volna vissza. A `company_statuses()` mostantol
+mindig friss lekerdezes; ha egy hivason belul (pl. `report.run()`) ket riport
+ugyanazt a szamot kell mutassa, a hivo adja at parameterkent.
 """
 from __future__ import annotations
 
@@ -61,6 +72,15 @@ ACTIONABLE = {
     "new": "./leadgen.sh enrich",
     "enriched": "./leadgen.sh qualify",
     "ready": "./leadgen.sh export",
+}
+
+# Kontaktus email_type ertekek megjelenitesi sorrendje. A negyedik (nincs
+# tipus) a DB-ben NULL -- az adat oldalon 'unknown', a CLI-n (regi szoveg,
+# ne valtozzon) 'ismeretlen'.
+_CONTACT_TYPE_ORDER = ("personal", "generic", "role", "unknown")
+_CONTACT_TYPE_CLI_LABEL = {
+    "personal": "personal", "generic": "generic", "role": "role",
+    "unknown": "ismeretlen",
 }
 
 
@@ -120,28 +140,113 @@ def _sender_state() -> SenderState:
     return SenderState(ok=True, **data)
 
 
+def sender_thresholds() -> dict:
+    """A kuldo riasztasi kuszobei (`cold-email-starter/config.py`). Csak olvas.
+
+    Ugyanaz a mintazat, mint a `_sender_state()`: ezek a kuszobok a kuldo
+    sajat .env-jebol jonnek, a sajat interpreteren -- itt nem talalunk ki
+    masolatot. Hiba eseten ures dict: az `/api/meta` ettol meg valid marad,
+    csak ez a ket kulcs hianyzik belole.
+    """
+    code = (
+        "import json, config; "
+        "print(json.dumps({"
+        "'bounce_rate_alert': config.BOUNCE_RATE_ALERT, "
+        "'reject_rate_alert': config.REJECT_RATE_ALERT}))"
+    )
+    try:
+        proc = subprocess.run(
+            ["python3", "-c", code],
+            cwd=config.SENDER_DIR, capture_output=True, text=True, timeout=10,
+        )
+        if proc.returncode != 0:
+            return {}
+        return json.loads(proc.stdout.strip().splitlines()[-1])
+    except Exception:  # noqa: BLE001
+        return {}
+
+
 def _counts(sql: str, params: tuple | None = None) -> dict[str, int]:
     return {str(r["k"]): int(r["n"]) for r in db.query(sql, params)}
 
 
-_STATUSES: dict[str, int] = {}
+def company_statuses() -> dict[str, int]:
+    """A `companies.status` szamlalok, mindig friss lekerdezessel.
+
+    NINCS tobbe modul-szintu gyorsitotar (lasd a modul docstringjet): ha egy
+    hivason belul tobb riportnak ugyanazt a szamot kell latnia, a hivo egyszer
+    kerdezi le, es adja tovabb parameterkent (lasd `run()`).
+    """
+    return _counts("select status as k, count(*) as n from companies group by 1")
 
 
-def company_statuses(refresh: bool = False) -> dict[str, int]:
-    """A `companies.status` szamlalok. Egy futason belul EGYSZER kerdezzuk le:
-    a `report` ket nezete ugyanazt a szamot mutassa, ne kettot."""
-    if refresh or not _STATUSES:
-        _STATUSES.clear()
-        _STATUSES.update(
-            _counts("select status as k, count(*) as n from companies group by 1"))
-    return _STATUSES
+def _split_statuses(statuses: dict[str, int]) -> tuple[dict[str, int], dict[str, int]]:
+    """Ismert (STATUS_ORDER sorrendben) es ismeretlen allapotokra bontva."""
+    remaining = dict(statuses)
+    known: dict[str, int] = {}
+    for status in STATUS_ORDER:
+        n = remaining.pop(status, 0)
+        if n:
+            known[status] = n
+    return known, remaining
 
 
 # ─── A teljes tolcser ──────────────────────────────────────────────────────
 
-def funnel() -> int:
-    statuses = dict(company_statuses())
+def funnel_adat(statuses: dict[str, int] | None = None) -> dict:
+    """A teljes tolcser adata (`report`). Lasd meg: `funnel()`."""
+    if statuses is None:
+        statuses = company_statuses()
     total = sum(statuses.values())
+    by_status, unknown_status = _split_statuses(statuses)
+
+    if not total:
+        return {
+            "companies_total": 0, "by_status": {}, "unknown_status": {},
+            "contacts": {}, "email_validation": None, "suppression": {},
+            "labels": {}, "unlinked_sources": 0, "outreach": {},
+            "next_steps": [],
+        }
+
+    kapcsolat = _counts("""
+        select coalesce(email_type, 'unknown') as k, count(*) as n
+          from contacts group by 1
+    """)
+
+    email_validacio = None
+    if config.EMAIL_VALIDATION != "off":
+        email_validacio = {
+            "mode": config.EMAIL_VALIDATION,
+            "summary": validate.report_sor(),
+        }
+
+    suppression = _counts("select reason as k, count(*) as n from suppression group by 1")
+    labels = _counts("select label as k, count(*) as n from company_labels group by 1")
+    unlinked = db.query("select count(*) as n from sources where company_id is null")
+    outreach = _counts("select status as k, count(*) as n from outreach group by 1")
+
+    next_steps = [
+        {"status": s, "count": statuses[s], "action": ACTIONABLE[s]}
+        for s in STATUS_ORDER if s in ACTIONABLE and statuses.get(s)
+    ]
+
+    return {
+        "companies_total": total,
+        "by_status": by_status,
+        "unknown_status": unknown_status,
+        "contacts": kapcsolat,
+        "email_validation": email_validacio,
+        "suppression": suppression,
+        "labels": labels,
+        "unlinked_sources": unlinked[0]["n"] if unlinked else 0,
+        "outreach": outreach,
+        "next_steps": next_steps,
+    }
+
+
+def funnel(statuses: dict[str, int] | None = None) -> int:
+    adat = funnel_adat(statuses)
+    total = adat["companies_total"]
 
     print(f"CEGEK ({total})")
     if not total:
@@ -149,88 +254,92 @@ def funnel() -> int:
         print("    ./leadgen.sh ingest maps --engine agency_partner --max-results 50")
         return 0
 
-    width = max(len(STATUS_LABEL.get(s, s)) for s in statuses) if statuses else 20
+    all_keys = list(adat["by_status"]) + list(adat["unknown_status"])
+    width = max(len(STATUS_LABEL.get(s, s)) for s in all_keys) if all_keys else 20
     for status in STATUS_ORDER:
-        n = statuses.pop(status, 0)
+        n = adat["by_status"].get(status, 0)
         if not n:
             continue
         label = STATUS_LABEL.get(status, status)
         print(f"  {label:<{width}}  {n:>4}")
-    for status, n in sorted(statuses.items()):          # ismeretlen allapot
+    for status, n in sorted(adat["unknown_status"].items()):
         print(f"  {status:<{width}}  {n:>4}   (ismeretlen allapot)")
 
-    kapcsolat = _counts("""
-        select coalesce(email_type, 'ismeretlen') as k, count(*) as n
-          from contacts group by 1
-    """)
+    kapcsolat = adat["contacts"]
     if kapcsolat:
         print(f"\nKAPCSOLATOK ({sum(kapcsolat.values())})")
-        for k in ("personal", "generic", "role", "ismeretlen"):
+        for k in _CONTACT_TYPE_ORDER:
             if kapcsolat.get(k):
-                print(f"  {k:<10} {kapcsolat[k]:>4}")
+                print(f"  {_CONTACT_TYPE_CLI_LABEL[k]:<10} {kapcsolat[k]:>4}")
 
     # Email-validacio. Csak akkor irjuk ki, ha van mit: `off` modban zaj lenne.
-    if config.EMAIL_VALIDATION != "off":
-        print(f"\nEMAIL-VALIDACIO ({config.EMAIL_VALIDATION})")
-        print(f"  {validate.report_sor()}")
-        if config.EMAIL_VALIDATION == "full":
+    if adat["email_validation"]:
+        print(f"\nEMAIL-VALIDACIO ({adat['email_validation']['mode']})")
+        print(f"  {adat['email_validation']['summary']}")
+        if adat["email_validation"]["mode"] == "full":
             print("  A pontos kredit-egyenleg a Reoon vezerlopultjan latszik.")
 
-    supp = _counts("select reason as k, count(*) as n from suppression group by 1")
+    supp = adat["suppression"]
     if supp:
         print(f"\nTILTOLISTA ({sum(supp.values())})")
         for reason, n in sorted(supp.items(), key=lambda x: -x[1]):
             print(f"  {reason:<16} {n:>4}")
 
-    cimkek = _counts("select label as k, count(*) as n from company_labels group by 1")
+    cimkek = adat["labels"]
     if cimkek:
         print(f"\nCIMKEK ({sum(cimkek.values())})")
         for label, n in sorted(cimkek.items(), key=lambda x: (-x[1], x[0])):
             print(f"  {label:<24} {n:>4}")
 
-    paratlan = db.query("select count(*) as n from sources where company_id is null")
-    if paratlan and paratlan[0]["n"]:
+    if adat["unlinked_sources"]:
         print(f"\nNYERS FORRASELEMEK")
-        print(f"  ceghez meg nem kapcsolt          {paratlan[0]['n']:>4}")
+        print(f"  ceghez meg nem kapcsolt          {adat['unlinked_sources']:>4}")
 
-    out = _counts("select status as k, count(*) as n from outreach group by 1")
+    out = adat["outreach"]
     if out:
         print(f"\nMEGKERESESEK ({sum(out.values())})")
         for status in ("queued", "sent", "replied", "done", "stopped"):
             if out.get(status):
                 print(f"  {status:<10} {out[status]:>4}")
 
-    # ─── Mi a kovetkezo lepes ──────────────────────────────────────────────
-    allapot = company_statuses()
-    lepesek = [(s, ACTIONABLE[s]) for s in STATUS_ORDER
-               if s in ACTIONABLE and allapot.get(s)]
-    if lepesek:
+    if adat["next_steps"]:
         print("\nKOVETKEZO LEPES")
-        for status, teendo in lepesek:
-            print(f"  {allapot[status]:>4} {STATUS_LABEL.get(status, status):<32} -> {teendo}")
+        for lepes in adat["next_steps"]:
+            label = STATUS_LABEL.get(lepes["status"], lepes["status"])
+            print(f"  {lepes['count']:>4} {label:<32} -> {lepes['action']}")
     return 0
 
 
 # ─── A mai kep ─────────────────────────────────────────────────────────────
 
-def _riasztas_blokk() -> None:
-    """A fennallo riasztasok, A RIPORT TETEJEN.
+def riasztasok_adat() -> dict:
+    """A fennallo riasztasok (`report --daily` a tetejen mutatja).
 
-    MIERT ELOL: a 12. szakasz utan a lanc magatol fut, es ez a riport az
-    egyetlen kepernyo, amit a napi rutin biztosan megnyit. Ha a riasztas a
-    riport aljara kerulne, pont az veszne el, amiert az egesz monitoring van.
     A riasztasokat a `leadgen alert` allitja elo; itt csak OLVASSUK oket.
     """
     from . import alerts
 
     try:
         aktiv = alerts.aktiv_riasztasok()
+        return {"ok": True, "aktiv": aktiv, "error": None}
     except Exception as exc:  # noqa: BLE001
         # Ha a riasztas-tabla meg nem letezik (migracio nem futott), az nem
         # allithatja meg a napi riportot -- de hallgatni sem szabad rola.
-        print(f"RIASZTASOK: nem olvashatok ({type(exc).__name__}). "
+        return {"ok": False, "aktiv": [], "error": f"{type(exc).__name__}: {exc}"}
+
+
+def _riasztas_blokk(adat: dict) -> None:
+    """A fennallo riasztasok, A RIPORT TETEJEN.
+
+    MIERT ELOL: a 12. szakasz utan a lanc magatol fut, es ez a riport az
+    egyetlen kepernyo, amit a napi rutin biztosan megnyit. Ha a riasztas a
+    riport aljara kerulne, pont az veszne el, amiert az egesz monitoring van.
+    """
+    if not adat["ok"]:
+        print(f"RIASZTASOK: nem olvashatok ({adat['error'].split(':')[0]}). "
               f"Futott mar a `db migrate`?\n")
         return
+    aktiv = adat["aktiv"]
     if not aktiv:
         return
 
@@ -250,45 +359,70 @@ def _riasztas_blokk() -> None:
     print("=" * 68 + "\n")
 
 
-def daily() -> int:
-    _riasztas_blokk()
-
+def daily_adat(statuses: dict[str, int] | None = None) -> dict:
+    """A mai kep adata (`report --daily`). Lasd meg: `daily()`."""
+    if statuses is None:
+        statuses = company_statuses()
     st = _sender_state()
-    allapot = company_statuses()
 
-    sorban = allapot.get("queued", 0)
-    kuldheto = allapot.get("ready", 0)
-    valaszolt = allapot.get("replied", 0)
-    atnezendo = allapot.get("review", 0)
+    sorban = statuses.get("queued", 0)
+    keszen = statuses.get("ready", 0)
+    valaszolt = statuses.get("replied", 0)
+    atnezendo = statuses.get("review", 0)
 
+    napok_keszlet = None
+    if st.ok and st.cap:
+        napok_keszlet = (sorban + keszen) / st.cap
+
+    return {
+        "riasztasok": riasztasok_adat(),
+        "sender": {
+            "ok": st.ok, "cap": st.cap, "sent_today": st.sent_today,
+            "remaining": st.remaining, "leads_rows": st.leads_rows,
+            "bounces_today": st.bounces_today, "rejects_today": st.rejects_today,
+            "error": st.error or None,
+        },
+        "queued": sorban,
+        "ready": keszen,
+        "replied": valaszolt,
+        "review": atnezendo,
+        "days_of_backlog": napok_keszlet,
+    }
+
+
+def daily(statuses: dict[str, int] | None = None) -> int:
+    adat = daily_adat(statuses)
+    _riasztas_blokk(adat["riasztasok"])
+
+    st = adat["sender"]
     print("MA")
-    if st.ok:
-        print(f"  napi keret          {st.cap}")
-        print(f"  ma mar kikuldve     {st.sent_today}")
-        print(f"  ma meg kikuldheto   {st.remaining}")
-        print(f"  leads.csv sorai     {st.leads_rows}")
+    if st["ok"]:
+        print(f"  napi keret          {st['cap']}")
+        print(f"  ma mar kikuldve     {st['sent_today']}")
+        print(f"  ma meg kikuldheto   {st['remaining']}")
+        print(f"  leads.csv sorai     {st['leads_rows']}")
         # A kezbesitesi jelek csak akkor jelennek meg, ha van mit mutatni:
         # egy allando "bounce: 0" sor harom nap alatt lathatatlanna valik,
         # es akkor a nem-nulla erteket sem venned eszre.
-        if st.bounces_today:
-            print(f"  bounce ma           {st.bounces_today}  (reputacio-relevans)")
-        if st.rejects_today:
-            print(f"  SMTP-elutasitas ma  {st.rejects_today}  "
+        if st["bounces_today"]:
+            print(f"  bounce ma           {st['bounces_today']}  (reputacio-relevans)")
+        if st["rejects_today"]:
+            print(f"  SMTP-elutasitas ma  {st['rejects_today']}  "
                   f"-> cold-email-starter/data/rejects.csv")
     else:
-        print(f"  A kuldo allapota NEM OLVASHATO: {st.error}")
+        print(f"  A kuldo allapota NEM OLVASHATO: {st['error']}")
         print(f"  (varom itt: {config.SENDER_DIR})")
 
     print("\nSORBANALLAS")
-    print(f"  sorban all (kiment mar a leads.csv-be)   {sorban}")
-    print(f"  kesz, meg nincs exportalva               {kuldheto}")
+    print(f"  sorban all (kiment mar a leads.csv-be)   {adat['queued']}")
+    print(f"  kesz, meg nincs exportalva               {adat['ready']}")
 
     # A LENYEG: hany NAPRA eleg a jelenlegi sor. A keret nem a leadek szamatol
     # fugg (limits.daily_cap a kezbesitesi jelekbol emel), tehat tobb lead
     # betoltese NEM gyorsit -- csak varakozo sort epit.
-    if st.ok and st.cap:
-        napok = (sorban + kuldheto) / st.cap
-        print(f"\n  a jelenlegi sor ~{napok:.1f} napra eleg (napi {st.cap} keret mellett)")
+    if adat["days_of_backlog"] is not None:
+        napok = adat["days_of_backlog"]
+        print(f"\n  a jelenlegi sor ~{napok:.1f} napra eleg (napi {st['cap']} keret mellett)")
         if napok > 5:
             print("  Adagolj: ./leadgen.sh export --limit 20")
             print("  (a follow-up MINDIG veri a friss cold-ot ugyanabban a keretben,")
@@ -296,12 +430,12 @@ def daily() -> int:
         elif napok < 1:
             print("  Fogy a sor. Uj cegek: ./leadgen.sh ingest maps --max-results 100")
 
-    if valaszolt or atnezendo:
+    if adat["replied"] or adat["review"]:
         print("\nRAD VAR")
-        if valaszolt:
-            print(f"  {valaszolt:>4} ceg VALASZOLT -- szemelyes valasz kell, 24 oran belul")
-        if atnezendo:
-            print(f"  {atnezendo:>4} ceg emberi dontesre var -> ./leadgen.sh review")
+        if adat["replied"]:
+            print(f"  {adat['replied']:>4} ceg VALASZOLT -- szemelyes valasz kell, 24 oran belul")
+        if adat["review"]:
+            print(f"  {adat['review']:>4} ceg emberi dontesre var -> ./leadgen.sh review")
     return 0
 
 
@@ -322,39 +456,20 @@ _REPLY_LABEL = {
 }
 
 
-def replies() -> int:
+def replies_adat() -> dict:
     """A valaszok besorolas szerinti bontasa (`report --replies`)."""
     osszes = _counts("""
-        select coalesce(classification, '(meg nincs osztalyozva)') as k,
-               count(*) as n
+        select coalesce(classification, 'unclassified') as k, count(*) as n
           from reply_events group by 1
     """)
     if not osszes:
-        print("Meg nem erkezett valasz.")
-        print("  A guards.py irja a replies.csv-t, a `feedback` olvassa be ide.")
-        return 0
-
-    print(f"VALASZOK ({sum(osszes.values())})")
-    width = max(len(_REPLY_LABEL.get(k, k)) for k in osszes) + 2
-    for k in _REPLY_ORDER:
-        if osszes.pop(k, 0):
-            n = _counts("select classification as k, count(*) as n from reply_events "
-                        "where classification = %s group by 1", (k,)).get(k, 0)
-            print(f"  {_REPLY_LABEL.get(k, k):<{width}} {n:>4}")
-    for k, n in sorted(osszes.items()):
-        print(f"  {k:<{width}} {n:>4}")
+        return {"total": 0, "by_classification": {}, "error_count": 0,
+                "interested": [], "other": []}
 
     hibas = db.query("select count(*) as n from reply_events where error is not null")
-    if hibas and hibas[0]["n"]:
-        print(f"\n  {hibas[0]['n']} valasz osztalyozasa HIBARA futott.")
-        print("  Ezek ujrafuttathatok: a classified_at nullazasa utan a")
-        print("  `classify-replies` ujra nekimegy.")
 
-    # A bizonytalanok es az erdeklodok KIIRVA, nem csak megszamolva: ezekre
-    # ember kell, es egy szam onmagaban nem cselekvesre hivo.
-    for cimke, cim in (("interested", ">>> ERDEKLODOK -- 24 oran belul valaszolj"),
-                       ("other", "BIZONYTALAN -- ezeket nezd at kezzel")):
-        rows = db.query("""
+    def _lista(cimke: str) -> list[dict]:
+        return db.query("""
             select r.email, r.subject, r.confidence, r.rationale, c.company_name
               from reply_events r
          left join contacts ct on ct.email = r.email
@@ -362,6 +477,44 @@ def replies() -> int:
              where r.classification = %s
           order by r.received_at desc nulls last limit 20
         """, (cimke,))
+
+    return {
+        "total": sum(osszes.values()),
+        "by_classification": osszes,
+        "error_count": hibas[0]["n"] if hibas else 0,
+        "interested": _lista("interested"),
+        "other": _lista("other"),
+    }
+
+
+def replies() -> int:
+    """A valaszok besorolas szerinti bontasa (`report --replies`)."""
+    adat = replies_adat()
+    if not adat["total"]:
+        print("Meg nem erkezett valasz.")
+        print("  A guards.py irja a replies.csv-t, a `feedback` olvassa be ide.")
+        return 0
+
+    osszes = dict(adat["by_classification"])
+    print(f"VALASZOK ({adat['total']})")
+    width = max(len(_REPLY_LABEL.get(k, k)) for k in osszes) + 2
+    for k in _REPLY_ORDER:
+        if osszes.pop(k, 0):
+            print(f"  {_REPLY_LABEL.get(k, k):<{width}} {adat['by_classification'][k]:>4}")
+    for k, n in sorted(osszes.items()):
+        print(f"  {k:<{width}} {n:>4}")
+
+    if adat["error_count"]:
+        print(f"\n  {adat['error_count']} valasz osztalyozasa HIBARA futott.")
+        print("  Ezek ujrafuttathatok: a classified_at nullazasa utan a")
+        print("  `classify-replies` ujra nekimegy.")
+
+    # A bizonytalanok es az erdeklodok KIIRVA, nem csak megszamolva: ezekre
+    # ember kell, es egy szam onmagaban nem cselekvesre hivo.
+    for cimke, cim, rows in (
+        ("interested", ">>> ERDEKLODOK -- 24 oran belul valaszolj", adat["interested"]),
+        ("other", "BIZONYTALAN -- ezeket nezd at kezzel", adat["other"]),
+    ):
         if not rows:
             continue
         print(f"\n{cim}")
@@ -376,13 +529,8 @@ def replies() -> int:
 
 # ─── Evidence grounding ────────────────────────────────────────────────────
 
-def grounding() -> int:
-    """Az AI allitasai es a hozzajuk tartozo idezetek (`report --grounding`).
-
-    EZ AZ EMBERI ATNEZES FELULETE. A terv szerint a szemelyre szabott mondat
-    a legkockazatosabb kimenet: egy magabiztosan TEVES mondat hiteltelenne
-    tesz. Ezert itt egyutt latszik a mondat ES az idezet, amibol keszult.
-    """
+def grounding_adat() -> dict:
+    """Az AI allitasai es a hozzajuk tartozo idezetek (`report --grounding`)."""
     rows = db.query("""
         select id, company_name, normalized_domain, webapp_fit, website_fit, mobile_fit,
                best_offer, status, personalization, evidence, grounding_dropped,
@@ -392,9 +540,7 @@ def grounding() -> int:
          order by scored_at desc limit 30
     """)
     if not rows:
-        print("Meg nem futott AI-minosites.")
-        print("  Inditsd: ./leadgen.sh score --dry")
-        return 0
+        return {"total": 0, "ready": 0, "dropped_directions": 0, "companies": []}
 
     ossz = db.query("""
         select count(*) as n,
@@ -402,8 +548,6 @@ def grounding() -> int:
                count(*) filter (where status = 'ready') as ready
           from companies where scored_at is not null
     """)[0]
-    print(f"MINOSITETT CEGEK ({ossz['n']})   ready: {ossz['ready']}   "
-          f"eldobott irany: {ossz['eldobott'] or 0}")
 
     # Az uj schema az opportunity_angles tablan tarolja az egyes iranyok
     # tenyleges pontszamat, paint es idezetet. Ez a kanonikus adat; a
@@ -421,6 +565,7 @@ def grounding() -> int:
     for angle in angle_rows:
         angles_by_company.setdefault(angle["company_id"], []).append(angle)
 
+    companies = []
     for r in rows:
         ev = (r["evidence"] or {})
         uj_angles = angles_by_company.get(r["id"], [])
@@ -432,8 +577,6 @@ def grounding() -> int:
             for tipus in ("webapp", "website", "mobile", "landing_page")
         }
         # A korabbi, egyiranyu schema meg csak a harom oszlopot tarolta.
-        # Itt nem talalunk ki negyedik pontszamot: a kiiras jelezze, hogy a
-        # reszletes angle-adat nem letezik ehhez a regi futashoz.
         legacy = not uj_angles and bool(megtartott)
         if legacy:
             scores.update({
@@ -441,22 +584,61 @@ def grounding() -> int:
                 "website": float(r["website_fit"] or 0),
                 "mobile": float(r["mobile_fit"] or 0),
             })
-        print(f"\n  {r['company_name']}   "
-              f"(status={r['status']} kiemelt={r['best_offer'] or '-'}; "
+        companies.append({
+            "id": r["id"],
+            "company_name": r["company_name"],
+            "normalized_domain": r["normalized_domain"],
+            "status": r["status"],
+            "best_offer": r["best_offer"],
+            "scores": scores,
+            "personalization": r["personalization"],
+            "legacy": legacy,
+            "kept": megtartott[:5],
+            "dropped": eldobott[:2],
+        })
+
+    return {
+        "total": ossz["n"],
+        "ready": ossz["ready"],
+        "dropped_directions": ossz["eldobott"] or 0,
+        "companies": companies,
+    }
+
+
+def grounding() -> int:
+    """Az AI allitasai es a hozzajuk tartozo idezetek (`report --grounding`).
+
+    EZ AZ EMBERI ATNEZES FELULETE. A terv szerint a szemelyre szabott mondat
+    a legkockazatosabb kimenet: egy magabiztosan TEVES mondat hiteltelenne
+    tesz. Ezert itt egyutt latszik a mondat ES az idezet, amibol keszult.
+    """
+    adat = grounding_adat()
+    if not adat["total"]:
+        print("Meg nem futott AI-minosites.")
+        print("  Inditsd: ./leadgen.sh score --dry")
+        return 0
+
+    print(f"MINOSITETT CEGEK ({adat['total']})   ready: {adat['ready']}   "
+          f"eldobott irany: {adat['dropped_directions']}")
+
+    for c in adat["companies"]:
+        scores = c["scores"]
+        print(f"\n  {c['company_name']}   "
+              f"(status={c['status']} kiemelt={c['best_offer'] or '-'}; "
               f"webapp={scores['webapp']:.0f} "
               f"website={scores['website']:.0f} "
               f"mobile={scores['mobile']:.0f} "
               f"landing_page={scores['landing_page']:.0f})")
-        if r["personalization"]:
+        if c["personalization"]:
             print(f"    ➜ A LEVELBE MENO MONDAT:")
-            print(f"      \"{r['personalization']}\"")
-        if legacy:
+            print(f"      \"{c['personalization']}\"")
+        if c["legacy"]:
             print("    ℹ régi futás: az egyes szögek típusa és pontszáma "
                   "nem lett eltárolva")
-        for e in megtartott[:5]:
+        for e in c["kept"]:
             tipus = e.get("angle_type") or e.get("type")
             score = e.get("score")
-            if uj_angles:
+            if not c["legacy"]:
                 jel = "★" if e.get("selected") else "✓"
                 print(f"    {jel} [{tipus} {float(score or 0):.0f}] "
                       f"{str(e.get('claim'))[:70]}")
@@ -465,7 +647,7 @@ def grounding() -> int:
             else:
                 print(f"    ✓ [régi adat] {str(e.get('claim'))[:70]}")
             print(f"      idezet: \"{str(e.get('quote'))[:70]}\"")
-        for e in eldobott[:2]:
+        for e in c["dropped"]:
             print(f"    ✗ ELDOBVA ({e.get('indok')}): \"{str(e.get('quote'))[:60]}\"")
 
     print("\n  Amelyik mondatot NEM kuldened ki a sajat neveddel, az bukott.")
@@ -475,35 +657,21 @@ def grounding() -> int:
 
 # ─── 8.2 halott fejleszto ──────────────────────────────────────────────────
 
-def dead_dev() -> int:
-    """A footer-kredit talalatok bontasa (`report --signal dead_dev`).
+_DEAD_DEV_LABEL = {
+    "DEAD": "DEAD -- nincs, aki karbantartsa  (+35 pont)",
+    "DORMANT": "DORMANT -- a fejleszto evek ota inaktiv  (+20 pont)",
+    "ALIVE": "ALIVE -- elo fejleszto (versenytars, nem lead)",
+}
 
-    A DEAD talalatokat RESZLETESEN irjuk ki, a footer szo szerinti
-    szovegevel: a terv szabalya szerint ezeket EMBERNEK kell atneznie,
-    mielott a fejleszto neve belekerul egy levelbe.
-    """
+
+def dead_dev_adat() -> dict:
+    """A footer-kredit talalatok bontasa (`report --signal dead_dev`)."""
     osszes = _counts("""
-        select coalesce(dev_state, '(nincs kredit a footerben)') as k, count(*) as n
+        select coalesce(dev_state, 'none') as k, count(*) as n
           from companies where dev_checked_at is not null group by 1
     """)
     if not osszes:
-        print("Meg nem futott a 8.2 enrichment.")
-        print("  Inditsd: ./leadgen.sh enrich dead-dev")
-        return 0
-
-    cimke = {
-        "DEAD": "DEAD -- nincs, aki karbantartsa  (+35 pont)",
-        "DORMANT": "DORMANT -- a fejleszto evek ota inaktiv  (+20 pont)",
-        "ALIVE": "ALIVE -- elo fejleszto (versenytars, nem lead)",
-    }
-    print(f"HALOTT FEJLESZTO ({sum(osszes.values())} megvizsgalt ceg)")
-    width = max(len(cimke.get(k, k)) for k in osszes) + 2
-    for k in ("DEAD", "DORMANT", "ALIVE"):
-        if osszes.get(k):
-            print(f"  {cimke[k]:<{width}} {osszes[k]:>4}")
-    for k, n in sorted(osszes.items()):
-        if k not in cimke:
-            print(f"  {k:<{width}} {n:>4}")
+        return {"checked_total": 0, "by_state": {}, "dead": []}
 
     rows = db.query("""
         select company_name, normalized_domain, dev_domain, dev_name,
@@ -513,6 +681,42 @@ def dead_dev() -> int:
          order by signal_score desc nulls last
          limit 30
     """)
+    return {
+        "checked_total": sum(osszes.values()),
+        "by_state": osszes,
+        "dead": rows,
+    }
+
+
+def dead_dev() -> int:
+    """A footer-kredit talalatok bontasa (`report --signal dead_dev`).
+
+    A DEAD talalatokat RESZLETESEN irjuk ki, a footer szo szerinti
+    szovegevel: a terv szabalya szerint ezeket EMBERNEK kell atneznie,
+    mielott a fejleszto neve belekerul egy levelbe.
+    """
+    adat = dead_dev_adat()
+    if not adat["checked_total"]:
+        print("Meg nem futott a 8.2 enrichment.")
+        print("  Inditsd: ./leadgen.sh enrich dead-dev")
+        return 0
+
+    osszes = dict(adat["by_state"])
+    # A CLI-n a hianyzo kredit meg mindig a regi magyar cimkevel jelenik meg
+    # -- ez a kimenet nem valtozhat.
+    if "none" in osszes:
+        osszes["(nincs kredit a footerben)"] = osszes.pop("none")
+
+    print(f"HALOTT FEJLESZTO ({adat['checked_total']} megvizsgalt ceg)")
+    width = max(len(_DEAD_DEV_LABEL.get(k, k)) for k in osszes) + 2
+    for k in ("DEAD", "DORMANT", "ALIVE"):
+        if osszes.get(k):
+            print(f"  {_DEAD_DEV_LABEL[k]:<{width}} {osszes[k]:>4}")
+    for k, n in sorted(osszes.items()):
+        if k not in _DEAD_DEV_LABEL:
+            print(f"  {k:<{width}} {n:>4}")
+
+    rows = adat["dead"]
     if rows:
         print(f"\n{'=' * 68}")
         print(">>> EZEKET NEZD AT KEZZEL, mielott levelet kapnanak")
@@ -530,16 +734,16 @@ def dead_dev() -> int:
 
 # ─── 7.1 penzugyi ertek + 8.3 webshop ──────────────────────────────────────
 
-def economic() -> int:
+def economic_adat() -> dict:
     """A penzugyi kep (`report --economic`).
 
     A LOW ERTEK NEM KIZARAS. A 2026-08-25-i megorzo leadmodell szerint a
     penzugyi ertek RANGSOROL, nem szur: a LOW ceg is exportalhato, csak
-    hatrebb all a sorban. Ezert ez a riport nem "kiesettek" listat mutat,
-    hanem azt, hogy hany cegrol tudunk egyaltalan valamit.
+    hatrebb all a sorban. Ezert ez nem "kiesettek" listat ad, hanem azt,
+    hogy hany cegrol tudunk egyaltalan valamit.
     """
     ertekek = _counts("""
-        select coalesce(economic_value, '(nincs adat)') as k, count(*) as n
+        select coalesce(economic_value, 'none') as k, count(*) as n
           from companies group by 1
     """)
     megvizsgalt = db.query("""
@@ -549,21 +753,18 @@ def economic() -> int:
           from companies
     """)[0]
 
-    print(f"PENZUGYI ERTEK ({megvizsgalt['ossz']} ceg)")
-    for k in ("HIGH", "MEDIUM", "LOW", "(nincs adat)"):
-        if ertekek.get(k):
-            print(f"  {k:<14} {ertekek[k]:>4}")
-    print(f"\n  megvizsgalva : {megvizsgalt['nezve']:>4}")
-    print(f"  van arbevetel: {megvizsgalt['van_szam']:>4}")
-    print(f"\n  kuszobok (.env): MEDIUM >= {config.REVENUE_MEDIUM_HUF / 1e6:.0f} M Ft "
-          f"vagy {config.HEADCOUNT_MEDIUM} fo   |   "
-          f"HIGH >= {config.REVENUE_HIGH_HUF / 1e6:.0f} M Ft vagy "
-          f"{config.HEADCOUNT_HIGH} fo")
-
     if not megvizsgalt["van_szam"]:
-        print("\n  Meg egy cegrol sincs penzugyi adat.")
-        print("  Kezdd itt: ./leadgen.sh enrich financials")
-        return 0
+        return {
+            "total": megvizsgalt["ossz"], "by_value": ertekek,
+            "checked": megvizsgalt["nezve"], "with_revenue": 0,
+            "thresholds": {
+                "revenue_medium_huf": config.REVENUE_MEDIUM_HUF,
+                "revenue_high_huf": config.REVENUE_HIGH_HUF,
+                "headcount_medium": config.HEADCOUNT_MEDIUM,
+                "headcount_high": config.HEADCOUNT_HIGH,
+            },
+            "rows": [], "missing_labels": {},
+        }
 
     rows = db.query("""
         select company_name, normalized_domain, revenue, headcount,
@@ -572,34 +773,66 @@ def economic() -> int:
          where revenue is not null
          order by revenue desc nulls last limit 25
     """)
-    print(f"\n{'ceg':<38} {'arbevetel':>12} {'fo':>4}  {'ev':>4} {'ertek':<7} platform")
-    print("-" * 88)
-    for r in rows:
-        arb = f"{float(r['revenue']) / 1e6:,.0f} M Ft" if r["revenue"] else "-"
-        print(f"{(r['company_name'] or '')[:36]:<38} {arb:>12} "
-              f"{r['headcount'] or '-':>4}  {r['financial_year'] or '-':>4} "
-              f"{r['economic_value'] or '-':<7} {r['webshop_platform'] or ''}")
-
     hianyzo = _counts("""
         select label as k, count(*) as n from company_labels
          where label in ('financials_missing', 'low_economic_value',
                          'webshop_platform', 'webshop_growth')
          group by 1
     """)
-    if hianyzo:
+
+    return {
+        "total": megvizsgalt["ossz"], "by_value": ertekek,
+        "checked": megvizsgalt["nezve"], "with_revenue": megvizsgalt["van_szam"],
+        "thresholds": {
+            "revenue_medium_huf": config.REVENUE_MEDIUM_HUF,
+            "revenue_high_huf": config.REVENUE_HIGH_HUF,
+            "headcount_medium": config.HEADCOUNT_MEDIUM,
+            "headcount_high": config.HEADCOUNT_HIGH,
+        },
+        "rows": rows, "missing_labels": hianyzo,
+    }
+
+
+def economic() -> int:
+    adat = economic_adat()
+    ertekek = dict(adat["by_value"])
+    if "none" in ertekek:
+        ertekek["(nincs adat)"] = ertekek.pop("none")
+
+    print(f"PENZUGYI ERTEK ({adat['total']} ceg)")
+    for k in ("HIGH", "MEDIUM", "LOW", "(nincs adat)"):
+        if ertekek.get(k):
+            print(f"  {k:<14} {ertekek[k]:>4}")
+    print(f"\n  megvizsgalva : {adat['checked']:>4}")
+    print(f"  van arbevetel: {adat['with_revenue']:>4}")
+    th = adat["thresholds"]
+    print(f"\n  kuszobok (.env): MEDIUM >= {th['revenue_medium_huf'] / 1e6:.0f} M Ft "
+          f"vagy {th['headcount_medium']} fo   |   "
+          f"HIGH >= {th['revenue_high_huf'] / 1e6:.0f} M Ft vagy "
+          f"{th['headcount_high']} fo")
+
+    if not adat["with_revenue"]:
+        print("\n  Meg egy cegrol sincs penzugyi adat.")
+        print("  Kezdd itt: ./leadgen.sh enrich financials")
+        return 0
+
+    print(f"\n{'ceg':<38} {'arbevetel':>12} {'fo':>4}  {'ev':>4} {'ertek':<7} platform")
+    print("-" * 88)
+    for r in adat["rows"]:
+        arb = f"{float(r['revenue']) / 1e6:,.0f} M Ft" if r["revenue"] else "-"
+        print(f"{(r['company_name'] or '')[:36]:<38} {arb:>12} "
+              f"{r['headcount'] or '-':>4}  {r['financial_year'] or '-':>4} "
+              f"{r['economic_value'] or '-':<7} {r['webshop_platform'] or ''}")
+
+    if adat["missing_labels"]:
         print()
-        for k, n in sorted(hianyzo.items()):
+        for k, n in sorted(adat["missing_labels"].items()):
             print(f"  {k:<22} {n:>4}")
     return 0
 
 
-def campaign(nev: str) -> int:
-    """Egy kampany cegei (`report --campaign webshop_growth`).
-
-    A JOVAHAGYASI ALLAPOT AZ ELSO SOR, mert az donti el, hogy ezek a leadek
-    egyaltalan kimehetnek-e. Egy vazlat sablonu kampany barmennyi `ready`
-    ceget gyujthet, exportalni akkor sem fog (contract.APPROVED_CAMPAIGNS).
-    """
+def campaign_adat(nev: str) -> dict:
+    """Egy kampany cegei (`report --campaign <nev>`)."""
     from .contract import APPROVED_CAMPAIGNS
 
     rows = db.query("""
@@ -609,24 +842,42 @@ def campaign(nev: str) -> int:
          order by signal_score desc nulls last, company_name
     """, (nev,))
 
-    jovahagyva = nev in APPROVED_CAMPAIGNS
-    print(f"KAMPANY: {nev}   ({len(rows)} ceg)")
-    print(f"  sablon: {'JOVAHAGYVA -- exportalhato' if jovahagyva else 'VAZLAT -- NEM exportalhato'}")
-    if not jovahagyva:
+    by_status: dict[str, int] = {}
+    for r in rows:
+        by_status[r["status"]] = by_status.get(r["status"], 0) + 1
+
+    return {
+        "name": nev,
+        "approved": nev in APPROVED_CAMPAIGNS,
+        "total": len(rows),
+        "by_status": by_status,
+        "rows": rows[:40],
+    }
+
+
+def campaign(nev: str) -> int:
+    """Egy kampany cegei (`report --campaign webshop_growth`).
+
+    A JOVAHAGYASI ALLAPOT AZ ELSO SOR, mert az donti el, hogy ezek a leadek
+    egyaltalan kimehetnek-e. Egy vazlat sablonu kampany barmennyi `ready`
+    ceget gyujthet, exportalni akkor sem fog (contract.APPROVED_CAMPAIGNS).
+    """
+    adat = campaign_adat(nev)
+
+    print(f"KAMPANY: {adat['name']}   ({adat['total']} ceg)")
+    print(f"  sablon: {'JOVAHAGYVA -- exportalhato' if adat['approved'] else 'VAZLAT -- NEM exportalhato'}")
+    if not adat["approved"]:
         print("  A szoveget at kell irni (cold-email-starter/templates.py), majd")
         print("  felvenni a leadgen/contract.py APPROVED_CAMPAIGNS listajaba.")
-    if not rows:
+    if not adat["rows"] and not adat["total"]:
         print("\n  Meg egy ceg sincs ebben a kampanyban.")
         return 0
 
-    allapot: dict[str, int] = {}
-    for r in rows:
-        allapot[r["status"]] = allapot.get(r["status"], 0) + 1
-    print("\n  " + "   ".join(f"{k}: {n}" for k, n in sorted(allapot.items())))
+    print("\n  " + "   ".join(f"{k}: {n}" for k, n in sorted(adat["by_status"].items())))
 
     print(f"\n{'ceg':<36} {'allapot':<10} {'ertek':<7} {'platform':<12} pont")
     print("-" * 82)
-    for r in rows[:40]:
+    for r in adat["rows"]:
         print(f"{(r['company_name'] or '')[:34]:<36} {r['status']:<10} "
               f"{r['economic_value'] or '-':<7} {r['webshop_platform'] or '-':<12} "
               f"{r['signal_score']:>5.1f}")
@@ -636,7 +887,8 @@ def campaign(nev: str) -> int:
 def run(daily_view: bool = False) -> int:
     if daily_view:
         return daily()
-    rc = funnel()
+    statuses = company_statuses()
+    rc = funnel(statuses)
     print()
-    daily()
+    daily(statuses)
     return rc

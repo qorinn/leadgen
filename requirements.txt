@@ -7,3 +7,5 @@ pytest==8.*                # csak a nema hibak helyere irunk tesztet
 anthropic==1.*             # a QUALITY tier hivatalos SDK-ja (leadgen/llm.py)
                            # A BULK tier (Gemini) a meglevo httpx-en megy: egy
                            # REST hivas nem indokol egy masodik nagy SDK-t.
+fastapi==0.115.*            # webui/api -- csak olvas/hivja a leadgen fuggvenyeit
+uvicorn[standard]==0.32.*   # a webui/api ASGI szervere

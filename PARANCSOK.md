@@ -355,6 +355,27 @@ azt jelenti, hogy *van* riasztás. Cronban ezt ne értelmezd programhibának.
 | `dev seed` | 3 teszt-cég `.invalid` címekkel (nem küldhető ki valódi levél) |
 | `dev clear-seed` | teszt-cégek törlése |
 
+## Webes felület (13. szakasz, F0–F1)
+
+| Parancs | Mit csinál |
+|---|---|
+| `./leadgen.sh ui` | elindítja a FastAPI-t (8000) és a Next.js-t (3000), megnyitja a böngészőt; Ctrl+C mindkettőt leállítja |
+| `cd webui/app && npm run types` | a `GET /openapi.json`-ból TypeScript típusokat generál (`lib/api-types.ts`) — csak futó API mellett |
+| `cd webui/app && npx tsc --noEmit` | típusellenőrzés — ezt futtasd a `npm run types` után |
+
+**Csak `127.0.0.1`-en fut** (nincs kitett port). Az F1 óta az olvasó API kész
+(`/api/meta`, `/api/report/daily`, `/api/report/funnel`, `/api/companies`,
+`/api/companies/{id}`, `/api/replies`, `/api/alerts`, `/api/costs`,
+`/api/runs`, `/api/schedule/status`, `/api/logs/{nev}`) — de a felület még
+csak a rendszerállapot-oldalt mutatja, a képernyők a következő fázisokban
+készülnek el.
+
+> **A felület soha nem tudja magától, mi engedélyezett.** A státuszok, a
+> kampányok jóváhagyottsága, a tiltás okai és a küszöbök mind a
+> `/api/meta`-ból jönnek — a Pythonból, ahol a szabály tényleg érvényes.
+> Ezt tesztsor őrzi (`tests/test_webui_contract.py`): ha valaki bedrótoz egy
+> ilyen listát a TypeScriptbe, a `pytest` elhasal.
+
 ---
 
 # 2. KÜLDŐ — `cd cold-email-starter && python3 ...`

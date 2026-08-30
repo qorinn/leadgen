@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import contextlib
 import hashlib
+import re
 from typing import Any, Iterator
 
 import psycopg
@@ -139,3 +140,22 @@ def check() -> dict[str, int | None]:
 def server_info() -> dict[str, Any]:
     rows = query("select version() as version, current_database() as db, now() as now")
     return rows[0] if rows else {}
+
+
+def suppression_reasons() -> list[str]:
+    """A `suppression.reason` engedelyezett ertekei.
+
+    A CHECK CONSTRAINT (001_init.sql) az egyetlen hely, ahol ez a lista le
+    van irva -- innen olvassuk vissza, nem masoljuk at kezzel egy masodik
+    Python listaba (az `/api/meta`-nak ezt kell mutatnia, es egy kezi masolat
+    csendben elavulna, ha egy uj migracio bovitene a listat).
+    """
+    rows = query(
+        "select pg_get_constraintdef(oid) as def from pg_constraint "
+        "where conname = 'suppression_reason_check'"
+    )
+    if not rows:
+        return []
+    # Postgres a CHECK (reason in (...))-t `= ANY (ARRAY['a'::text, ...])`
+    # alakra normalizalja -- innen szedjuk ki az idezojelbe zart ertekeket.
+    return re.findall(r"'([^']*)'", rows[0]["def"])

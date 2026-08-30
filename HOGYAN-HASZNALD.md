@@ -836,7 +836,7 @@ Beállítás: `ALERT_EMAIL=sajat@cimed.hu` a gyökér `.env`-ben.
 
 | Mi hiányzik | Melyik fázis | Mit jelent ez most |
 |---|---|---|
-| **Webes felület** | 13. | Minden parancssorból megy. A felület **meg van tervezve** ([WEBUI-TERV.md](WEBUI-TERV.md)), az építés még nem kezdődött el. |
+| **Webes felület** | 13. | Minden parancssorból megy. Az építés elkezdődött ([WEBUI-TERV.md](WEBUI-TERV.md)): `./leadgen.sh ui` egy rendszerállapot-oldalt mutat, az olvasó API (cégek, riportok, riasztások, válaszok, költségek) már kész a háttérben, de képernyő még nincs hozzá. |
 
 ---
 

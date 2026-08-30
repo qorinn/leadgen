@@ -346,36 +346,71 @@ def eltavolit() -> int:
     return 0
 
 
+def allapot_adat() -> dict:
+    """Fut-e az utemezes, es mit mond a legutobbi futas -- dict-kent (F1).
+
+    Ugyanaz a szetvalasztas, mint a `report.py`-ban: az `/api/schedule/status`
+    ezt hivja, az `allapot()` ezt irja ki -- egy igazsag, ket megjelenites.
+    """
+    if not PLIST_PATH.exists():
+        return {"installed": False, "loaded": False, "launchctl_lines": [],
+                "start_time": f"{INDULAS_ORA:02d}:{INDULAS_PERC:02d}",
+                "log_path": str(LOG_PATH), "log_last_written": None,
+                "log_last_lines": []}
+
+    proc = subprocess.run(["launchctl", "list", LABEL],
+                          capture_output=True, text=True)
+    loaded = proc.returncode == 0
+    launchctl_lines: list[str] = []
+    if loaded:
+        for sor in proc.stdout.splitlines():
+            if '"LastExitStatus"' in sor or '"PID"' in sor:
+                launchctl_lines.append(sor.strip().rstrip(";"))
+
+    log_last_written = None
+    log_last_lines: list[str] = []
+    if LOG_PATH.exists():
+        log_last_written = datetime.datetime.fromtimestamp(
+            LOG_PATH.stat().st_mtime).isoformat(timespec="minutes")
+        sorok = LOG_PATH.read_text(encoding="utf-8", errors="replace").splitlines()
+        log_last_lines = sorok[-5:]
+
+    return {
+        "installed": True, "loaded": loaded,
+        "launchctl_lines": launchctl_lines,
+        "start_time": f"{INDULAS_ORA:02d}:{INDULAS_PERC:02d}",
+        "log_path": str(LOG_PATH),
+        "log_last_written": log_last_written,
+        "log_last_lines": log_last_lines,
+    }
+
+
 def allapot() -> int:
     """Be van-e toltve, es mit mond a legutobbi futas."""
+    adat = allapot_adat()
     print(f"plist : {PLIST_PATH}")
-    if not PLIST_PATH.exists():
+    if not adat["installed"]:
         print("        NINCS TELEPITVE")
         print("\nTelepites: ./leadgen.sh schedule install")
         return 0
 
-    proc = subprocess.run(["launchctl", "list", LABEL],
-                          capture_output=True, text=True)
-    if proc.returncode == 0:
+    if adat["loaded"]:
         print("        telepitve es BETOLTVE")
         # A launchctl kimenetebol a ket erdekes sor: az utolso kilepesi kod
         # es a PID (ha epp fut).
-        for sor in proc.stdout.splitlines():
-            if '"LastExitStatus"' in sor or '"PID"' in sor:
-                print(f"        {sor.strip().rstrip(';')}")
+        for sor in adat["launchctl_lines"]:
+            print(f"        {sor}")
     else:
         print("        a fajl megvan, de NINCS BETOLTVE")
         print("        Betoltes: ./leadgen.sh schedule install")
 
-    print(f"\nindulas: minden nap {INDULAS_ORA:02d}:{INDULAS_PERC:02d}")
-    print(f"naplo  : {LOG_PATH}")
-    if LOG_PATH.exists():
-        modositva = datetime.datetime.fromtimestamp(LOG_PATH.stat().st_mtime)
-        print(f"         utoljara irva: {modositva.isoformat(timespec='minutes')}")
-        sorok = LOG_PATH.read_text(encoding="utf-8", errors="replace").splitlines()
-        if sorok:
+    print(f"\nindulas: minden nap {adat['start_time']}")
+    print(f"naplo  : {adat['log_path']}")
+    if adat["log_last_written"]:
+        print(f"         utoljara irva: {adat['log_last_written']}")
+        if adat["log_last_lines"]:
             print("\n  az utolso 5 sor:")
-            for sor in sorok[-5:]:
+            for sor in adat["log_last_lines"]:
                 print(f"    {sor}")
     else:
         print("         (meg nem futott)")

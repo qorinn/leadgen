@@ -22,5 +22,9 @@ __pycache__/
 # a scrapelt seed-listak nyers formaban
 /seeds/*.csv
 
+# ─── Webes felulet (13. szakasz) ───────────────────────────────────────────
+/webui/app/node_modules/
+/webui/app/.next/
+
 # ─── macOS ─────────────────────────────────────────────────────────────────
 .DS_Store

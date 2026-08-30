@@ -71,16 +71,21 @@ def _naplo_ir(parancs: str, konyv: pricing.Konyveles) -> None:
                         "usd": f"{k:.6f}" if k is not None else ""})
 
 
-def osszesites() -> None:
-    """A naplo osszegzese modellenkent -- ezt add ossze a dashboarddal."""
+def osszesites_adat() -> dict:
+    """A naplo osszegzese modellenkent, dict-kent (`/api/costs`, F1).
+
+    A `*_adat()` / kiiro fuggveny szetvalasztasa ugyanaz a mintazat, mint a
+    `report.py`-ban: az API-nak adat kell, nem szoveg, es ket kulon
+    implementacio ket kulon igazsagot adna ugyanarra a szamra.
+    """
     if not NAPLO.exists():
-        print("Meg nem futott egyetlen mert LLM-hivas sem.")
-        return
+        return {"has_data": False, "by_model": {}, "total_usd": 0.0,
+                "first_ts": None, "last_ts": None}
     with NAPLO.open(encoding="utf-8-sig", newline="") as f:
         sorok = list(csv.DictReader(f))
     if not sorok:
-        print("A naplo ures.")
-        return
+        return {"has_data": False, "by_model": {}, "total_usd": 0.0,
+                "first_ts": None, "last_ts": None}
 
     ossz: dict[str, dict] = {}
     for s in sorok:
@@ -90,17 +95,36 @@ def osszesites() -> None:
         t["ki"] += int(s["ki"] or 0)
         t["usd"] += float(s["usd"] or 0)
 
+    return {
+        "has_data": True,
+        "by_model": ossz,
+        "total_usd": sum(t["usd"] for t in ossz.values()),
+        "first_ts": sorok[0]["ts"],
+        "last_ts": sorok[-1]["ts"],
+    }
+
+
+def osszesites() -> None:
+    """A naplo osszegzese modellenkent -- ezt add ossze a dashboarddal."""
+    adat = osszesites_adat()
+    if not adat["has_data"]:
+        if not NAPLO.exists():
+            print("Meg nem futott egyetlen mert LLM-hivas sem.")
+        else:
+            print("A naplo ures.")
+        return
+
     print(f"EDDIGI LLM-KOLTSEG (a {NAPLO.name} alapjan)")
     print(f"  {'modell':<24} {'hívás':>6} {'be':>10} {'ki':>9} {'$':>12}")
     print("  " + "-" * 66)
-    for model in sorted(ossz):
-        t = ossz[model]
+    for model in sorted(adat["by_model"]):
+        t = adat["by_model"][model]
         print(f"  {model:<24} {t['hivasok']:>6} {t['be']:>10,} {t['ki']:>9,} "
               f"${t['usd']:>11.6f}")
     print("  " + "-" * 66)
     print(f"  {'OSSZESEN':<24} {'':>6} {'':>10} {'':>9} "
-          f"${sum(t['usd'] for t in ossz.values()):>11.6f}")
-    print(f"\n  elso merés: {sorok[0]['ts']}   utolso: {sorok[-1]['ts']}")
+          f"${adat['total_usd']:>11.6f}")
+    print(f"\n  elso merés: {adat['first_ts']}   utolso: {adat['last_ts']}")
 
 
 def run(models: list[str], ismetles: int = 1, keret_usd: float = 0.50,

@@ -417,3 +417,12 @@ def aktiv_riasztasok() -> list[dict]:
           from alerts where resolved_at is null
       order by last_seen desc
     """)
+
+
+def lezart_riasztasok(limit: int = 50) -> list[dict]:
+    """A mar megszunt riasztasok, a legutobb lezart elol (`/api/alerts`, F1)."""
+    return db.query("""
+        select kulcs, tipus, uzenet, first_seen, last_seen, last_notified, resolved_at
+          from alerts where resolved_at is not null
+      order by resolved_at desc limit %s
+    """, (limit,))
