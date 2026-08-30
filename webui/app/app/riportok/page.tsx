@@ -1,32 +1,50 @@
-import { BarChart } from "@/components/charts/bar-chart";
-import { Bar } from "@/components/charts/bar";
-
-// Teszt-adat -- csak az F2 ellenorzeshez (a Bklit chart-huzalozas mukodik).
-// Szandekosan NEM valodi statusz-kulcsok (WEBUI-TERV.md Invariansok #1: a
-// frontend nem drotozhat be uzleti listat) -- a valodi nezetek (tolcser,
-// koltsegek) az F9 fazisban cerulnek le a /api/report/funnel es /api/costs
-// vegpontokat.
-const TESZT_ADAT = [
-  { nev: "1. hét", ertek: 12 },
-  { nev: "2. hét", ertek: 34 },
-  { nev: "3. hét", ertek: 21 },
-  { nev: "4. hét", ertek: 9 },
-];
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { GazdasagiErtek } from "./gazdasagi-ertek";
+import { Grounding } from "./grounding";
+import { Kampany } from "./kampany";
+import { Koltsegek } from "./koltsegek";
+import { Merofeszkozok } from "./merofeszkozok";
+import { NyersNaplok } from "./nyers-naplok";
+import { Tolcser } from "./tolcser";
 
 export default function RiportokPage() {
   return (
     <div className="flex flex-col gap-4">
       <h1 className="text-2xl font-semibold">Riportok</h1>
-      <p className="text-sm text-muted-foreground">
-        A tényleges nézetek (tölcsér, gazdasági érték, kampányok, költségek)
-        az F9 fázisban készülnek el. Az alábbi chart teszt-adaton fut — csak
-        azt igazolja, hogy a Bklit huzalozás működik.
-      </p>
-      <div className="max-w-2xl rounded-lg border p-4">
-        <BarChart data={TESZT_ADAT} xDataKey="nev">
-          <Bar dataKey="ertek" />
-        </BarChart>
-      </div>
+
+      <Tabs defaultValue="tolcser">
+        <TabsList>
+          <TabsTrigger value="tolcser">Tölcsér</TabsTrigger>
+          <TabsTrigger value="grounding">Grounding</TabsTrigger>
+          <TabsTrigger value="gazdasagi-ertek">Gazdasági érték</TabsTrigger>
+          <TabsTrigger value="kampany">Kampány</TabsTrigger>
+          <TabsTrigger value="koltsegek">Költségek</TabsTrigger>
+          <TabsTrigger value="merofeszkozok">Mérőeszközök</TabsTrigger>
+          <TabsTrigger value="nyers-naplok">Nyers naplók</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="tolcser">
+          <Tolcser />
+        </TabsContent>
+        <TabsContent value="grounding">
+          <Grounding />
+        </TabsContent>
+        <TabsContent value="gazdasagi-ertek">
+          <GazdasagiErtek />
+        </TabsContent>
+        <TabsContent value="kampany">
+          <Kampany />
+        </TabsContent>
+        <TabsContent value="koltsegek">
+          <Koltsegek />
+        </TabsContent>
+        <TabsContent value="merofeszkozok">
+          <Merofeszkozok />
+        </TabsContent>
+        <TabsContent value="nyers-naplok">
+          <NyersNaplok />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

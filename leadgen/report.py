@@ -35,6 +35,7 @@ ugyanazt a szamot kell mutassa, a hivo adja at parameterkent.
 """
 from __future__ import annotations
 
+import csv
 import json
 import subprocess
 from dataclasses import dataclass
@@ -774,7 +775,7 @@ def economic_adat() -> dict:
         }
 
     rows = db.query("""
-        select company_name, normalized_domain, revenue, headcount,
+        select id, company_name, normalized_domain, revenue, headcount,
                financial_year, economic_value, webshop_platform, signal_score
           from companies
          where revenue is not null
@@ -843,7 +844,7 @@ def campaign_adat(nev: str) -> dict:
     from .contract import APPROVED_CAMPAIGNS
 
     rows = db.query("""
-        select company_name, normalized_domain, status, economic_value,
+        select id, company_name, normalized_domain, status, economic_value,
                revenue, webshop_platform, signal_score, personalization
           from companies where campaign = %s
          order by signal_score desc nulls last, company_name
@@ -889,6 +890,39 @@ def campaign(nev: str) -> int:
               f"{r['economic_value'] or '-':<7} {r['webshop_platform'] or '-':<12} "
               f"{r['signal_score']:>5.1f}")
     return 0
+
+
+# ─── Kuldo nyers CSV-k (webui F9, "Nyers naplok") ──────────────────────────
+
+# A kuldo (cold-email-starter/) ezeket a CSV-ket irja a sajat interpreteren.
+# EZ NEM sérti a "kuldo moduljait csak subprocess-en at hivd" szabalyt: nem
+# a kuldo Python-kodjat futtatjuk, csak sima fajlt olvasunk -- ugyanigy
+# olvassa oket kozvetlenul a `feedback.py` is (`_FILES`).
+SENDER_CSV_NEVEK = ("sent", "do-not-contact", "bounces", "rejects", "replies")
+
+
+def sender_csv_adat(nev: str, limit: int = 200) -> dict:
+    """Egy kuldo-oldali nyers CSV utolso sorai (webui F9).
+
+    Csak olvas, nem ertelmez -- az ertelmezett adat mar a DB-ben van
+    (feedback.py importalja be). Ez a nyers ellenorzeshez kell.
+    """
+    if nev not in SENDER_CSV_NEVEK:
+        raise ValueError(f"ismeretlen kuldo-csv: {nev!r}")
+    path = config.SENDER_DATA / f"{nev}.csv"
+    if not path.exists():
+        return {"name": nev, "exists": False, "columns": [], "total": 0, "rows": []}
+    with path.open(encoding="utf-8-sig", newline="") as f:
+        reader = csv.DictReader(f)
+        columns = reader.fieldnames or []
+        rows = list(reader)
+    return {
+        "name": nev,
+        "exists": True,
+        "columns": list(columns),
+        "total": len(rows),
+        "rows": rows[-limit:],
+    }
 
 
 def run(daily_view: bool = False) -> int:

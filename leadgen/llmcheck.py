@@ -104,6 +104,30 @@ def osszesites_adat() -> dict:
     }
 
 
+def napi_koltseg_adat() -> dict:
+    """A naplo osszegzese naponkent, dict-kent (webui F9 -- 'Koltsegek'
+    chart, napi vonal). A modellenkenti bontas az `osszesites_adat()`-e --
+    ez ugyanazt a naplot nezi, csak a masik tengely menten osszesit."""
+    if not NAPLO.exists():
+        return {"has_data": False, "days": []}
+    with NAPLO.open(encoding="utf-8-sig", newline="") as f:
+        sorok = list(csv.DictReader(f))
+    if not sorok:
+        return {"has_data": False, "days": []}
+
+    by_day: dict[str, float] = {}
+    for s in sorok:
+        nap = (s["ts"] or "")[:10]
+        if not nap:
+            continue
+        by_day[nap] = by_day.get(nap, 0.0) + float(s["usd"] or 0)
+
+    return {
+        "has_data": True,
+        "days": [{"date": nap, "usd": osszeg} for nap, osszeg in sorted(by_day.items())],
+    }
+
+
 def osszesites() -> None:
     """A naplo osszegzese modellenkent -- ezt add ossze a dashboarddal."""
     adat = osszesites_adat()

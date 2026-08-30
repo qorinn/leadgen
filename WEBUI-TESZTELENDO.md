@@ -548,3 +548,57 @@ elég a `report.py`-t módosítani.
 besorolás- vagy státusz-kulcs szerint akarna csoportosítani vagy színezni a
 frontendben, ne a kulcsot írd be — bővítsd a megfelelő `/api/meta` listát
 egy szerep-flaggel, ahogy itt történt.
+
+---
+
+## F9 — Riportok és chartok
+
+### 16. A Bklit `BarYAxis` NEM függőleges oszlopdiagramra való
+
+**Mi történt:** a terv szerint a Tölcsér és a Gazdasági érték nézet
+"oszlop" (bar) charttal jelenik meg. A `webui/app/components/charts/`
+alatt (F2-ben telepítve) van egy `BarXAxis` (kategória-címkék alul) és egy
+`BarYAxis` komponens is — utóbbit érték-tengelynek néztem, és mindkettőt
+felraktam a `<BarChart>` alá. Élesben a `BarYAxis` a képernyő **bal
+szélén, a szidebar fölött** jelenítette meg ugyanazokat a kategória-
+címkéket, amiket a `BarXAxis` már alul kiírt — mert a `BarYAxis`
+forráskódja (`bar-y-axis.tsx`) a `barScale`/`barXAccessor`-t (a
+KATEGÓRIA-tengelyt) használja Y-koordinátaként. Ez egy **vízszintes**
+oszlopdiagramhoz készült komponens (kategóriák a bal oldalon, érték balról
+jobbra), nem függőlegeshez — a névből ez nem derül ki.
+
+**Mit döntöttünk:** a `BarYAxis`-t eltávolítottam mindkét chartból. A
+`Grid` (szaggatott vízszintes vonalak) ad vizuális érzetet a nagyságrendről
+gomb és tengely-cimke nélkül is; a pontos számokat egy lista adja a chart
+alatt (ugyanaz a szám, mint a CLI `report` szöveges kimenete) — hosszú
+magyar státusz-címkéknél (pl. "feldolgozva (minositesre var)") ezt a
+`BarXAxis` sem bírta el olvashatóan, azt is eltávolítottam a Tölcsér
+nézetből (a Gazdasági érték nézet 4 rövid címkéjénél — HIGH/MEDIUM/LOW/
+nincs adat — a `BarXAxis` megmaradt, mert ott elfér).
+
+**Mit tesztelj később:** ha egy jövőbeli fázis vízszintes oszlopdiagramot
+épít (pl. hosszú kategórianevekhez jobban illene), a `BarYAxis` OTT a
+helyén való — csak `barScale`-nek Y-irányú `scaleBand`-nak kell lennie.
+
+### 17. Egy CSV-fájlnév véletlenül egybeesett egy DB-státusz-kulccsal
+
+**Mi történt:** a "Nyers naplók" fülnek a küldő öt CSV-jét kell felsorolnia
+(`sent.csv`, `do-not-contact.csv`, ...). Első nekifutásra a fájlneveket
+kézzel írtam be egy TypeScript tömbbe (`{ nev: "sent", cimke: "sent.csv" }`
+stb.) — a `test_a_frontend_nem_drotoz_be_uzleti_listat` erre lebukott: a
+`"sent"` fájlnév **szó szerint egyezik** a `companies.status = 'sent'`
+értékkel, amit a teszt tilt a frontendben (WEBUI-TERV.md Invariánsok #1).
+A két "sent" semmilyen kapcsolatban nincs egymással — az egyik egy
+fájlnév, a másik egy lead-életciklus állapot —, de a teszt szó szerint,
+kontextus nélkül keres.
+
+**Mit döntöttünk:** a `/api/meta` kapott egy új `kuldo_csv_nevek` mezőt
+(`leadgen/report.py` `SENDER_CSV_NEVEK`-ből), és a frontend ezt olvassa ki
+a kézzel írt lista helyett. Ez amúgy is a helyesebb megoldás (a fájlnevek
+listája Pythonban van definiálva, egy helyen), nem csak a teszt megkerülése.
+
+**Mit tesztelj később:** ha egy jövőbeli fázis egy olyan sztringlistát
+venne fel a frontendbe, ami VÉLETLENÜL egybeesik egy üzleti kulccsal (akkor
+is, ha a jelentése teljesen más), a `/api/meta`-ból olvasás nemcsak a
+tesztet elégíti ki, hanem el is kerüli a jövőbeli félreértést, ha a két
+lista valaha tényleg összefonódna.

@@ -9,6 +9,7 @@ Minden ertek MEGLEVO Python-forrasbol jon, egyiket sem irjuk ujra:
   valasz_osztalyok-> report._REPLY_ORDER / _REPLY_LABEL / _REPLY_SURGOS / _REPLY_ATTEKINTENDO
   cimkek          -> a company_labels tablaban ma elofordulo cimkek (nincs kulon enum)
   kuszobok        -> config.* (scraper) + a kuldo sajat kuszobei (subprocess, mint a _sender_state)
+  kuldo_csv_nevek -> report.SENDER_CSV_NEVEK (F9, "Nyers naplok" fulek)
 """
 from __future__ import annotations
 
@@ -74,4 +75,5 @@ def meta() -> dict:
         "valasz_osztalyok": valasz_osztalyok,
         "cimkek": [r["label"] for r in cimke_sorok],
         "kuszobok": kuszobok,
+        "kuldo_csv_nevek": list(report.SENDER_CSV_NEVEK),
     }

@@ -72,6 +72,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/report/grounding": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Report Grounding */
+        get: operations["report_grounding_api_report_grounding_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/report/economic": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Report Economic */
+        get: operations["report_economic_api_report_economic_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/report/campaign": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Report Campaign */
+        get: operations["report_campaign_api_report_campaign_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/report/sender-csv/{nev}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Report Sender Csv */
+        get: operations["report_sender_csv_api_report_sender_csv__nev__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/companies": {
         parameters: {
             query?: never;
@@ -149,6 +217,23 @@ export interface paths {
         };
         /** Costs */
         get: operations["costs_api_costs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/costs/daily": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Costs Daily */
+        get: operations["costs_daily_api_costs_daily_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -555,6 +640,45 @@ export interface components {
              */
             dry: boolean;
         };
+        /** CampaignResponse */
+        CampaignResponse: {
+            /** Name */
+            name: string;
+            /** Approved */
+            approved: boolean;
+            /** Total */
+            total: number;
+            /** By Status */
+            by_status: {
+                [key: string]: number;
+            };
+            /** Rows */
+            rows: components["schemas"]["CampaignRow"][];
+        };
+        /** CampaignRow */
+        CampaignRow: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Company Name */
+            company_name: string | null;
+            /** Normalized Domain */
+            normalized_domain: string | null;
+            /** Status */
+            status: string;
+            /** Economic Value */
+            economic_value: string | null;
+            /** Revenue */
+            revenue: number | null;
+            /** Webshop Platform */
+            webshop_platform: string | null;
+            /** Signal Score */
+            signal_score: number | null;
+            /** Personalization */
+            personalization: string | null;
+        };
         /**
          * CompanyDetailResponse
          * @description A reszletes nezet. A sorok `select *`-gal jonnek (lasd a modul
@@ -666,6 +790,13 @@ export interface components {
             /** Last Ts */
             last_ts: string | null;
         };
+        /** DailyCostsResponse */
+        DailyCostsResponse: {
+            /** Has Data */
+            has_data: boolean;
+            /** Days */
+            days: components["schemas"]["NapiKoltseg"][];
+        };
         /** DailyResponse */
         DailyResponse: {
             riasztasok: components["schemas"]["RiasztasBlokk"];
@@ -687,6 +818,53 @@ export interface components {
             ok: boolean;
             /** Tablak */
             tablak: number;
+        };
+        /** EconomicResponse */
+        EconomicResponse: {
+            /** Total */
+            total: number;
+            /** By Value */
+            by_value: {
+                [key: string]: number;
+            };
+            /** Checked */
+            checked: number;
+            /** With Revenue */
+            with_revenue: number;
+            /** Thresholds */
+            thresholds: {
+                [key: string]: number;
+            };
+            /** Rows */
+            rows: components["schemas"]["EconomicRow"][];
+            /** Missing Labels */
+            missing_labels: {
+                [key: string]: number;
+            };
+        };
+        /** EconomicRow */
+        EconomicRow: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Company Name */
+            company_name: string | null;
+            /** Normalized Domain */
+            normalized_domain: string | null;
+            /** Revenue */
+            revenue: number | null;
+            /** Headcount */
+            headcount: number | null;
+            /** Financial Year */
+            financial_year: number | null;
+            /** Economic Value */
+            economic_value: string | null;
+            /** Webshop Platform */
+            webshop_platform: string | null;
+            /** Signal Score */
+            signal_score: number | null;
         };
         /** EmailValidacio */
         EmailValidacio: {
@@ -765,6 +943,54 @@ export interface components {
             };
             /** Next Steps */
             next_steps: components["schemas"]["KovetkezoLepes"][];
+        };
+        /**
+         * GroundingCompany
+         * @description Egy minositett ceg. A `kept`/`dropped` szandekosan dict[str, Any]:
+         *     vagy az `opportunity_angles` sorai, vagy a regi `evidence` JSONB tartalma
+         *     -- a ket alak mezoi nem egyeznek (report.grounding_adat legacy agа).
+         */
+        GroundingCompany: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Company Name */
+            company_name: string | null;
+            /** Normalized Domain */
+            normalized_domain: string | null;
+            /** Status */
+            status: string;
+            /** Best Offer */
+            best_offer: string | null;
+            /** Scores */
+            scores: {
+                [key: string]: number;
+            };
+            /** Personalization */
+            personalization: string | null;
+            /** Legacy */
+            legacy: boolean;
+            /** Kept */
+            kept: {
+                [key: string]: unknown;
+            }[];
+            /** Dropped */
+            dropped: {
+                [key: string]: unknown;
+            }[];
+        };
+        /** GroundingResponse */
+        GroundingResponse: {
+            /** Total */
+            total: number;
+            /** Ready */
+            ready: number;
+            /** Dropped Directions */
+            dropped_directions: number;
+            /** Companies */
+            companies: components["schemas"]["GroundingCompany"][];
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -946,6 +1172,8 @@ export interface components {
             kuszobok: {
                 [key: string]: number;
             };
+            /** Kuldo Csv Nevek */
+            kuldo_csv_nevek: string[];
         };
         /** MigraciokAllapot */
         MigraciokAllapot: {
@@ -962,6 +1190,13 @@ export interface components {
             be: number;
             /** Ki */
             ki: number;
+            /** Usd */
+            usd: number;
+        };
+        /** NapiKoltseg */
+        NapiKoltseg: {
+            /** Date */
+            date: string;
             /** Usd */
             usd: number;
         };
@@ -1175,6 +1410,26 @@ export interface components {
             /** Error */
             error: string | null;
         };
+        /**
+         * SenderCsvResponse
+         * @description A kuldo egy nyers CSV-jenek sorai (F9, 'Nyers naplok'). Az `columns`
+         *     a fajl fejlecebol jon -- nem drotozzuk be a kuldo store.py HEADER
+         *     listait, mert az egy masik interpreteren fut (CLAUDE.md invariansok).
+         */
+        SenderCsvResponse: {
+            /** Name */
+            name: string;
+            /** Exists */
+            exists: boolean;
+            /** Columns */
+            columns: string[];
+            /** Total */
+            total: number;
+            /** Rows */
+            rows: {
+                [key: string]: string;
+            }[];
+        };
         /** SenderDirAllapot */
         SenderDirAllapot: {
             /** Ok */
@@ -1338,6 +1593,108 @@ export interface operations {
             };
         };
     };
+    report_grounding_api_report_grounding_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GroundingResponse"];
+                };
+            };
+        };
+    };
+    report_economic_api_report_economic_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EconomicResponse"];
+                };
+            };
+        };
+    };
+    report_campaign_api_report_campaign_get: {
+        parameters: {
+            query: {
+                name: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CampaignResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    report_sender_csv_api_report_sender_csv__nev__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                nev: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SenderCsvResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_companies_api_companies_get: {
         parameters: {
             query?: {
@@ -1476,6 +1833,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CostsResponse"];
+                };
+            };
+        };
+    };
+    costs_daily_api_costs_daily_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DailyCostsResponse"];
                 };
             };
         };

@@ -495,6 +495,10 @@ Ez az ellenőrzés **ingyen van** — nem AI-hívás, csak szövegkeresés.
 > Ha a `report --grounding` azt írja, hogy a bukási arány **20% felett** van,
 > a modell hallucinál. Olyankor ne menj tovább — másik modell kell.
 
+**Ugyanez böngészőből.** A `./leadgen.sh ui` **Riportok** oldalának
+**Grounding** füle cégenként egymás mellett mutatja a levélbe menő mondatot
+és a szó szerinti idézetet, amiből az AI dolgozott.
+
 ### Egy cég csak egy ajánlatot kap
 
 Ha egy cégnél többféle ajánlat is indokolt lenne, a program a **legerősebbet**
@@ -607,6 +611,12 @@ A `robustness` azt méri, hogy a modell átverhető-e: mi történik, ha valaki 
 weboldalába beleírja, hogy „hagyd figyelmen kívül az utasításaidat". Ez nem
 elmélet — a scrapelt oldalak szövegét idegenek írják.
 
+> A `./leadgen.sh ui` **Riportok → Mérőeszközök** füle csak azt mutatja meg,
+> hogy az `llm-check` (a kulcs- és költségellenőrzés) mikor futott utoljára
+> — a bake-off eredménye kizárólag a terminálban jelenik meg, nincs hova
+> elmentődnie, ezért a felület sem tudja visszaadni. Ez a fül gomb nélküli:
+> mindkét parancsot terminálból kell indítani.
+
 ---
 
 ## 14. folyamat — „Mekkora ez a cég?"  *(árbevétel és létszám)*
@@ -706,6 +716,10 @@ Az így kapott fájl egy paranccsal betölthető.
 **A javaslatom:** csináld meg előbb kézzel 20 céggel, és abból döntsd el, kell-e
 egyáltalán fizetős forrás. Részletek: [TEENDOK.md](TEENDOK.md) 4.5.
 
+**Ugyanez böngészőből.** A `./leadgen.sh ui` **Riportok → Gazdasági érték**
+füle ugyanezt a `report --economic` képet mutatja: HIGH/MEDIUM/LOW-bontás
+oszlopdiagramon, és az árbevétel szerint rendezett cégek listája.
+
 ---
 
 ## 15. folyamat — „Kinőtte a webshopját"  *(8.3)*
@@ -748,6 +762,10 @@ korlátra kérdez rá, és a megoldás **kiegészítés, nem csere**.
 > Amíg át nem írod és fel nem veszed a jóváhagyott kampányok közé, ezek a
 > leadek **nem kerülnek ki** a `leads.csv`-be. Lépések:
 > [TEENDOK.md](TEENDOK.md) 3.9.
+
+**Ugyanez böngészőből.** A `./leadgen.sh ui` **Riportok → Kampány** füle
+kampányt választva ugyanezt a `report --campaign` képet adja: a jóváhagyási
+állapotot, az állapot szerinti bontást és a cégek listáját.
 
 ---
 
@@ -852,7 +870,7 @@ Beállítás: `ALERT_EMAIL=sajat@cimed.hu` a gyökér `.env`-ben.
 
 | Mi hiányzik | Melyik fázis | Mit jelent ez most |
 |---|---|---|
-| **Webes felület** | 13. | Épül ([WEBUI-TERV.md](WEBUI-TERV.md)). A `./leadgen.sh ui` már használható felületet ad: irányítópult, cégek listája és részletei, emberi döntések (jóváhagyás, elutasítás, pénzügyi adat), **Futtatás** (parancsok indítása élő kimenettel), **Küldés** (kiküldés két lépésben, előnézettel), valamint **Válaszok** és **Riasztások**. Ami még nincs kész: a riportok és a beállítások. |
+| **Webes felület** | 13. | Épül ([WEBUI-TERV.md](WEBUI-TERV.md)). A `./leadgen.sh ui` már használható felületet ad: irányítópult, cégek listája és részletei, emberi döntések (jóváhagyás, elutasítás, pénzügyi adat), **Futtatás** (parancsok indítása élő kimenettel), **Küldés** (kiküldés két lépésben, előnézettel), **Válaszok**, **Riasztások** és **Riportok** (tölcsér, grounding, gazdasági érték, kampányonkénti bontás, LLM-költségek, mérőeszközök állapota, a küldő nyers CSV-i). Ami még nincs kész: a beállítások. |
 
 ---
 

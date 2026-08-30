@@ -90,6 +90,7 @@ class MetaResponse(BaseModel):
     valasz_osztalyok: list[ValaszOsztalyMeta]
     cimkek: list[str]
     kuszobok: dict[str, float]
+    kuldo_csv_nevek: list[str]
 
 
 # ─── /api/report/daily ─────────────────────────────────────────────────────
@@ -161,6 +162,80 @@ class FunnelResponse(BaseModel):
     unlinked_sources: int
     outreach: dict[str, int]
     next_steps: list[KovetkezoLepes]
+
+
+# ─── /api/report/grounding ─────────────────────────────────────────────────
+
+
+class GroundingCompany(BaseModel):
+    """Egy minositett ceg. A `kept`/`dropped` szandekosan dict[str, Any]:
+    vagy az `opportunity_angles` sorai, vagy a regi `evidence` JSONB tartalma
+    -- a ket alak mezoi nem egyeznek (report.grounding_adat legacy agа)."""
+    id: Uuid
+    company_name: str | None
+    normalized_domain: str | None
+    status: str
+    best_offer: str | None
+    scores: dict[str, float]
+    personalization: str | None
+    legacy: bool
+    kept: list[dict[str, Any]]
+    dropped: list[dict[str, Any]]
+
+
+class GroundingResponse(BaseModel):
+    total: int
+    ready: int
+    dropped_directions: int
+    companies: list[GroundingCompany]
+
+
+# ─── /api/report/economic ──────────────────────────────────────────────────
+
+
+class EconomicRow(BaseModel):
+    id: Uuid
+    company_name: str | None
+    normalized_domain: str | None
+    revenue: float | None
+    headcount: int | None
+    financial_year: int | None
+    economic_value: str | None
+    webshop_platform: str | None
+    signal_score: float | None
+
+
+class EconomicResponse(BaseModel):
+    total: int
+    by_value: dict[str, int]
+    checked: int
+    with_revenue: int
+    thresholds: dict[str, float]
+    rows: list[EconomicRow]
+    missing_labels: dict[str, int]
+
+
+# ─── /api/report/campaign ──────────────────────────────────────────────────
+
+
+class CampaignRow(BaseModel):
+    id: Uuid
+    company_name: str | None
+    normalized_domain: str | None
+    status: str
+    economic_value: str | None
+    revenue: float | None
+    webshop_platform: str | None
+    signal_score: float | None
+    personalization: str | None
+
+
+class CampaignResponse(BaseModel):
+    name: str
+    approved: bool
+    total: int
+    by_status: dict[str, int]
+    rows: list[CampaignRow]
 
 
 # ─── /api/companies ────────────────────────────────────────────────────────
@@ -256,6 +331,19 @@ class CostsResponse(BaseModel):
     last_ts: str | None
 
 
+# ─── /api/costs/daily ───────────────────────────────────────────────────────
+
+
+class NapiKoltseg(BaseModel):
+    date: str
+    usd: float
+
+
+class DailyCostsResponse(BaseModel):
+    has_data: bool
+    days: list[NapiKoltseg]
+
+
 # ─── /api/runs ─────────────────────────────────────────────────────────────
 
 
@@ -295,6 +383,20 @@ class LogResponse(BaseModel):
     path: str
     exists: bool
     lines: list[str]
+
+
+# ─── /api/report/sender-csv/{nev} ──────────────────────────────────────────
+
+
+class SenderCsvResponse(BaseModel):
+    """A kuldo egy nyers CSV-jenek sorai (F9, 'Nyers naplok'). Az `columns`
+    a fajl fejlecebol jon -- nem drotozzuk be a kuldo store.py HEADER
+    listait, mert az egy masik interpreteren fut (CLAUDE.md invariansok)."""
+    name: str
+    exists: bool
+    columns: list[str]
+    total: int
+    rows: list[dict[str, str]]
 
 
 # ─── /api/review/* (F5) ─────────────────────────────────────────────────────
