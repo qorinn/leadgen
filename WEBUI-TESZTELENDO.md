@@ -84,11 +84,11 @@ már ismert mezőnévre — nem egy teljes lista bemásolása. Ez a minta várha
 újra elő fog kerülni F4-ben és F5-ben (pl. "Cégek szűrése kész státuszra"
 gomb).
 
-**Mit tesztelj később:** miután F4 elkészül (a Cégek lista szűrőkkel), nézd
-meg, hogy a `/cegek?status=review` link **tényleg szűr-e** a Cégek oldalon
-— most még csak egy üres vázlat oldalra visz, mert F4 nincs kész. Ha F4 más
-néven implementálja a szűrő paramétert (nem `status`), ezt a linket is
-frissíteni kell.
+**Mit tesztelj később:** az F4 fázis elkészült, és a `/cegek?status=review`
+link **valóban szűr** a Cégek oldalon (a `?status=` query-paramétert a lista
+oldal induláskor beolvassa és a Státusz szűrőbe teszi). Nyisd meg az
+Irányítópultot, kattints az "emberi döntésre vár" sorra, és nézd meg, hogy
+a Cégek lista tényleg csak a `review` státuszú cégeket mutatja-e.
 
 ---
 
@@ -105,3 +105,123 @@ cserélve).
 **Mit tesztelj később:** nincs teendő, csak informálva legyél — ha valaha
 akadálymentesítési (accessibility) eszközzel nézed az oldalt, ez már nem
 fog problémát jelezni.
+
+---
+
+## F4 — Cégek: lista és részletnézet
+
+### 6. Az `email` oszlop hiányzott a Cégek listából
+
+**Mi történt:** a terv szerint a Cégek lista oszlopai közt szerepel az
+"email", de a már megépített (F1) `/api/companies` lekérdezés nem
+kapcsolódott a `contacts` táblához — egy cégnek több kontaktusa/emailje is
+lehet, tehát nem volt egyértelmű, melyiket mutassa a lista.
+
+**Mit döntöttünk:** bővítettük a lekérdezést — cégenként a "legjobb"
+(legszemélyesebb típusú, legújabb) kontaktus emailjét mutatja, ugyanazzal a
+sorrenddel, amit a `report.py` már használ (`personal` > `generic` > `role`
+> `unknown`). Ez módosítja a korábban lezártnak tekintett F1 API-t (új
+`email` mező a `CompanyListItem`-en), de visszafelé kompatibilis módon.
+
+**Mit tesztelj később:** nyisd meg a Cégek listát, és néhány sornál
+hasonlítsd össze az ott mutatott emailt a részletnézet "Kapcsolatok"
+szekciójával — legyen ugyanaz, ha egy cégnek csak egy kontaktusa van, és a
+személyes/generic/role sorrend szerint helyes, ha több van.
+
+---
+
+### 7. A gazdasági érték (LOW/MEDIUM/HIGH) szűrő nincs a `/api/meta`-ban
+
+**Mi történt:** a Cégek lista "Gazdasági érték" szűrőjéhez kellett a három
+lehetséges érték (LOW/MEDIUM/HIGH), de ez sehol nincs listaként a Python
+oldalon — sem a `/api/meta`-ban, sem egy névvel ellátott konstansban
+(`financials.py` és `report.py` is csak nyers szövegként használja).
+
+**Mit döntöttünk:** ez egy zárt, adatbázis-szinten kikényszerített halmaz
+(CHECK constraint a `companies` táblán), nem egy növekvő üzleti lista, mint
+a státuszok vagy kampányok — ezért a három érték a frontendbe került, fix
+listaként.
+
+**Mit tesztelj később:** ha valaha egy negyedik gazdasági-érték kategória
+kerül be (új migráció + DB constraint módosítás), ezt a frontend listát
+kézzel kell frissíteni — a `/api/meta` erről nem fog tájékoztatni.
+
+---
+
+### 8. A pénzügyi mezők eltűntek, mert a Postgres `numeric` oszlopok szövegként jönnek
+
+**Mi történt:** a cég-részletnézet Pénzügy szekciója (és pár másik, pl.
+`financial_bonus`) néha üresen jelent meg, pedig volt adat mögötte. Az ok: a
+Postgres `numeric` (tizedestört) oszlopok — `revenue`, `balance_total`,
+`profit`, `financial_bonus`, és az AI-szögek `score`/`confidence` mezői — a
+"nyers" (`select *`, típus nélküli) API-válaszban **szövegként** jönnek
+(pl. `"0"`, nem a szám `0`), mert a szerver így őrzi meg a pontosságukat.
+A frontend viszont csak a valódi szám típust ismerte fel, a szöveges "0"-t
+üresnek nézte.
+
+**Mit döntöttünk:** a frontend szám-felismerő segédfüggvénye (`asNum`)
+mostantól a szöveges számokat is felismeri, nem csak a valódi szám típust.
+
+**Mit tesztelj később:** nyisd meg egy olyan cég részletnézetét, aminek van
+árbevétele vagy `financial_bonus` értéke (pl. a `financials.py`-jal frissített
+cégek), és nézd meg, hogy a Pénzügy szekció tényleg megjeleníti-e a
+számokat, nem csak akkor, ha nullák.
+
+---
+
+### 9. Az üres listás szekciók (Kapcsolatok, Outreach, stb.) teljesen eltűntek "nincs adat" üzenet helyett
+
+**Mi történt:** ha egy cégnek nincs kapcsolattartója, a "Kapcsolatok"
+szekció **egésze** (a címével együtt) eltűnt az oldalról — pedig a terv
+"minden mező, ami nem null, jelenjen meg" elve mellett az is hasznos
+infó, hogy MEGNÉZTÜK és tényleg nincs kapcsolattartó, nem csak hogy a
+szekció hiányzik (ami összetéveszthető egy hibával).
+
+**Mit döntöttünk:** a Kapcsolatok, Címkék, Outreach és Nyers-források
+szekciók mostantól mindig megjelennek, és üres listánál egy kifejezett
+"Nincs kapcsolattartó." / "Nincs címke." / "Még nem indult outreach." /
+"Nincs rögzített forrás." szöveget mutatnak. A Suppression szekció
+KIVÉTEL — az a terv szerint is csak akkor jelenik meg, ha van suppression
+bejegyzés ("ha van: ok, megjegyzés, dátum").
+
+**Mit tesztelj később:** nyiss meg egy nagyon friss (frissen scrapelt,
+még nem dolgozott fel) céget, és nézd meg, hogy tényleg minden szekció
+látszik-e, akár "nincs adat" üzenettel is — egyik se tűnjön el nyomtalanul.
+
+---
+
+### 10. A "csak localhost" védelmi teszt tévesen jelzett hibát a cég-domain linkjénél
+
+**Mi történt:** a részletnézet fejlécében a cég domainjére mutató, kattintható
+link (`https://${domain}`) elbuktatta a "csak localhost, nincs kitett port"
+védelmi tesztet — a teszt bármilyen `https://` kezdetű szöveget megnéz, és
+ez szó szerint `https://`-vel kezdődik a forráskódban.
+
+**Mit döntöttünk:** ez a szabály valójában a SAJÁT szerverünk címére
+vonatkozik (ne hívjunk ki nem-localhost API-t) — nem arra, hogy a felület
+kifelé, a scrapelt cégek saját weboldalára linkeljen (ez a terv szerint
+kifejezetten elvárt: "domain (kattintható)"). A tesztet pontosítottuk: egy
+olyan cím, ami futáskor, adatbázisból származó értékből épül fel (a forrás
+`${domain}` jelölést tartalmaz), nem lehet bedrótozott szerver-cím, ezért
+ezeket kihagyja.
+
+**Mit tesztelj később:** nyiss meg egy céget, aminek van domainje, és
+kattints a domain linkre a fejlécben — a cég saját weboldala nyíljon meg új
+fülön, ne valamilyen belső cím.
+
+---
+
+### 11. A szűrő legördülők a nyers értéket mutatták címke helyett
+
+**Mi történt:** a Cégek lista szűrőiben (Státusz, Kampány, stb.) minden
+legördülő a "__minden__" technikai kulcsot mutatta az "Összes" felirat
+helyett, mert a használt UI-könyvtár (Base UI Select) alapból a nyers
+értéket írja ki, nem a hozzá tartozó címkét.
+
+**Mit döntöttünk:** ez egyszerű hiba volt, amit észrevétel után rögtön
+javítottunk (kézzel visszakeresi a legördülő a kiválasztott érték
+címkéjét).
+
+**Mit tesztelj később:** nincs teendő, csak nézd meg, hogy minden legördülő
+tényleg a jól olvasható címkét mutatja-e (pl. "kész (exportálható)"), nem a
+nyers kulcsot.

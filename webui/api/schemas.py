@@ -178,6 +178,9 @@ class CompanyListItem(BaseModel):
     industry: str | None
     best_offer: str | None
     updated_at: dt.datetime | None
+    # A cegnek tobb kontaktusa is lehet -- ez a "legjobb" (report.py
+    # _CONTACT_TYPE_ORDER szerinti) email, a reszletnezetben mind lathato.
+    email: str | None
 
 
 class CompanyListResponse(BaseModel):

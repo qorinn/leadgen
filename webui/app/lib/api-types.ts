@@ -285,6 +285,8 @@ export interface components {
             best_offer: string | null;
             /** Updated At */
             updated_at: string | null;
+            /** Email */
+            email: string | null;
         };
         /** CompanyListResponse */
         CompanyListResponse: {

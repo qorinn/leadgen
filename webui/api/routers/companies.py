@@ -11,6 +11,7 @@ import psycopg
 from fastapi import APIRouter, HTTPException, Query
 
 from leadgen import db
+from leadgen.report import _CONTACT_TYPE_ORDER
 
 from ..schemas import CompanyDetailResponse, CompanyListResponse
 
@@ -21,6 +22,14 @@ _SORT_COLUMNS = {
     "company_name": "company_name",
     "updated_at": "updated_at",
 }
+
+# A lista "email" oszlopahoz cegenkent EGY kontaktust valasztunk (egy cegnek
+# tobb kontaktusa is lehet -- CLAUDE.md). A rangsor UGYANAZ, mint a
+# report.py-e (_CONTACT_TYPE_ORDER): ne legyen ket kulon "melyik email
+# szamit elsodlegesnek" dontes ket helyen (WEBUI-TERV.md Invariansok #1).
+_KONTAKT_RANG_CASE = " ".join(
+    f"when '{tipus}' then {rang}" for rang, tipus in enumerate(_CONTACT_TYPE_ORDER)
+)
 
 
 @router.get("/api/companies", response_model=CompanyListResponse)
@@ -77,8 +86,16 @@ def list_companies(
         f"""
         select c.id, c.company_name, c.normalized_domain, c.status, c.campaign,
                c.economic_value, c.signal_score, c.city, c.industry,
-               c.best_offer, c.updated_at
+               c.best_offer, c.updated_at, legjobb_kontakt.email
           from companies c
+          left join lateral (
+            select ct.email
+              from contacts ct
+             where ct.company_id = c.id
+          order by case coalesce(ct.email_type, 'unknown') {_KONTAKT_RANG_CASE} end,
+                   ct.created_at desc
+             limit 1
+          ) legjobb_kontakt on true
           {where_sql}
       order by {sort_col} {order_sql} nulls last
          limit %s offset %s

@@ -151,11 +151,21 @@ def test_minden_endpointnak_van_response_modelje():
 
 
 def test_a_frontend_csak_localhostra_mutat():
-    """WEBUI-TERV.md Invariansok #5: nincs 0.0.0.0, nincs kitett port."""
+    """WEBUI-TERV.md Invariansok #5: nincs 0.0.0.0, nincs kitett port.
+
+    Ez a SAJAT szerverunk (API_BASE, fetch-hivasok) cimeire vonatkozik -- nem
+    arra, hogy a felulet kifele mutasson linket (pl. a scrapelt ceg sajat
+    weboldalara, "domain (kattinthato)", WEBUI-TERV.md F4). Egy sablon-string
+    (pl. `` `https://${domain}` ``), aminek a cime futaskor, adatbazisbol
+    szarmazo ertekbol epul fel, SOHA nem lehet egy bedrotozott szerver-cim --
+    a `${` jelenlete a talalatban ezt jelzi, ezert az ilyeneket kihagyjuk.
+    """
     for path in _frontend_forrasok():
         szoveg = path.read_text(encoding="utf-8")
         assert "0.0.0.0" not in szoveg, f"{path.relative_to(REPO)}: 0.0.0.0"
         for url in re.findall(r"https?://[^\"'\s`]+", szoveg):
+            if "${" in url:
+                continue
             assert re.match(r"https?://(127\.0\.0\.1|localhost)(:\d+)?", url), (
                 f"{path.relative_to(REPO)}: nem-localhost cim: {url}"
             )
