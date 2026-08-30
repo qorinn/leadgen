@@ -26,7 +26,7 @@
 | **10. Classifier + grounding** | ✅ **KÉSZ, 2026-08-25-én átállítva többirányú, nem kizáró minősítésre** |
 | **11. e-beszámoló (7.1) + webshop kinövés (8.3)** | 🟡 **agent-rész kész — az automatikus portál-lekérés KIESETT (jogi + captcha), a kézi és az importált út él** |
 | **12. Ütemezés + monitoring** | ✅ **KÉSZ** — a lánc launchd-ból élesben lefutott, a küldés kézi maradt |
-| 13. | ⬜ nem kezdődött el |
+| **13. Webes felület** | 📐 **megtervezve** (2026-08-29) — [WEBUI-TERV.md](WEBUI-TERV.md), 12 fázis. Az építés még nem kezdődött el. |
 
 ### 2026-08-25 — Kötelezően megőrző leadmodell (felülírja a régi fit-kaput)
 
@@ -1981,7 +1981,7 @@ van, és egy napi összefoglaló megmutatja a keretet, a bounce-arányt és a v�
   ütemezetten fut. Ütemező: **launchd** (nem cron — alvó gépen a cron kihagyja
   és soha nem pótolja a futást). Riasztás: **fájl + email**.
 - **RÁD VÁR:** `./leadgen.sh schedule install` + `ALERT_EMAIL` a `.env`-be
-  ([TEENDOK.md](TEENDOK.md) 4.6).
+  ([TEENDOK.md](TEENDOK.md) 4.7).
 - **A szakasz után, naponta 5 perc** — olvasd a napi összefoglalót.
 
 ### Az agent feladatai — ✅ mind kész (az 5. pont szándékosan nem)
@@ -2100,17 +2100,24 @@ sender.py --dry --skip-guards .. változatlanul fut (a flock nem törte el)
 ```
 
 **Ami RÁD vár:** `./leadgen.sh schedule install` + `ALERT_EMAIL` a `.env`-be —
-[TEENDOK.md](TEENDOK.md) 4.6.
+[TEENDOK.md](TEENDOK.md) 4.7.
 
 ---
 
-## 13. szakasz — Webes felület `[opcionális, utolsó]`
+## 13. szakasz — Webes felület `[megtervezve: 2026-08-29]`
 
-**Cél:** böngészőből átnézni és jóváhagyni a leadeket, olvasni a válaszokat.
-**Becsült agent-munkaidő:** 6+ óra — **a határidő után.**
-**Kész-definíció:** —
+> **A végrehajtási terv külön fájlban van: [WEBUI-TERV.md](WEBUI-TERV.md)**
+> — 12 fázis, fázisonkénti ellenőrzéssel. Modellválasztás:
+> [WEBUI-MODELLEK.md](WEBUI-MODELLEK.md). Bemásolható prompt:
+> [WEBUI-PROMPT.md](WEBUI-PROMPT.md).
 
-**Ez most NEM épül meg.** Amit viszont **már most úgy csinálunk**, hogy később ne
+**Cél:** böngészőből kezelni az EGÉSZ rendszert — minden adat látszik, minden
+funkció gombbal indul.
+**Becsült agent-munkaidő:** ~2-3 session — **a határidő után.**
+**Kész-definíció:** a napi rutin végigvihető a felületen, terminál nélkül
+(a `--live` küldés kétlépcsős megerősítéssel).
+
+**Ez még nem épült meg.** Amit viszont **már most úgy csinálunk**, hogy később ne
 kelljen újraírni:
 
 | Döntés az 1-12. szakaszban | Miért fizetődik ki a 13.-nál |
@@ -2124,8 +2131,79 @@ kelljen újraírni:
 | **Nincs `opened` mező, sehol** | a felület nem ígérhet megnyitási arányt, mert a küldő invariánsa tiltja a trackinget |
 
 Ha később mégis kell egy gyors nézet: a Supabase beépített **Table Editor** és a
-mentett SQL query-k a `ready` lista átnézéséhez már most elegendők — **a 13. szakasz
-kihagyható**, amíg a napi 20-40 lead kézzel is átnézhető.
+mentett SQL query-k a `ready` lista átnézéséhez már most elegendők.
+
+### ✅ Eldöntve — 2026-08-28, felhasználói döntés
+
+A felhasználó **kéri a felületet**, és **teljes terjedelemben**: *„Tényleg
+MINDENT meg szeretnék jeleníteni rajta, és gombokkal indítani a funkciókat."*
+
+| Kérdés | Döntés | Indoklás |
+|---|---|---|
+| **Web vagy natív Mac?** | **Web** (FastAPI + HTML, `localhost`) | A logika Pythonban van, és a `cli.py` szándékosan vékony — a felület ugyanazokat a függvényeket hívja. Natív app esetén **akkor is** kellene egy Python API a háttérbe, vagyis ugyanez a munka **plusz** egy Swift app. |
+| **Terjedelem** | **Teljes**, egyben | Minden adat és minden funkció: napi rutin, cégek, review, válaszok, riasztások, riportok, költségek, ütemezés, élő log. |
+| **Küldés a felületről?** | **Igen, de kétlépcsős** | Előbb a teljes dry-run szöveg, aztán külön „Igen, küldd el" gomb. **Az emberi kapu nem szűnik meg, csak kényelmesebb lesz** — a `--live` továbbra sem indulhat egyetlen kattintásból. |
+| **Elérhetőség** | **Csak `localhost`** | A DB valódi cég- és személyes adatot tárol (GDPR). Nincs kitett szolgáltatás, nincs jelszókezelés. |
+
+**Amit a felületnek meg kell mutatnia** (a felhasználó kérése: *mindent*):
+
+- **Napi rutin** — a `report --daily` tartalma, riasztásokkal a tetején,
+  és gombok: lánc indítása, export, feedback, küldés-előnézet.
+- **Cégek** — teljes lista szűréssel/kereséssel (státusz, kampány, engine,
+  pontszám), és cégenkénti részletnézet: nyers forrás (`sources.raw_signal`),
+  kapcsolatok, AI-szögek és **szó szerinti idézetek** (`opportunity_angles`),
+  pénzügyi adat, dev-kredit, webshop-bizonyíték, címkék, outreach-történet.
+- **Review** — jóváhagyás/elutasítás gombbal (ma: `review --approve/--reject`).
+- **Válaszok** — `reply_events` besorolással, bizonyossággal, indoklással.
+- **Riasztások** — az `alerts` tábla, aktív és lezárt.
+- **Költségek** — `data/llm_usage.csv` + az Apify-futások, modellenkénti bontásban.
+- **Ütemezés** — `schedule status`, be/kikapcsolás, a napi lánc naplója élőben.
+
+**Két dolog, amit a felület SEM tehet meg** (a küldő invariánsai):
+
+1. **Nincs megnyitás-követés.** A felület nem mutathat „megnyitási arányt",
+   mert nincs tracking, és nem is lesz.
+2. **A `--live` nem indulhat megerősítés nélkül.** A kétlépcsős kapu nem
+   kényelmi kérdés: a kiküldés visszafordíthatatlan.
+
+### A technológiai stack — eldöntve 2026-08-28
+
+```
+leadgen/ (Python 3.12)  ──►  FastAPI (vékony API)  ──►  Next.js + shadcn/ui + Bklit UI
+   AZ ÜZLETI LOGIKA           csak átad, ~300 sor            a felület (TypeScript)
+```
+
+| Réteg | Választás | Indoklás |
+|---|---|---|
+| Frontend | **Next.js (App Router)** | a shadcn/ui CLI natívan támogatja; a Bklit UI ugyanazon a CLI-n telepszik |
+| Komponensek | **shadcn/ui** | teljes készlet (table, dialog, form, sidebar, toast) — felhasználói kérés |
+| Chartok | **Bklit UI** (`@bklit/*`) | **a shadcn/ui-ra épül**, ugyanazzal a `shadcn add` paranccsal telepszik, tehát nem második design-rendszer — felhasználói kérés |
+| API | **FastAPI** | ugyanaz a venv, ugyanaz a `leadgen` csomag; csak importál és átad |
+| Indítás | **`./leadgen.sh ui`** | egy parancs indítja mindkét folyamatot és megnyitja a böngészőt |
+
+**A LEGFONTOSABB HATÁR, AMIT NEM SZABAD ÁTLÉPNI:** az üzleti logika marad
+Pythonban. A frontend **megjelenít és gombot nyom** — nem dönt.
+
+Konkrétan a frontendben SOHA nem jelenhet meg:
+`contract.APPROVED_CAMPAIGNS`, a domain lock, a suppression-okok
+értékkészlete, a `status` átmenetek, a grounding szabályai, a
+`_STATUS_MAP` validációs leképezés. Ha ezek bármelyike lemásolódik
+TypeScriptbe, **két igazság lesz rájuk** — és a rendszer egésze pont ezt
+kerüli mindenhol (lásd az A) pontot: „koncernenként egy birtokos").
+A frontend a REST-válaszból tudja meg, mi engedélyezett, nem magától.
+
+**Hosszú futások:** a napi lánc ~5 perc. A kimenet **élőben** folyik a
+felületre (SSE — Server-Sent Events, a `_futtat()` már `PYTHONUNBUFFERED`-del
+megy, tehát van mit streamelni). Egy 5 perces néma pörgő ikon
+használhatatlan lenne: nem látszana, halad-e vagy beragadt.
+
+**A küldés kétlépcsős, és ez API-szinten is így van:** a `POST /send/preview`
+csak a dry-run szöveget adja vissza; a `POST /send/live` **külön hívás**, és
+csak akkor fogadja el, ha előtte volt preview ugyanarra a tervre. A gomb
+nem elég — a szerver is kikényszeríti.
+
+**Becsült munka:** ~2-3 agent-session. **A határidő (2026-10-12) után**, hacsak
+a kézi átnézés nem válik szűk keresztmetszetté előbb.
 
 ---
 

@@ -423,7 +423,12 @@ Egy 200 hirdetéses backfill nagyságrendileg **$1-2**. A `--limit` a fék:
 ./leadgen.sh resolve-domains --limit 20     # élesben
 ```
 
-Jelenleg **8 cég** vár feloldásra. Nem sürgős — nem vesznek el.
+**2026-08-28: jelenleg 0 cég vár feloldásra** — a korábbi 8 azóta feloldódott.
+Az aktuális szám bármikor: `./leadgen.sh report` → a `hiba (pl. elérhetetlen
+weboldal)` sor. Nem sürgős, és a beragadt cégek nem vesznek el.
+
+Ha a Profession.hu gyűjtést automatizáljuk, ez a lépés is a napi láncba
+kerül — lásd a **4.7.3 / 1. lépcső** pontot.
 
 ### 4.4 Reoon kredit *(7. fázis — KÉSZ, csak a kulcs hiányzik)*
 
@@ -534,12 +539,12 @@ fejlesztésért?** Ha nem, emeld; ha túl kevés cég marad, csökkentsd. A gyö
 
 ---
 
-## 🟣 4.6 Automatikus napi futás — *a kód kész, ez a te két lépésed*
+## 🟣 4.7 Automatikus napi futás — *a kód kész, ez a te két lépésed*
 
 A 12. fázis elkészült: a gyűjtés, feldolgozás és átadás mehet magától
 minden reggel 7:30-kor. A küldés szándékosan a kezedben marad.
 
-### 4.6.1 Kapcsold be az ütemezést
+### 4.7.1 Kapcsold be az ütemezést
 
 ```bash
 ./leadgen.sh schedule install
@@ -558,7 +563,7 @@ lesz. Bármikor kikapcsolható: `./leadgen.sh schedule uninstall`.
   után bepótolja. (Ezért launchd, és nem cron.)
 - A napló: `cold-email-starter/data/leadgen_daily.log`.
 
-### 4.6.2 Add meg a riasztási email-címed
+### 4.7.2 Add meg a riasztási email-címed
 
 A gyökér `.env`-be:
 
@@ -578,14 +583,104 @@ Három dologról fogsz szólást kapni:
 | 3 napja nincs kiküldhető lead | valahol elakadt a tölcsér |
 | **24 órája megválaszolatlan érdeklődő** | **ez a legdrágább lead a rendszerben** |
 
-### 4.6.3 Egy hét múlva: döntsd el, mehet-e a küldés is automatikusan
+### 4.7.3 A fokozatos automatizálás — három lépcső, ebben a sorrendben
+
+**Most a lánc szándékosan hiányos.** Csak az `agency_partner` gyűjtés fut
+automatikusan; a Profession.hu forrás, a domain-feloldás és a küldés kézi.
+
+Ez nem hiányosság, hanem sorrend: **előbb kézzel győződj meg róla, hogy jó,
+amit csinál — utána add oda a gépnek.** Amit egyszer automatizálsz, azt
+onnantól nem olvasod el.
+
+Mindhárom lépcsőnél szólj, és beteszem a láncba. **Egy-egy sor a
+`leadgen/schedule.py` `lepesek()` függvényében** — nem nagy munka, a
+kockázatot a sorrend csökkenti, nem a kód.
+
+---
+
+#### 1. lépcső — Profession.hu gyűjtés + domain-feloldás
+
+**Feltétel, hogy ez automatizálható legyen:**
+
+- [ ] Az `ops_pain` engine be van kapcsolva (`leadgen/engines.py`,
+      `enabled=False` → `True`). **Most ki van kapcsolva**, ezért nem is
+      futhatna a láncban.
+- [ ] Az `ops_pain` kampány levélszövegét átírtad, és felvetted a
+      jóváhagyott kampányok közé (3.9 pont). Enélkül a leadek `ready`-be
+      kerülnek, de **nem exportálódnak** — csak gyűlnének.
+- [ ] Kézzel lefuttattad párszor, és jók a találatok:
+      ```bash
+      ./leadgen.sh ingest ops-pain --max-results 30
+      ./leadgen.sh resolve-domains --dry     # előbb nézd meg, mit oldana fel
+      ./leadgen.sh resolve-domains --limit 20
+      ```
+
+**Mi az a `resolve-domains`? — röviden**
+
+A Profession.hu **nem adja meg a cég weboldalát.** Se a hirdetésben, se a
+cégprofilon. Mérve, 2026-08-22, 12 hirdetésen: a szöveg teljes egészében
+megvan, a domain sehol.
+
+Domain nélkül viszont a cég használhatatlan: nem tudjuk letölteni az
+oldalukat, nincs mit elemezni, és nincs email-cím.
+
+Ezért az ilyen cég **nem vész el**, hanem `error` állapotban várakozik. A
+`resolve-domains` ezeket veszi elő, és Google Maps-en rákeres a cégnévre
+(+ településre), hogy megtalálja a weboldalukat.
+
+- 💰 **Fizetős:** ~$0,005 cégenként (Apify).
+- **Miért külön parancs:** az `ingest` inkrementális — a már látott
+  hirdetéseket kiejti, *mielőtt* a feloldásig jutna. Egy `--resolve-maps`
+  kapcsolóval megismételt `ingest` tehát **sosem érné utol** a beragadt
+  cégeket. Ez a parancs a *cégekből* indul, nem a hirdetésekből.
+  (Ezt a hibát a 9. szakasz éles tesztje találta meg: 11 cég ragadt be, és
+  semmilyen `ingest`-kapcsolóval nem lehetett volna elérni őket.)
+
+Ellenőrzés bármikor: `./leadgen.sh report` → a `hiba (pl. elérhetetlen
+weboldal)` sor mutatja, hányan várnak. *(2026-08-28: jelenleg 0.)*
+
+---
+
+#### 2. lépcső — Az esti zárás automatizálása
+
+Ha az első lépcső stabilan megy, jöhet az esti kör: `deliverability.py`
+(kézbesítési jelentés) és a `feedback` egy külön, 18:00-as futásban.
+
+**Ez fontosabb, mint elsőre látszik:** a kézbesítési riasztás (romló
+bounce-arány, SMTP-elutasítás) **csak akkor mérődik, ha a
+`deliverability.py` lefut.** Amíg kézzel indítod, egy kihagyott este =
+aznap nincs kézbesítési figyelés.
+
+⚠️ A `deliverability.py` a rampot is értékeli, és az a `last_eval` mező
+miatt **naponta csak egyszer** hat. Ha automatizáljuk, ne futtasd utána
+kézzel is ugyanaznap — nem hibázik, csak nem csinál semmit.
+
+---
+
+#### 3. lépcső — A küldés  *(ez a legutolsó, és külön mérlegelés)*
 
 Most a `sender.py --live` kézi. Ez a javasolt indulás: amíg nem látod
-stabilnak a válaszarányt és a bounce-okat, olvasd el, mi megy ki.
+stabilnak a válaszarányt és a bounce-okat, **olvasd el, mi megy ki.**
 
-Ha egy-két hét után a számok rendben vannak, a küldés is betehető a láncba.
-**Ez tudatos döntés legyen, ne csúszás** — onnantól a gép a te nevedben ír
-embereknek, anélkül hogy előtte elolvasnád.
+**Feltételek, mielőtt ezt automatizálnánk:**
+
+- [ ] Legalább 2 hét éles küldés mögötted van.
+- [ ] A bounce-arány stabilan 2% alatt.
+- [ ] Nem volt SMTP-elutasítás (`data/rejects.csv` üres vagy elhanyagolható).
+- [ ] Elolvastál elég kiment levelet ahhoz, hogy **ne érjen meglepetés**,
+      mit ír a rendszer a nevedben.
+- [ ] A `report --grounding` kimenetén a személyre szabott mondatok
+      vállalhatók — mindegyiket kiküldenéd a saját neveddel.
+
+**Amit fel kell adnod cserébe:** a `sender.py --dry` az utolsó
+visszafordítható pont. Ha a küldés a láncba kerül, **ez a pont megszűnik** —
+a gép attól kezdve úgy ír embereknek a nevedben, hogy előtte senki nem
+olvassa el. Ez legyen tudatos döntés, ne csúszás.
+
+> A `--live` jelenleg **tesztsorral van kizárva** a láncból
+> (`test_a_lanc_soha_nem_kuld_eles_levelet`). Ha ide eljutunk, a tesztet is
+> át kell írni — szándékosan: hogy a változtatás ne mehessen át észrevétlenül
+> egy „csak beteszem a láncba is" módosításként.
 
 ---
 

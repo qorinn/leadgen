@@ -27,6 +27,11 @@ A repó két rendszert tartalmaz, amiket össze kell hangolni:
 - [INTEGRATION-PLAN.md](INTEGRATION-PLAN.md) — **a végrehajtási terv**: a két rendszer
   közti kontraktus, az eldöntött integrációs kérdések, a szakaszok és az állapotuk.
   Egy új session ezzel kezdjen — a tetején lévő állapot-blokk megmondja, hol tartunk.
+- [WEBUI-TERV.md](WEBUI-TERV.md) — **a webes felület (13. szakasz) végrehajtási terve**,
+  12 fázisra bontva, fázisonkénti ellenőrzéssel. Mellette
+  [WEBUI-MODELLEK.md](WEBUI-MODELLEK.md) (melyik fázis melyik modellel) és
+  [WEBUI-PROMPT.md](WEBUI-PROMPT.md) (a bemásolható fázis-prompt).
+  **A felület még nem épült meg** — ez terv, nem leírás.
 - [SCRAPER-PLAN.md](SCRAPER-PLAN.md) — **a repó elsődleges követelményrendszere**, 3258 sor.
   Ne olvastasd végig egy sessionben; célzottan olvasd `sed -n`-nel. A load-bearing fejezetek:
 
