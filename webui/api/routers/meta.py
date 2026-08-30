@@ -6,7 +6,7 @@ Minden ertek MEGLEVO Python-forrasbol jon, egyiket sem irjuk ujra:
   kampanyok       -> a companies tablaban elofordulo nevek + contract.APPROVED_CAMPAIGNS
   engine_ek       -> engines.ALL_ENGINES
   suppression_okok-> db.suppression_reasons() (a suppression_reason_check CHECK constraint)
-  valasz_osztalyok-> report._REPLY_ORDER / _REPLY_LABEL
+  valasz_osztalyok-> report._REPLY_ORDER / _REPLY_LABEL / _REPLY_SURGOS / _REPLY_ATTEKINTENDO
   cimkek          -> a company_labels tablaban ma elofordulo cimkek (nincs kulon enum)
   kuszobok        -> config.* (scraper) + a kuldo sajat kuszobei (subprocess, mint a _sender_state)
 """
@@ -44,7 +44,12 @@ def meta() -> dict:
     ]
 
     valasz_osztalyok = [
-        {"kulcs": k, "cimke": report._REPLY_LABEL.get(k, k)}
+        {
+            "kulcs": k,
+            "cimke": report._REPLY_LABEL.get(k, k),
+            "surgos": k in report._REPLY_SURGOS,
+            "attekintendo": k in report._REPLY_ATTEKINTENDO,
+        }
         for k in report._REPLY_ORDER
     ]
 

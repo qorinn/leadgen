@@ -261,6 +261,14 @@ az AI a maradékot érti meg. Ezért van az AI a sor **végén**, nem az elején
 megérdemel egy emberi választ. Ez az a pont, ahol a rendszer működik, de az
 ügyfél mégis elveszik.
 
+**Ugyanez böngészőből.** A `./leadgen.sh ui` **Válaszok** oldala mutatja a
+`report --replies` ugyanezen sorait: az érdeklődőket kiemelve, egy órával,
+ami mutatja, mennyi van hátra a 24 órából; a bizonytalanokat külön, hogy
+tudd, kit kell átnézned; és az osztályozásra hibára futott sorokat is. Egy
+sorra kattintva a teljes levélszöveg és az AI indoklása is látszik. A
+**Riasztások** oldal ugyanígy mutatja az `alert --dry` kimenetét, aktív és
+lezárt bontásban, a napló utolsó soraival együtt.
+
 ---
 
 ## 6. folyamat — Email-címek ellenőrzése
@@ -844,7 +852,7 @@ Beállítás: `ALERT_EMAIL=sajat@cimed.hu` a gyökér `.env`-ben.
 
 | Mi hiányzik | Melyik fázis | Mit jelent ez most |
 |---|---|---|
-| **Webes felület** | 13. | Épül ([WEBUI-TERV.md](WEBUI-TERV.md)). A `./leadgen.sh ui` már használható felületet ad: irányítópult, cégek listája és részletei, emberi döntések (jóváhagyás, elutasítás, pénzügyi adat), **Futtatás** (parancsok indítása élő kimenettel) és **Küldés** — a kiküldés két lépésben, előnézettel. Ami még nincs kész: a válaszok és riasztások képernyője, a riportok és a beállítások. |
+| **Webes felület** | 13. | Épül ([WEBUI-TERV.md](WEBUI-TERV.md)). A `./leadgen.sh ui` már használható felületet ad: irányítópult, cégek listája és részletei, emberi döntések (jóváhagyás, elutasítás, pénzügyi adat), **Futtatás** (parancsok indítása élő kimenettel), **Küldés** (kiküldés két lépésben, előnézettel), valamint **Válaszok** és **Riasztások**. Ami még nincs kész: a riportok és a beállítások. |
 
 ---
 

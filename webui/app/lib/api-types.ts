@@ -998,16 +998,22 @@ export interface components {
             received_at: string | null;
             /** Subject */
             subject: string | null;
+            /** Body */
+            body: string | null;
             /** Classification */
             classification: string | null;
             /** Confidence */
             confidence: number | null;
+            /** Model */
+            model: string | null;
             /** Rationale */
             rationale: string | null;
             /** Error */
             error: string | null;
             /** Classified At */
             classified_at: string | null;
+            /** Company Id */
+            company_id: string | null;
             /** Company Name */
             company_name: string | null;
             /** Normalized Domain */
@@ -1229,6 +1235,10 @@ export interface components {
             kulcs: string;
             /** Cimke */
             cimke: string;
+            /** Surgos */
+            surgos: boolean;
+            /** Attekintendo */
+            attekintendo: boolean;
         };
         /** ValidationError */
         ValidationError: {

@@ -16,9 +16,9 @@ def list_replies(classification: str | None = None) -> dict:
     params = (classification,) if classification else ()
     rows = db.query(
         f"""
-        select r.id, r.email, r.received_at, r.subject, r.classification,
-               r.confidence, r.rationale, r.error, r.classified_at,
-               c.company_name, c.normalized_domain
+        select r.id, r.email, r.received_at, r.subject, r.body, r.classification,
+               r.confidence, r.model, r.rationale, r.error, r.classified_at,
+               c.id as company_id, c.company_name, c.normalized_domain
           from reply_events r
      left join contacts ct on ct.email = r.email
      left join companies c on c.id = ct.company_id

@@ -455,6 +455,13 @@ _REPLY_LABEL = {
     "unsubscribe": "leiratkozas -> tiltolistan (domain szinten)",
 }
 
+# A webui F8 fazisa ket besorolast emel ki kulon (24 oras ora / emberi
+# atnezes) -- a `/api/meta`-n keresztul adjuk at oket, nem a besorolas-kulcsot
+# magat drotozzuk a TypeScriptbe (WEBUI-TERV.md Invariansok #1, ezt orzi a
+# `test_a_frontend_nem_drotoz_be_uzleti_listat`).
+_REPLY_SURGOS = {"interested"}
+_REPLY_ATTEKINTENDO = {"other"}
+
 
 def replies_adat() -> dict:
     """A valaszok besorolas szerinti bontasa (`report --replies`)."""

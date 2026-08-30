@@ -78,6 +78,8 @@ class EngineMeta(BaseModel):
 class ValaszOsztalyMeta(BaseModel):
     kulcs: str
     cimke: str
+    surgos: bool
+    attekintendo: bool
 
 
 class MetaResponse(BaseModel):
@@ -211,11 +213,14 @@ class ReplyItem(BaseModel):
     email: str
     received_at: dt.datetime | None
     subject: str | None
+    body: str | None
     classification: str | None
     confidence: float | None
+    model: str | None
     rationale: str | None
     error: str | None
     classified_at: dt.datetime | None
+    company_id: Uuid | None
     company_name: str | None
     normalized_domain: str | None
 

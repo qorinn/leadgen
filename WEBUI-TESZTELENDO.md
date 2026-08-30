@@ -498,3 +498,53 @@ félrevezető. Helyette olyan műveletet kell írni, ami **tényleg** megváltoz
 a tervet — például `review --reject <domain>` egy sorban álló leadre, vagy egy
 export, ami után tényleg más a `leads.csv`. Amíg ez nincs javítva, ezt a
 lépést **soha ne futtasd az éles küldő ellen** hétköznap 8 és 17 óra között.
+
+---
+
+## F8 — Válaszok és riasztások
+
+### 14. Az F1-ben megépített `/api/replies` hiányos volt a saját fázisához képest
+
+**Mi történt:** a `GET /api/replies`-t és a `ReplyItem` sémát még az F1
+fázis építette meg, "minden GET egyben" elven. Az F8 terve viszont a
+`reply_events` tábla **négy** olyan mezőjét is előírja ("Részletek: a teljes
+szöveg és az AI indoklása", illetve a lista-oszlopok közt "modell"), amiket
+az F1-es `select` nem hozott ki: a `body` (teljes szöveg) és a `model`
+oszlop egyáltalán nem szerepelt sem a lekérdezésben, sem a Pydantic
+modellben, és a cég-azonosító (`company_id`) sem — csak a név és a domain.
+
+**Mit döntöttünk:** kibővítettük az F1-ben megépített router-t és sémát
+(`webui/api/routers/replies.py`, `webui/api/schemas.py`) a hiányzó mezőkkel,
+ahelyett hogy egy párhuzamos, kézzel írt lekérdezést tettünk volna az F8
+oldalba. Ez nem terv-módosítás, hanem egy korábbi fázis hiányosságának
+pótlása — a `reply_events.body` és `.model` oszlop már az 1. és a 6.
+szakasz óta létezik a DB-ben, csak a webui F1 nem exportálta.
+
+**Mit tesztelj később:** ha egy jövőbeli fázis (pl. F9 — Riportok) egy
+korábban megépített `/api/...` végpontot bővít, első lépésként nézd meg,
+hogy az F1 "minden GET egyben" refaktorja tényleg kihozta-e az adott
+fázishoz kellő MINDEN mezőt — a WEBUI-TERV.md fázis-leírásai néha
+részletesebbek, mint amit az F1 idején elő lehetett látni.
+
+### 15. A "kiemelt" válasz-osztályok (interested/other) nem írhatók be a frontendbe
+
+**Mi történt:** a terv szerint a felület külön kiemeli az `interested`
+(24 órás óra) és az `other` (bizonytalan) besorolású válaszokat. A
+`tests/test_webui_contract.py::test_a_frontend_nem_drotoz_be_uzleti_listat`
+viszont minden `report._REPLY_ORDER`-beli kulcsot (köztük az
+`interested`-et) tilt a TypeScript string-literáljaiban — ezt a tesztet még
+az F2 fázis írta, előre védve a jövőbeli fázisokat, F8-at is beleértve.
+
+**Mit döntöttünk:** a `/api/meta` `valasz_osztalyok` tömbjét két új, Python
+oldalon számolt boolean mezővel bővítettük (`surgos`, `attekintendo` —
+lásd `leadgen/report.py` `_REPLY_SURGOS` / `_REPLY_ATTEKINTENDO`). A
+frontend ezt a két flaget olvassa ki soronként, sosem magát a
+besorolás-kulcsot hasonlítja `"interested"`-hez vagy `"other"`-hoz — így a
+kiemelés szabálya (melyik besorolás sürgős) Pythonban marad, a teszt zöld,
+és ha a szabály valaha változik (pl. a `negative` is sürgőssé válik),
+elég a `report.py`-t módosítani.
+
+**Mit tesztelj később:** ha egy jövőbeli fázis (riportok, chartok) egy
+besorolás- vagy státusz-kulcs szerint akarna csoportosítani vagy színezni a
+frontendben, ne a kulcsot írd be — bővítsd a megfelelő `/api/meta` listát
+egy szerep-flaggel, ahogy itt történt.
