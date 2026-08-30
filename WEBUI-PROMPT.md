@@ -17,7 +17,7 @@
 ## A prompt — ezt másold be
 
 ```
-Valósítsd meg a WEBUI-TERV.md  ### F4 ###  fázisát.
+Valósítsd meg a WEBUI-TERV.md  ### F6 ###  fázisát.
 
 MIELŐTT BÁRMIT ÍRNÁL:
 1. Olvasd el a WEBUI-TERV.md-ből a fenti fázis szakaszát, valamint a
@@ -59,7 +59,7 @@ scriptben SOHA ne commitolj, és ne írj át valódi cégadatot. Ha írnod kell 
 teszthez, előbb kérdezz.
 
 A FÁZIS VÉGÉN:
-1. Futtasd le a WEBUI-TERV.md-ben az  ### F4 ###  fázisnál megadott
+1. Futtasd le a WEBUI-TERV.md-ben az  ### F6 ###  fázisnál megadott
    ellenőrzést, és mutasd meg a tényleges kimenetét.
 2. Futtasd le: .venv/bin/pytest    (a meglévő teszteknek zöldnek kell maradniuk)
 3. Ha a fázis új parancsot vagy folyamatot adott a rendszerhez, frissítsd a

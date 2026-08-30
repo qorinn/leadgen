@@ -290,3 +290,198 @@ class LogResponse(BaseModel):
     path: str
     exists: bool
     lines: list[str]
+
+
+# ─── /api/review/* (F5) ─────────────────────────────────────────────────────
+
+
+class ReviewActionResponse(BaseModel):
+    """A jovahagyas/elutasitas eredmenye -- ugyanaz az uj allapot, amit a
+    CLI is kiirna (leadgen/review.py, egy forras a ket hivonak)."""
+    uj_status: str
+
+
+class RejectBody(BaseModel):
+    """A `reason` a /api/meta `suppression_okok` listajabol valaszthato a
+    fronton -- ez a mezo itt csak nyers string, az ervenyesseget a DB CHECK
+    constraint es a leadgen/review.py donti el, nem a webui."""
+    reason: str = "manual_block"
+
+
+class SuppressedCompanyItem(BaseModel):
+    id: Uuid
+    normalized_domain: str | None
+    company_name: str | None
+    status_note: str | None
+    title: str | None
+
+
+class SuppressedListResponse(BaseModel):
+    items: list[SuppressedCompanyItem]
+
+
+# ─── /api/financials/*, /api/companies/{id}/financials (F5) ────────────────
+
+
+class FinancialsImportResponse(BaseModel):
+    olvasott: int
+    frissitett: int
+    ures: int
+    hibas: int
+    ismeretlen: int
+    ezer_forint_gyanu: list[str]
+    ertekek: dict[str, int]
+    dry: bool
+
+
+class CompanyFinancialsBody(BaseModel):
+    revenue: float | None = None
+    headcount: int | None = None
+    financial_year: int | None = None
+    # "nincs kozzetett beszamolo" kapcsolo -- ilyenkor a revenue/headcount
+    # figyelmen kivul marad (leadgen.financials.jelold_hianyzonak).
+    missing: bool = False
+
+
+class FinancialsSaveResponse(BaseModel):
+    economic_value: str | None
+    # Nem None, ha a megadott arbevetel gyanusan kicsi (financials.py
+    # GYANUSAN_KICSI_HUF alatt) -- a beszamolo urlapja "E Ft-ban" mutat, ez a
+    # leggyakoribb elirasi hiba (WEBUI-TERV.md F5).
+    figyelmeztetes: str | None
+
+
+# ─── /api/jobs/* (F6) ──────────────────────────────────────────────────────
+
+
+class JobParamMeta(BaseModel):
+    """Egy allithato keret. Az `alap` a CLI sajat argparse-abol jon
+    (webui/api/jobs.py `_alap_ertekek`), nem kezi masolatbol."""
+    nev: str
+    flag: str
+    cimke: str
+    alap: int
+    minimum: int
+    maximum: int
+
+
+class JobKoltseg(BaseModel):
+    """A becsult koltseg NYERSANYAGA, nem egy kesz szam.
+
+    Az Apify-resz szorzas (egysegar x darab), tehat a felulet ki tudja
+    szamolni, amint a felhasznalo allit a kereten. Az AI-resz elore NEM
+    becsulheto (tokenenkent szamlazodik) -- ilyenkor `ai_tokenenkent=True`,
+    es a felulet ezt irja ki, nem egy kitalalt osszeget (WEBUI-TERV.md F6).
+    """
+    fizetos: bool
+    apify_egysegar_usd: float | None
+    apify_fix_darab: int | None
+    apify_darab_parametere: str | None
+    ai_tokenenkent: bool
+    magyarazat: str
+
+
+class JobCatalogItem(BaseModel):
+    kulcs: str
+    cimke: str
+    magyarazat: str
+    # Amit a terminalban gepelnel ugyanerre -- a felulet es a CLI igy
+    # ugyanazt a nevet hasznalja ugyanarra a futasra.
+    parancs: str
+    parameterek: list[JobParamMeta]
+    koltseg: JobKoltseg
+
+
+class JobCatalogResponse(BaseModel):
+    items: list[JobCatalogItem]
+
+
+class JobItem(BaseModel):
+    id: str
+    kulcs: str
+    cimke: str
+    parancs: str
+    fut: bool
+    # Gepi kulcs (`running`/`ok`/`failed`/`cancelled`) es a hozza tartozo
+    # magyar felirat. A frontend a `fut`-ot hasznalja logikara, a cimket
+    # megjelenitesre -- igy nem kell allapotlistat TS-be masolni.
+    allapot: str
+    allapot_cimke: str
+    started_at: dt.datetime
+    finished_at: dt.datetime | None
+    seconds: float | None
+    exit_code: int | None
+
+
+class JobStartBody(BaseModel):
+    kulcs: str
+    params: dict[str, int] = {}
+
+
+class JobResponse(BaseModel):
+    job: JobItem
+
+
+class JobCurrentResponse(BaseModel):
+    job: JobItem | None
+
+
+class JobHistoryResponse(BaseModel):
+    items: list[JobItem]
+
+
+class JobOutputResponse(BaseModel):
+    job: JobItem
+    lines: list[str]
+    # A kovetkezo kereshez visszaadando sor-index. Nem a lista hossza: a
+    # regi sorok kieshetnek a memoriabol, es a kurzor akkor is helyes marad.
+    cursor: int
+
+
+# ─── /api/send/* (F7) ──────────────────────────────────────────────────────
+
+
+class SendLevel(BaseModel):
+    """Egy levele a mai tervnek, TELJES torzzsel -- nem az elso 400 karakter
+    (WEBUI-TERV.md F7). A `fok` a `sender._stage_of` szerinti szekvencia-fok
+    (cold / follow_up_1 / follow_up_2), leadenkent kulon."""
+    cimzett: str
+    ceg: str
+    fok: str
+    targy: str
+    torzs: str
+
+
+class SendPreviewResponse(BaseModel):
+    # A terv tartalmi hash-ehez kotott, 10 percig ervenyes, EGYSZER
+    # hasznalhato token. A frontend szamara atlatszatlan string.
+    token: str
+    lejar: dt.datetime
+    levelek: list[SendLevel]
+    mai_keret: int
+    terv_meret: int
+    # A KULDESI IDOABLAK. Nincs a terv F7 JSON-peldajaban, de nelkule a
+    # felhasznalo csak az elo naploban szembesulne azzal, hogy a
+    # `sender.py --live` az ablakon kivul exit 0-val, kuldes nelkul kilep
+    # (felhasznaloi dontes, 2026-08-30 -- lasd WEBUI-TESZTELENDO.md).
+    ablak_nyitva: bool
+    ablak_ok: str
+
+
+class SendLiveBody(BaseModel):
+    """A `/api/send/preview`-tol kapott token. Enelkul nincs eles kuldes."""
+    token: str
+
+
+class SendSampleBody(BaseModel):
+    cim: str
+    limit: int = 1
+    fok: str = "cold"
+
+
+class SendSampleResponse(BaseModel):
+    """A `preview.py --send-to` kimenete. A valodi cimzettek nem kapnak
+    semmit, es a `sent.csv` sem valtozik."""
+    ok: bool
+    sorok: list[str]
+    error: str | None

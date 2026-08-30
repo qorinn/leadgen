@@ -45,6 +45,18 @@ ARAK: dict[str, tuple[float, float, float | None]] = {
 # Anthropicnal a cache-olvasas ~0.1x az input ar, ha nincs kulon megadva.
 _CACHE_SZORZO = 0.1
 
+# ─── Apify (nem LLM, de ugyanaz a szabaly: egy helyen alljon a szam) ───────
+#
+# A Google Maps scraper egy talalata. FORRAS: apify.com/compass/crawler-google-places
+# aktualis "pay per result" ara (ellenorizve 2026-08-22, a 9. szakasz elesitesekor).
+#
+# MIERT ITT: ezt a szamot a `report`, a `maps.py`, a `profession.py` es a
+# webes felulet KOLTSEG-MEGEROSITO parbeszede is kiirja. Negy helyen kezzel
+# karbantartva elobb-utobb elcsusznanak egymastol, es a felulet mast igerne,
+# mint amit a CLI ugyanarra a futasra mond (WEBUI-TERV.md F6:
+# "ne talalj ki szamot").
+APIFY_TALALAT_USD = 0.005
+
 
 def ismeretlen(model: str) -> bool:
     return model not in ARAK

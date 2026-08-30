@@ -18,6 +18,9 @@ interface MegerositoDialogProps {
   /** A muvelet kovetkezmenye -- ezt mindig ki kell irni (WEBUI-TERV.md F2). */
   kovetkezmeny: ReactNode;
   megerositoSzoveg?: string;
+  /** Letiltja a megerosito gombot (pl. amig a kovetkezmenyben egy kotelezo
+   * mezo -- mint egy elutasitasi ok -- nincs kitoltve). */
+  megerositoTiltva?: boolean;
   onMegerosit: () => void | Promise<void>;
 }
 
@@ -27,6 +30,7 @@ export function MegerositoDialog({
   cim,
   kovetkezmeny,
   megerositoSzoveg = "Megerősítem",
+  megerositoTiltva = false,
   onMegerosit,
 }: MegerositoDialogProps) {
   const [nyitva, setNyitva] = useState(false);
@@ -48,13 +52,17 @@ export function MegerositoDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{cim}</DialogTitle>
-          <DialogDescription>{kovetkezmeny}</DialogDescription>
+          {/* A DialogDescription alapbol <p>-t renderel, de a `kovetkezmeny`
+              barmilyen ReactNode lehet (pl. F5: szoveg + Select egy dobozban)
+              -- egy <div> vagy <p> beagyazasa egy <p>-be ervenytelen HTML-t
+              es hydration-hibat adna, ezert <div>-re valtjuk a cimket. */}
+          <DialogDescription render={<div />}>{kovetkezmeny}</DialogDescription>
         </DialogHeader>
         <DialogFooter>
           <Button variant="outline" onClick={() => setNyitva(false)} disabled={fut}>
             Mégse
           </Button>
-          <Button variant="destructive" onClick={kezeles} disabled={fut}>
+          <Button variant="destructive" onClick={kezeles} disabled={fut || megerositoTiltva}>
             {fut ? "Folyamatban…" : megerositoSzoveg}
           </Button>
         </DialogFooter>

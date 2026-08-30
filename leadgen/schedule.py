@@ -231,13 +231,28 @@ def _futtat(argv: list[str]) -> int:
     A `PYTHONUNBUFFERED` a gyerekfolyamatoknak is szol; a sajat kimenetunket
     a `flush=True` viszi ki (lasd `_ki()`).
     """
-    venv_python = config.BASE / ".venv" / "bin" / "python"
-    kornyezet = dict(os.environ, PYTHONUNBUFFERED="1")
     proc = subprocess.run(
-        [str(venv_python), "-u", "-m", "leadgen.cli", *argv],
-        cwd=config.BASE, env=kornyezet,
+        cli_parancs(argv), cwd=config.BASE, env=cli_kornyezet(),
     )
     return proc.returncode
+
+
+def cli_parancs(argv: list[str]) -> list[str]:
+    """A CLI egy lepesenek teljes parancssora, a venv Pythonjaval.
+
+    KULON FUGGVENY, mert ket hivoja van: a napi lanc (`_futtat`) es a webes
+    felulet job-kezeloje (`webui/api/jobs.py`, F6). Ha a ketto kulon epitene
+    fel a parancsot, egy nap az egyik `-u` nelkul indulna -- es pont az elo
+    naplo (a felulet egesz ertelme) allna le, csendben.
+    """
+    return [str(config.BASE / ".venv" / "bin" / "python"),
+            "-u", "-m", "leadgen.cli", *argv]
+
+
+def cli_kornyezet() -> dict[str, str]:
+    """A gyerekfolyamat kornyezete. A `PYTHONUNBUFFERED` az EGESZ folyamatfara
+    hat -- a lanc sajat fejlecere is, nem csak a lepesekere."""
+    return dict(os.environ, PYTHONUNBUFFERED="1")
 
 
 def _osszefoglalo(e: LancEredmeny) -> None:

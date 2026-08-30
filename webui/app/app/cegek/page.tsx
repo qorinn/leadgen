@@ -14,12 +14,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AdatTabla } from "@/components/adat-tabla";
 import { StatusBadge } from "@/components/status-badge";
 import { UresAllapot } from "@/components/ures-allapot";
 import { useMeta } from "@/lib/use-meta";
 import { api, ApiError, type CompanyListItem } from "@/lib/api";
 import { formatDatum } from "@/lib/format";
+import { SuppressedLista } from "./suppressed-lista";
 
 // A gazdasagi ertek (LOW/MEDIUM/HIGH) NEM a /api/meta-bol jon: ez egy fix,
 // DB CHECK constraint-tel zart halmaz (leadgen/migrations/011_financials.sql
@@ -189,74 +191,87 @@ function CegLista() {
     <div className="flex flex-col gap-4">
       <h1 className="text-2xl font-semibold">Cégek</h1>
 
-      <AdatTabla
-        oszlopok={OSZLOPOK}
-        adat={items}
-        oldal={oldal}
-        oldalMeret={50}
-        osszesen={osszesen}
-        onOldalValtas={setOldal}
-        rendezes={rendezes}
-        onRendezesValtas={setRendezes}
-        betoltes={betoltes}
-        hiba={hiba}
-        ujra={() => setSzurok((s) => ({ ...s }))}
-        ures={<UresAllapot cim="Nincs a szűrésnek megfelelő cég" />}
-        toolbar={
-          <div className="flex flex-wrap items-end gap-3">
-            <div className="flex flex-col gap-1">
-              <Label htmlFor="q">Keresés</Label>
-              <Input
-                id="q"
-                placeholder="Név vagy domain…"
-                value={qNyers}
-                onChange={(e) => setQNyers(e.target.value)}
-                className="w-48"
-              />
-            </div>
+      <Tabs defaultValue="cegek">
+        <TabsList>
+          <TabsTrigger value="cegek">Cégek</TabsTrigger>
+          <TabsTrigger value="auto-versenytars">Automatikusan kizárt versenytársak</TabsTrigger>
+        </TabsList>
 
-            <SzuroValaszto
-              cimke="Státusz"
-              ertek={szurok.status}
-              onValtoz={(v) => setSzurok((s) => ({ ...s, status: v }))}
-              opciok={(meta?.statuszok ?? []).map((s) => ({
-                ertek: s.kulcs,
-                cimke: s.cimke,
-              }))}
-            />
-            <SzuroValaszto
-              cimke="Kampány"
-              ertek={szurok.campaign}
-              onValtoz={(v) => setSzurok((s) => ({ ...s, campaign: v }))}
-              opciok={(meta?.kampanyok ?? []).map((k) => ({
-                ertek: k.kulcs,
-                cimke: k.jovahagyott ? k.kulcs : `${k.kulcs} (vázlat)`,
-              }))}
-            />
-            <SzuroValaszto
-              cimke="Engine"
-              ertek={szurok.engine}
-              onValtoz={(v) => setSzurok((s) => ({ ...s, engine: v }))}
-              opciok={(meta?.engine_ek ?? []).map((e) => ({
-                ertek: e.kulcs,
-                cimke: e.cimke,
-              }))}
-            />
-            <SzuroValaszto
-              cimke="Gazdasági érték"
-              ertek={szurok.economic_value}
-              onValtoz={(v) => setSzurok((s) => ({ ...s, economic_value: v }))}
-              opciok={GAZDASAGI_ERTEKEK.map((e) => ({ ertek: e, cimke: e }))}
-            />
-            <SzuroValaszto
-              cimke="Címke"
-              ertek={szurok.label}
-              onValtoz={(v) => setSzurok((s) => ({ ...s, label: v }))}
-              opciok={(meta?.cimkek ?? []).map((c) => ({ ertek: c, cimke: c }))}
-            />
-          </div>
-        }
-      />
+        <TabsContent value="cegek">
+          <AdatTabla
+            oszlopok={OSZLOPOK}
+            adat={items}
+            oldal={oldal}
+            oldalMeret={50}
+            osszesen={osszesen}
+            onOldalValtas={setOldal}
+            rendezes={rendezes}
+            onRendezesValtas={setRendezes}
+            betoltes={betoltes}
+            hiba={hiba}
+            ujra={() => setSzurok((s) => ({ ...s }))}
+            ures={<UresAllapot cim="Nincs a szűrésnek megfelelő cég" />}
+            toolbar={
+              <div className="flex flex-wrap items-end gap-3">
+                <div className="flex flex-col gap-1">
+                  <Label htmlFor="q">Keresés</Label>
+                  <Input
+                    id="q"
+                    placeholder="Név vagy domain…"
+                    value={qNyers}
+                    onChange={(e) => setQNyers(e.target.value)}
+                    className="w-48"
+                  />
+                </div>
+
+                <SzuroValaszto
+                  cimke="Státusz"
+                  ertek={szurok.status}
+                  onValtoz={(v) => setSzurok((s) => ({ ...s, status: v }))}
+                  opciok={(meta?.statuszok ?? []).map((s) => ({
+                    ertek: s.kulcs,
+                    cimke: s.cimke,
+                  }))}
+                />
+                <SzuroValaszto
+                  cimke="Kampány"
+                  ertek={szurok.campaign}
+                  onValtoz={(v) => setSzurok((s) => ({ ...s, campaign: v }))}
+                  opciok={(meta?.kampanyok ?? []).map((k) => ({
+                    ertek: k.kulcs,
+                    cimke: k.jovahagyott ? k.kulcs : `${k.kulcs} (vázlat)`,
+                  }))}
+                />
+                <SzuroValaszto
+                  cimke="Engine"
+                  ertek={szurok.engine}
+                  onValtoz={(v) => setSzurok((s) => ({ ...s, engine: v }))}
+                  opciok={(meta?.engine_ek ?? []).map((e) => ({
+                    ertek: e.kulcs,
+                    cimke: e.cimke,
+                  }))}
+                />
+                <SzuroValaszto
+                  cimke="Gazdasági érték"
+                  ertek={szurok.economic_value}
+                  onValtoz={(v) => setSzurok((s) => ({ ...s, economic_value: v }))}
+                  opciok={GAZDASAGI_ERTEKEK.map((e) => ({ ertek: e, cimke: e }))}
+                />
+                <SzuroValaszto
+                  cimke="Címke"
+                  ertek={szurok.label}
+                  onValtoz={(v) => setSzurok((s) => ({ ...s, label: v }))}
+                  opciok={(meta?.cimkek ?? []).map((c) => ({ ertek: c, cimke: c }))}
+                />
+              </div>
+            }
+          />
+        </TabsContent>
+
+        <TabsContent value="auto-versenytars">
+          <SuppressedLista />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

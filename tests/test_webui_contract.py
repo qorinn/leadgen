@@ -46,6 +46,36 @@ _GENERALT = {"api-types.ts"}
 # ugyanaz a ket angol szo (WEBUI-TERV.md F2, 2026-08-30-i dontes).
 _VENDOR_KONYVTARAK = {"ui", "charts"}
 
+# Csak az idezojeles/sablon string-literalok TARTALMAT vizsgaljuk, nem a
+# teljes fajlszoveget -- a teszt sajat docstringje is ezt a mintat irja le
+# ("const STATUSES = [...]"): egy azonosito neve (pl. a `ReviewActions`
+# komponens vagy a `review-actions.tsx` fajlnev egy import-utvonalban) vagy
+# egy komment sosem "masolt lista", csak egy futaskor ertekelt string ertek
+# lehet az. Ez egyben azt is jelenti, hogy a `.field` property-access
+# kivetel (regi kommentekben lasd lejjebb) mar nem is kellene kulon -- egy
+# `daily.review` bare kod sosem esik bele egy string-literalba --, de
+# vedelmi tobbszorozeskent bent hagyjuk (WEBUI-TERV.md F5, 2026-08-30-i
+# dontes).
+_STRING_LITERAL = re.compile(
+    r'"(?:[^"\\\n]|\\.)*"' r"|'(?:[^'\\\n]|\\.)*'" r"|`(?:[^`\\]|\\.)*`",
+    re.DOTALL,
+)
+# Import-utvonalak es sajat API-route-ok (pl. "./review-actions",
+# "@/lib/api", "/api/review/suppressed") NEM uzleti ertekek, akkor sem, ha
+# egy statusz-szoval egyeznek meg reszben (pl. a "suppressed" szo egy
+# route-utvonalban) -- ezek kod-szintu hivatkozasok, nem adat.
+_UTVONAL_MINTA = re.compile(r'^["\'`](\.{1,2}/|@/|/api/)')
+
+
+def _string_literal_tartalom(szoveg: str) -> str:
+    darabok = []
+    for talalat in _STRING_LITERAL.finditer(szoveg):
+        egesz = talalat.group()
+        if _UTVONAL_MINTA.match(egesz):
+            continue
+        darabok.append(egesz)
+    return "\n".join(darabok)
+
 
 def _frontend_forrasok() -> list[Path]:
     """A sajat (nem generalt, nem fuggoseg) frontend-forrasok."""
@@ -95,7 +125,7 @@ def test_a_frontend_nem_drotoz_be_uzleti_listat():
     tiltott = _tiltott_szavak()
     talalatok = []
     for path in forrasok:
-        szoveg = path.read_text(encoding="utf-8")
+        szoveg = _string_literal_tartalom(path.read_text(encoding="utf-8"))
         for szo in tiltott:
             # Szo hataron keresunk, hogy a `readyState` ne legyen `ready`.
             #
@@ -123,7 +153,14 @@ def test_a_frontend_nem_drotoz_be_uzleti_listat():
 
 
 def test_minden_endpointnak_van_response_modelje():
-    """Enelkul a generalt TS-tipus ures, es a frontend kezi tipust kenyszerul irni."""
+    """Enelkul a generalt TS-tipus ures, es a frontend kezi tipust kenyszerul irni.
+
+    KIVETEL: ha a fuggveny visszateresi tipusa NEM `dict` (pl. `PlainTextResponse`
+    egy CSV-letoltesnel, WEBUI-TERV.md F5 `/api/financials/worklist`) -- egy
+    fajl-letoltes nem JSON, nincs is mit tipizalni a Pydantic oldalon, es a
+    frontend ilyenkor amugy sem parsol valaszt, csak az URL-t hasznalja
+    (lasd `api.financialsWorklistUrl`).
+    """
     router_dir = API_DIR / "routers"
     assert router_dir.exists(), "nincs webui/api/routers konyvtar"
 
@@ -133,11 +170,18 @@ def test_minden_endpointnak_van_response_modelje():
         for node in ast.walk(fa):
             if not isinstance(node, ast.FunctionDef):
                 continue
+            visszateres_dict = (
+                node.returns is None
+                or (isinstance(node.returns, ast.Name) and node.returns.id == "dict")
+                or isinstance(node.returns, ast.Subscript)
+            )
             for dek in node.decorator_list:
                 if not isinstance(dek, ast.Call):
                     continue
                 # @router.get("/api/...") alaku dekoratorok
                 if not (isinstance(dek.func, ast.Attribute) and dek.func.attr == "get"):
+                    continue
+                if not visszateres_dict:
                     continue
                 if not any(kw.arg == "response_model" for kw in dek.keywords):
                     utvonal = dek.args[0].value if dek.args else "?"

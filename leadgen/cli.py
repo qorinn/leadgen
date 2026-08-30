@@ -21,8 +21,8 @@ import sys
 from pathlib import Path
 
 from . import (alerts, classify, config, db, deadev, dev, engines, evals,
-               export, feedback, financials, labels, llm, llmcheck, pipeline,
-               report, schedule, score, webshop)
+               export, feedback, financials, llm, llmcheck, pipeline,
+               report, review, schedule, score, webshop)
 from .sources import maps, profession
 
 
@@ -309,59 +309,21 @@ def _cmd_engines(_args: argparse.Namespace) -> int:
 
 
 def _cmd_review(args: argparse.Namespace) -> int:
-    """Emberi dontes. Az AUTOMATIKUS dontesek is felulbirlhatok innen."""
+    """Emberi dontes. Az AUTOMATIKUS dontesek is felulbirlhatok innen.
+
+    A tenyleges logika a leadgen/review.py-ban van (EGY forras, a webui
+    `/api/review/*` router UGYANEZEKET a fuggvenyeket hivja -- annak a
+    modulnak a docstringje adja az indoklast). Ez a fuggveny csak a
+    parancssori bemenetet/kimenetet alakitja.
+    """
     if args.approve:
-        # A gep automatikus VERSENYTARS-dontese felulbiralhato. Mas
-        # suppression-ok (leiratkozas, bounce) ezen a parancson at sem
-        # oldhatok fel veletlenul.
-        with db.connect() as conn, conn.cursor() as cur:
-            cur.execute(
-                """
-                select c.id,
-                       exists (
-                         select 1 from contacts ct
-                          where ct.company_id = c.id
-                            and ct.local_check is distinct from 'fail'
-                            and coalesce(ct.verify_result, '') <> 'invalid'
-                            and coalesce(ct.bounce_state, '') <> 'hard_bounce'
-                       ) as van_kapcsolat
-                  from companies c
-                 where c.normalized_domain = %s
-                   and (
-                     c.status in ('review', 'hold', 'rejected')
-                     or (c.status = 'suppressed' and exists (
-                       select 1 from suppression sp
-                        where sp.normalized_domain = c.normalized_domain
-                          and sp.reason = 'competitor'
-                     ))
-                   )
-                """,
-                (args.approve,))
-            hit = cur.fetchone()
-            n = 1 if hit else 0
-            status = ""
-            if hit:
-                cur.execute("delete from suppression where normalized_domain = %s "
-                            "and reason = 'competitor'", (args.approve,))
-                status = "ready" if hit["van_kapcsolat"] else "scored"
-                cur.execute(
-                    "update companies set status = %s, status_note = 'kezi jovahagyas' "
-                    "where id = %s", (status, hit["id"]))
-                for label in ("manual_review", "enterprise_hold", "legacy_rejected"):
-                    labels.clear_label(cur, hit["id"], label)
-        print(f"Jovahagyva: {n} ceg -> {status}" if n else
+        eredmeny = review.approve(args.approve)
+        print(f"Jovahagyva: 1 ceg -> {eredmeny.uj_status}" if eredmeny.talalt else
               "Nincs jovahagyhato review/hold/competitor ceg ezen a domainen.")
         return 0
 
     if args.suppressed:
-        rows = db.query("""
-            select c.normalized_domain, c.company_name, c.status_note,
-                   s.raw_signal->>'title' as title
-              from companies c
-              left join sources s on s.company_id = c.id and s.source_type = 'website_crawl'
-             where c.status = 'suppressed' and c.status_note like 'versenytars%'
-             order by c.normalized_domain
-        """)
+        rows = review.suppressed_competitors()
         if not rows:
             print("Nincs automatikusan kizart ceg.")
             return 0
@@ -375,33 +337,9 @@ def _cmd_review(args: argparse.Namespace) -> int:
             print(f"    cim: {(r['title'] or '')[:88]}\n")
         return 0
     if args.reject:
-        # MIERT NEM CSAK `review` ALLAPOTBOL: az 5. szakasz emberi feladata az,
-        # hogy a kikuldes elott VEGIGOLVASD a dry-run kimenetet -- "ez az utolso
-        # visszafordithato pont". Csakhogy amit ott latsz, az mar `queued`:
-        # exportalva van a leads.csv-be. Ha innen nem lehetne kihuzni egy ceget,
-        # a felulvizsgalatnak nem lenne eszkoze. A `sent` is benne van: onnan a
-        # kihuzas a MEG HATRALEVO follow-upokat allitja le.
         reason = args.reason or "manual_block"
-        with db.connect() as conn, conn.cursor() as cur:
-            cur.execute("select id from companies where normalized_domain = %s "
-                        "and status in ('review','queued','sent','ready','enriched','new')",
-                        (args.reject,))
-            hit = cur.fetchone()
-            n = 1 if hit else 0
-            if hit:
-                cur.execute("update companies set status = 'suppressed', status_note = %s "
-                            "where id = %s",
-                            (f"kezi elutasitas: {reason}", hit["id"]))
-                cur.execute("insert into suppression (normalized_domain, reason, note) "
-                            "values (%s, %s, 'kezi elutasitas') "
-                            "on conflict (normalized_domain) where normalized_domain is not null "
-                            "and email is null do nothing", (args.reject, reason))
-                # A folyamatban levo megkereses lezarasa. Enelkul a domain lock
-                # reszleges indexe szerint a szekvencia orokre "aktiv" maradna.
-                cur.execute("update outreach set status = 'stopped' "
-                            "where company_id = %s and status in ('queued','sent')",
-                            (hit["id"],))
-        if n:
+        eredmeny = review.reject(args.reject, reason)
+        if eredmeny.talalt:
             print(f"Elutasitva: {args.reject} -> suppressed ({reason})")
             print("A leads.csv-bol a kovetkezo exportnal tunik el:")
             print("  ./leadgen.sh export")
@@ -409,12 +347,7 @@ def _cmd_review(args: argparse.Namespace) -> int:
             print("Nincs ilyen ceg (vagy mar tiltolistan van).")
         return 0
 
-    rows = db.query("""
-        select c.normalized_domain, c.company_name, c.status_note, c.signal_summary,
-               (select ct.email from contacts ct where ct.company_id = c.id limit 1) as email
-          from companies c where c.status = 'review'
-         order by c.signal_score desc nulls last, c.company_name
-    """)
+    rows = review.review_queue()
     if not rows:
         print("Nincs atnezendo ceg.")
         return 0

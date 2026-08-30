@@ -21,8 +21,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-from .routers import (alerts, companies, costs, health, logs, meta,  # noqa: E402
-                       replies, report, schedule)
+from .routers import (alerts, companies, costs, financials, health, jobs,  # noqa: E402
+                       logs, meta, replies, report, review, schedule, send)
 
 app.include_router(health.router)
 app.include_router(meta.router)
@@ -33,3 +33,7 @@ app.include_router(alerts.router)
 app.include_router(costs.router)
 app.include_router(schedule.router)
 app.include_router(logs.router)
+app.include_router(review.router)
+app.include_router(financials.router)
+app.include_router(jobs.router)
+app.include_router(send.router)

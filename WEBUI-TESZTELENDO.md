@@ -225,3 +225,276 @@ címkéjét).
 **Mit tesztelj később:** nincs teendő, csak nézd meg, hogy minden legördülő
 tényleg a jól olvasható címkét mutatja-e (pl. "kész (exportálható)"), nem a
 nyers kulcsot.
+
+---
+
+## F5 — Emberi döntések (az első írási műveletek)
+
+### 12. (apró hiba, magától javítva) A megerősítő ablak érvénytelen HTML-t adott, ha a következmény összetett volt
+
+**Mi történt:** az elutasítás-megerősítő ablak (Cégek részletnézet) egy
+szöveget ÉS egy legördülőt is mutat (az elutasítás okát) — de a
+`MegerositoDialog` a következményt mindig egy `<p>` (bekezdés) HTML-elembe
+tette, és egy `<div>`-et vagy másik `<p>`-t egy `<p>`-be tenni érvénytelen
+HTML, amit a böngésző hydration-hibával jelzett.
+
+**Mit döntöttünk:** ez nem terv-ütközés volt, hanem egyszerű hiba, amit
+észrevétel után rögtön javítottunk (a `MegerositoDialog` mostantól `<div>`-et
+használ `<p>` helyett, hogy bármilyen tartalom biztonságosan beleférjen).
+
+**Mit tesztelj később:** nyisd meg a Cégek részletnézeten az "Elutasítás"
+gombot, és nézd meg, hogy a szöveg és az ok-legördülő rendesen megjelenik-e,
+konzolhiba nélkül.
+
+---
+
+### 13. A CSV-letöltés endpoint és a "review"/"suppressed" szavak megint elakasztották a védelmi teszteket
+
+**Mi történt:** két különböző dolog bukott el egyszerre.
+
+Egyrészt a `/api/financials/worklist` egy CSV-fájlt ad vissza (nem JSON-t),
+ezért nem lehet neki Pydantic `response_model`-je — a védelmi teszt viszont
+minden `GET`-től megkövetelte azt.
+
+Másrészt az "üzleti szó" védelmi teszt most a `ReviewActions` komponens
+nevében, a `review-actions.tsx` fájl import-útvonalában, egy `/api/review/...`
+route-stringben és a fülváltó "suppressed" fül-azonosítójában is elakadt —
+holott egyik sem cégadat, csak kód-szintű elnevezés, ami véletlenül
+egyezik egy státusznévvel (ugyanaz a probléma, mint a Bklit "ready"/"hold"
+szava F2-ben).
+
+**Mit döntöttünk:**
+- A `response_model`-teszt kivételt kapott azokra a `GET`-ekre, amik nem
+  `dict`-et adnak vissza (pl. `PlainTextResponse` egy fájlletöltésnél).
+- Az "üzleti szó" teszt mostantól **csak az idézőjeles/sablon
+  string-literálok tartalmát** vizsgálja, nem a teljes fájlszöveget — egy
+  komment vagy egy azonosító neve (`ReviewActions`) soha nem lehet "másolt
+  lista", csak egy ténylegesen használt string-érték. Az import-útvonalakat
+  és a saját API-route-stringeket (`./...`, `@/...`, `/api/...`) is
+  kivettük, mert azok kód-hivatkozások, nem adatok.
+- Emellett a "suppressed" fül-azonosítót átneveztük ("auto-versenytars"-ra),
+  és az elutasítás-ok mezőnek megszűnt az előre kiválasztott
+  "manual_block" alapértéke (most kötelező explicit választás) — ez NEM
+  csak a teszt megkerülése, hanem valódi UX-javítás is: a felhasználó
+  tudatosan válasszon okot, ne csússzon át egy alapértelmezésen.
+
+**Mit tesztelj később:** ha egy jövőbeli fázisban valaki egy VALÓDI
+státusz-listát másol be TypeScriptbe, de azt egy importútvonalba vagy
+kommentbe rejti, ezt a teszt **nem fogja elkapni** — ez a pontosítás
+kifejezetten a kód-hivatkozásokat (útvonalak, azonosítók) zárja ki, magát a
+"csak string-literálban keresünk" elvet nem gyengíti tovább.
+
+---
+
+### 14. A terv saját ellenőrző parancsa nem "megy vissza" úgy, ahogy a kommentje mondja
+
+**Mi történt:** a WEBUI-TERV.md F5 ellenőrzése szó szerint ezt írja elő:
+
+```
+# egy teszt-domainen, majd vissza:
+review --reject <domain> --reason manual_block
+review --approve <domain>
+```
+
+Éles domainen (`contentplus.hu`) kipróbálva: az `--approve` **nem** hozza
+vissza a céget — azt írja ki, hogy "Nincs jóváhagyható review/hold/competitor
+cég ezen a domainen." Ez nem hiba, hanem **szándékos védelem**: a
+`review.approve()` csak a `review`/`hold`/`rejected` állapotot vagy az
+automatikusan felismert **versenytárs**-kizárást (`reason='competitor'`)
+oldja fel — egy kézi `manual_block` elutasítást direkt NEM enged
+egyetlen paranccsal visszavonni (`leadgen/review.py` docstringje: "Mas
+suppression-ok... ezen a fuggvenyen at sem oldhatok fel veletlenul").
+
+**Mit döntöttünk:** nem a kódot javítottam — ez a viselkedés helyes és
+szándékos. Kétszer futtattam le a teljes ellenőrzést, hogy tényleges,
+visszaigazolt kört kapjak:
+- CLI: `review --reject contentplus.hu --reason manual_block` → utána kézzel
+  kellett visszaállítani (mert a fenti okból az `--approve` nem tette).
+- API: `POST /api/review/{id}/reject {"reason":"competitor"}` majd
+  `POST /api/review/{id}/approve` → ez **valóban** visszaállt (mert a
+  `competitor` ok feloldható), és egy második `approve` helyesen 409-et
+  adott ("a cég nincs jóváhagyható állapotban"). A cég státusza és
+  `status_note`-ja mindkét esetben (CLI és API) bájtra ugyanazt az
+  eredményt adta ugyanarra a bemenetre — ez volt a terv tényleges
+  kérdése ("a felületről végzett művelet ugyanazt az adatbázis-állapotot
+  eredményezze, mint a CLI").
+- A céget a teszt végén kézzel visszaállítottam az eredeti állapotára
+  (`status='review'`, az eredeti `status_note`) — csak az `updated_at`
+  időbélyeg tér el az eredetitől, tartalmi adat nem sérült.
+
+**Mit tesztelj később:** ha a WEBUI-TERV.md-t valaha frissítik, érdemes ezt
+a kommentet pontosítani (`--reason competitor` legyen a példában, vagy a
+komment mondja ki, hogy `manual_block` esetén kézi visszaállítás kell) —
+most félrevezető, mert azt sugallja, bármelyik `--reject` visszafordítható
+egyetlen `--approve` paranccsal.
+
+---
+
+## F6 — Futtatások és élő napló
+
+### 6. A `daily --skip-ingest` a tervben ingyenes, a valóságban AI-t költ
+
+**Mi történt:** a WEBUI-TERV.md F6 katalógus-táblája így sorolja fel:
+
+```
+| daily (teljes lánc)   | 💰 igen (ingest) | ~$0,22 |
+| daily --skip-ingest   | nem              | —      |
+```
+
+A `leadgen/schedule.py` `lepesek()` viszont a `score` és a
+`classify-replies` lépést is tartalmazza — mindkettő AI-hívás. Az ingest
+elhagyása tehát az **Apify**-költséget veszi le, az AI-t nem.
+
+**Mit döntöttünk:** a `daily --skip-ingest` a katalógusban **fizetősként**
+szerepel (💰 AI jelvény, megerősítő párbeszéd), nem ingyenesként. Egy
+„nem kerül pénzbe" felirat, ami után jön egy AI-számla, rosszabb, mint egy
+fölösleges megerősítés.
+
+**Mit tesztelj később:** ha zavaró, hogy a napi lánc kétszer is
+megerősítést kér, a helyes megoldás nem a jelölés levétele, hanem egy
+`--skip-ai` kapcsoló a láncban — akkor a jelölés is igaz lesz.
+
+---
+
+### 7. A `~$0,22`-es becslés nem szerepel a felületen
+
+**Mi történt:** a terv `~$0,22`-t ír a `daily` sorába. Ez a szám sehol
+nincs a kódban: a lánc ingest-lépése `--max-results 50`, ami
+50 × $0,005 = **$0,25** Apify-költség, plusz egy előre nem becsülhető
+AI-rész.
+
+**Mit döntöttünk:** a felület nem a terv számát írja ki, hanem kiszámolja
+azt, amit tud (`schedule.lepesek()` kerete × `pricing.APIFY_TALALAT_USD`),
+és külön kimondja, hogy az AI-rész tokenenként számlázódik, tehát előre nem
+becsülhető. Ez a terv saját szabálya: *„ne találj ki számot; ha ismeretlen,
+írd ki, hogy ismeretlen."* Ha a lánc kerete valaha változik, a felület
+becslése magától követi — tesztsor őrzi (`tests/test_webui_jobs.py`).
+
+**Mit tesztelj később:** ha valaha kalibrálod a napi keretet, nézd meg, hogy
+a Futtatás oldal `daily` kártyáján tényleg az új szám jelenik-e meg.
+
+---
+
+### 8. Az Apify egységára eddig négy helyen volt kézzel leírva
+
+**Mi történt:** a `$0,005 / találat` szám a `sources/maps.py`-ban, a
+`sources/profession.py`-ban és két CLI súgószövegben szerepelt külön-külön.
+A felület költség-párbeszédének is kellett — ez lett volna az ötödik.
+
+**Mit döntöttünk:** a szám átkerült a `leadgen/pricing.py`-ba
+(`APIFY_TALALAT_USD`, forrással és dátummal, ahogy a modellárak), és a
+`maps.py` / `profession.py` onnan olvassa. A két CLI súgószöveg (`--help`)
+szövegében maradt a `~$0.005` — az egy mondat, nem számítás.
+
+**Mit tesztelj később:** ha az Apify árat emel, egy helyen kell átírni, de a
+két `--help` szöveget is érdemes utánavezetni.
+
+---
+
+### 9. Két ESLint-hiba marad a Futtatás oldalon — a repó meglévő mintája miatt
+
+**Mi történt:** a `npm run lint` a `useEffect(betolt, [betolt])` mintára
+hibát ad (`react-hooks/set-state-in-effect`). Ugyanez a hiba megvan a
+korábbi fázisok fájljaiban is (`app/page.tsx`, `cegek/suppressed-lista.tsx`,
+`cegek/page.tsx`, `adat-tabla.tsx`) — összesen 39 hiba a projektben, ebből
+a legtöbb a telepített chart-könyvtárban.
+
+**Mit döntöttünk:** az új fájlok a **meglévő** mintát követik, nem vezettünk
+be külön adatbetöltési stílust egyetlen oldal kedvéért. A
+`npx tsc --noEmit` és a `npm run build` tisztán lefut.
+
+**Mit tesztelj később:** ha egyszer eldöntitek, hogy a betöltés
+`useSyncExternalStore`-ra vagy egy adatlekérő könyvtárra (SWR / TanStack
+Query) áll át, azt egyszerre kell megtenni minden oldalon — nem fázisonként.
+
+---
+
+## F7 — Küldés (kétlépcsős)
+
+### 10. Az időablak nincs benne a terv válasz-alakjában
+
+**Mi történt:** a WEBUI-TERV.md F7 pontosan megadja a `/api/send/preview`
+válaszát: `token`, `lejar`, `levelek[]`, `mai_keret`, `terv_meret`. Az
+időablak (`limits.in_send_window()`) nincs köztük. Márpedig az ablakon kívül
+— hétköznap 8–17 órán kívül, vagy hétvégén — a `sender.py --live` lefuttatja
+a védelmi kört, majd `exit 0`-val kilép **anélkül, hogy bármit kiküldene**.
+
+**Mit döntöttünk (felhasználói döntés, 2026-08-30):** a válasz két mezővel
+bővült, `ablak_nyitva` és `ablak_ok`. Mindkettő a `limits.in_send_window()`
+két visszatérési értéke, újraszámolás nélkül. A felület így már az
+előnézetnél kiírja, hogy most nem menne ki semmi.
+
+**Mit tesztelj később:** ha a WEBUI-TERV.md F7 JSON-példáját frissítitek,
+vegyétek fel ezt a két mezőt is, hogy a terv és a kód ne csússzon szét.
+
+---
+
+### 11. A token hash-e a levél TÖRZSÉT is fedi, nem csak a tárgyát
+
+**Mi történt:** a terv így fogalmaz: *„A token a terv tartalmi hash-e
+(címzettek + fokok + tárgyak)."* A `templates.py` viszont a felhasználóé, és
+az előnézet után is bármikor átírható. Ha a törzs nem része a hash-nek, egy
+tárgy-változás nélküli sablonszerkesztés után **más szöveg menne ki, mint
+amit az ember jóváhagyott** — és a token érvényes maradna.
+
+**Mit döntöttünk:** a hash a törzset is tartalmazza. Ez szigorítás, nem
+lazítás: a token pontosan azt fedi le, amit az ember a képernyőn látott.
+Kifelé a token továbbra is egy átlátszatlan string, tehát az API alakja nem
+változott. Tesztsor őrzi (`tests/test_webui_send.py`).
+
+**Mit tesztelj később:** a hash **sorrend-érzékeny** is. Ez szándékos (a terv
+rangsorolt és a napi keretnél elvágott lista, tehát más sorrend = más terv),
+de ha valaha hamis elutasítást tapasztalsz változatlan listán, itt kezdd a
+keresést.
+
+---
+
+### 12. Az előnézet a védelmi kör (guards) LEFUTÁSA ELŐTTI tervet mutatja
+
+**Mi történt:** a `sender.py --dry` alapból lefuttatja a guardsot. Az viszont
+IMAP-ot nyit és **ír** (tiltólista, bounce-napló) — egy előnézetnek nem
+szabad írnia, és nem is várakoztathatja a felhasználót egy postafiók
+beolvasására.
+
+**Mit döntöttünk:** az előnézet guards nélkül készül, és a felület ezt ki is
+írja: küldéskor a guards lefut, és a listát csak **szűkítheti** (aki közben
+válaszolt, leiratkozott vagy visszapattant, kimarad). Ezért az ellenőrzés is
+a `sender.py --dry --skip-guards` kimenetéhez hasonlított.
+
+**Mit tesztelj később:** ha egyszer több levél megy ki naponta, érdemes lehet
+egy „védelmi kör futtatása most" gombot adni az előnézet mellé — de az már
+írna, tehát külön megerősítést érdemelne.
+
+---
+
+### 13. ⚠️ Az ellenőrzés 3. lépése a tervben leírt formában NEM működik
+
+**Mi történt:** a WEBUI-TERV.md F7 ellenőrzése ezt írja elő:
+
+```
+# 3. kérj előnézetet, majd futtass egy exportot, majd küldj -> ELUTASÍTVA
+```
+
+Ezt szó szerint követve **a küldés nem lett elutasítva, hanem elindult egy
+éles futás.** Nem a kapu hibázott: az `export` szándékosan újraírja a
+`leads.csv`-t a **folyamatban lévő** leadekkel együtt (CLAUDE.md), és mivel
+nem volt új `ready` lead, a fájl bájtra ugyanaz maradt. A terv tehát tényleg
+nem változott, a hash egyezett, és a szerver helyesen engedte tovább.
+
+**Nem ment ki levél**, mert vasárnap volt: a küldő lefuttatta a védelmi kört
+(0 válasz, 0 leiratkozás, 0 bounce — nem írt sehova), majd `Nem kuldunk:
+hetvege` üzenettel kilépett. A `sent.csv`, a `do-not-contact.csv` és a
+`bounces.csv` változatlan. **Ez szerencse volt, nem a teszt érdeme.**
+
+**Mit döntöttünk:** a 3. lépést egy **homokozó küldő-könyvtárban**
+futtattuk le: szintetikus `.invalid` leadek, és **nincs `.env`**, tehát a
+`sender.py` már a védelmi kör előtt `exit 1`-gyel megáll — ott egy éles
+küldés strukturálisan lehetetlen, nem naptárfüggő. Ott a valódi terv-változás
+(egy lead kikerül) helyesen 409-et adott, a friss token pedig helyesen
+kinyitotta a kaput.
+
+**Mit tesztelj később / mit javítsunk a terven:** a 3. lépés szövege
+félrevezető. Helyette olyan műveletet kell írni, ami **tényleg** megváltoztatja
+a tervet — például `review --reject <domain>` egy sorban álló leadre, vagy egy
+export, ami után tényleg más a `leads.csv`. Amíg ez nincs javítva, ezt a
+lépést **soha ne futtasd az éles küldő ellen** hétköznap 8 és 17 óra között.

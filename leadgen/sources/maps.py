@@ -10,7 +10,7 @@ kotelezo vedokorlat, es minden futas kiirja a tenyleges koltseget.
 """
 from __future__ import annotations
 
-from .. import db, storage
+from .. import db, pricing, storage
 from ..blocklist import resolve_company_key
 from ..engines import EngineDef
 from . import apify
@@ -112,7 +112,7 @@ def ingest(engine: EngineDef, max_results: int = 50, dry: bool = False,
             print(f"    - {term!r} @ {loc}")
         if len(tervezett) > 10:
             print(f"    ... es meg {len(tervezett) - 10}")
-        print(f"\n  Becsult koltseg: ~${max_results * 0.005:.2f}")
+        print(f"\n  Becsult koltseg: ~${max_results * pricing.APIFY_TALALAT_USD:.2f}")
         return stats
 
     if not tervezett:

@@ -355,7 +355,7 @@ azt jelenti, hogy *van* riasztás. Cronban ezt ne értelmezd programhibának.
 | `dev seed` | 3 teszt-cég `.invalid` címekkel (nem küldhető ki valódi levél) |
 | `dev clear-seed` | teszt-cégek törlése |
 
-## Webes felület (13. szakasz, F0–F1)
+## Webes felület (13. szakasz, F0–F7)
 
 | Parancs | Mit csinál |
 |---|---|
@@ -366,9 +366,75 @@ azt jelenti, hogy *van* riasztás. Cronban ezt ne értelmezd programhibának.
 **Csak `127.0.0.1`-en fut** (nincs kitett port). Az F1 óta az olvasó API kész
 (`/api/meta`, `/api/report/daily`, `/api/report/funnel`, `/api/companies`,
 `/api/companies/{id}`, `/api/replies`, `/api/alerts`, `/api/costs`,
-`/api/runs`, `/api/schedule/status`, `/api/logs/{nev}`) — de a felület még
-csak a rendszerállapot-oldalt mutatja, a képernyők a következő fázisokban
-készülnek el.
+`/api/runs`, `/api/schedule/status`, `/api/logs/{nev}`), az F5 óta megvannak
+az emberi döntések (`/api/review/*`, `/api/financials/*`), az F6 óta pedig a
+**Futtatás** oldal: a lenti parancsok többsége böngészőből is indítható.
+
+### A Futtatás oldal (F6)
+
+A felület `/futtatas` oldaláról ugyanazok a parancsok indíthatók, amiket
+fentebb kézzel is futtatnál — **ugyanaz a `leadgen.cli`, ugyanabban a
+venv-ben**, csak a kimenete a böngészőben látszik menet közben.
+
+| Amit tud | Részlet |
+|---|---|
+| **Egyszerre egy futás** | a második indítás elutasítva (409), a futó job megnevezésével |
+| **Élő napló** | soronként, futás közben (SSE) — nem a végén egyben |
+| **Megszakítás** | a teljes folyamatcsoportot állítja le, az alfolyamatokat is |
+| **Előzmények** | mikor, mi, meddig futott, mi lett a kilépési kód (`data/webui_jobs.jsonl`) |
+| **Naplók** | `leadgen_daily.log` · `sender.log` · `alerts.log` — megtekintés, követés, szűrés |
+
+**Fizetős parancs csak megerősítés után indul**, és a párbeszéd kiírja a
+keretet és a becsült költséget. Az Apify-rész kiszámolható (egységár ×
+darab, a `leadgen/pricing.py`-ból); az AI-rész **tokenenként számlázódik,
+ezért ott szándékosan nem áll dollárösszeg** — a tényleges költséget futás
+után a `report --costs` / a Riportok oldal mutatja.
+
+> **A kiküldés NINCS ebben a katalógusban.** A `sender.py --live` a Küldés
+> oldal külön, kétlépcsős útján megy (lásd lent), és ezt a szerver
+> kényszeríti ki, nem a gomb. Tesztsor őrzi (`tests/test_webui_jobs.py` és
+> `tests/test_webui_send.py`), hogy a küldés soha ne csússzon be a
+> futtatható parancsok közé. Ugyanígy kimarad a `dev seed` is: az
+> teszt-cégeket szúrna az éles adatbázisba.
+
+### A Küldés oldal (F7)
+
+A kiküldés a felületről is indítható, de **két lépésben**, és a kaput a
+szerver őrzi — nem a gomb.
+
+| Lépés | Mi történik |
+|---|---|
+| **1. Előnézet** | a felület lekérdezi a mai tervet a küldőtől, és kiírja a **teljes** leveleket (nem az első 400 karaktert), a mai kerettel és a terv méretével együtt |
+| **2. Éles küldés** | csak az előnézetből kapott tokennel indul; a szerver **újra lekérdezi a tervet**, és összehasonlítja |
+
+A token a terv tartalmi ujjlenyomata (címzettek, fokok, tárgyak **és a
+levelek szövege**). **10 percig érvényes és egyszer használatos.** Ha közben
+bármi változik — lefut egy export, elutasítasz egy leadet, átírsz egy
+sablont —, a küldés `409`-cel elutasításra kerül, és új előnézetet kell
+kérned.
+
+Amit a felület a küldés előtt kiír: a mai keret, a terv mérete, a
+**küldési időablak** állapota (az ablakon kívül a küldő kilép anélkül, hogy
+bármit kiküldene), és hogy a **védelmi kör (guards) még nem futott le** — az
+előnézet ugyanis szándékosan guards nélkül készül (az írna a tiltólistába).
+Küldéskor a guards lefut, és a listát csak szűkítheti.
+
+A kiküldés maga a Futtatás oldal job-kezelőjén megy, **élő kimenettel** —
+ugyanaz a képernyő, ugyanaz a megszakítás. Amíg küldés fut, más parancs nem
+indítható (és fordítva): egy export a küldő lábai alatt írná át a
+`leads.csv`-t.
+
+**Mintalevél magadnak.** A `preview.py --send-to` megfelelője: egy valódi
+levél a saját címedre. A valódi címzettek nem kapnak semmit, a küldési
+előzményük sem változik, és a leiratkozó link tesztcímre mutat.
+
+Az API-oldala: `POST /api/send/preview` · `POST /api/send/live` ·
+`POST /api/send/sample`.
+
+Az API-oldala: `GET /api/jobs/catalog` (mi indítható, milyen kerettel, mibe
+kerül) · `POST /api/jobs/start` · `GET /api/jobs/current` ·
+`GET /api/jobs/{id}` · `GET /api/jobs/{id}/stream` (SSE) ·
+`POST /api/jobs/{id}/cancel` · `GET /api/jobs/history`.
 
 > **A felület soha nem tudja magától, mi engedélyezett.** A státuszok, a
 > kampányok jóváhagyottsága, a tiltás okai és a küszöbök mind a

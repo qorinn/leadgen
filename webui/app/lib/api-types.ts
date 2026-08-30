@@ -208,6 +208,329 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/review/{company_id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Review Approve */
+        post: operations["review_approve_api_review__company_id__approve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/review/{company_id}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Review Reject */
+        post: operations["review_reject_api_review__company_id__reject_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/review/suppressed": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Review Suppressed */
+        get: operations["review_suppressed_api_review_suppressed_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/financials/worklist": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Financials Worklist
+         * @description A legjobb N lead, amirol meg nincs penzugyi adat -- CSV letoltes.
+         *
+         *     Mindig valid CSV-t ad vissza (ures listanal is csak a fejlecsor), hogy a
+         *     letoltes soha ne akadjon el egy hianyzo fajlon.
+         */
+        get: operations["financials_worklist_api_financials_worklist_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/financials/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Financials Import
+         * @description A kitoltott worklist (vagy csoportos beszamolo-export) feltoltese.
+         *
+         *     `dry` alapertelmezetten igaz (a repo altalanos dry-run-eloszor elve,
+         *     CLAUDE.md Invariansok #1) -- a frontend elobb egy elonezetet mutat, a
+         *     tenyleges iras kulon, kifejezett megerositessel tortenik.
+         */
+        post: operations["financials_import_api_financials_import_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/companies/{company_id}/financials": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Company Financials Save */
+        post: operations["company_financials_save_api_companies__company_id__financials_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/catalog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Job Catalog */
+        get: operations["job_catalog_api_jobs_catalog_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/current": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Job Current */
+        get: operations["job_current_api_jobs_current_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Job History */
+        get: operations["job_history_api_jobs_history_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Job Start
+         * @description Elinditja a parancsot.
+         *
+         *     409, ha mar fut valami -- a futo job cimkejevel, hogy a felhasznalo lassa,
+         *     MI fut (WEBUI-TERV.md F6). Az egyszerre-egy-futas indoka a jobs.py
+         *     fejleceben all.
+         */
+        post: operations["job_start_api_jobs_start_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/{job_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Job Cancel */
+        post: operations["job_cancel_api_jobs__job_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/{job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Job Output */
+        get: operations["job_output_api_jobs__job_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/{job_id}/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Job Stream
+         * @description Elo naplo (SSE). Minden esemeny egy JSON: uj sorok + a job allapota.
+         *
+         *     A vegen egy utolso esemenyt kuldunk a lezart allapottal, majd lezarjuk a
+         *     stremet -- igy a bongeszo `EventSource`-a nem kezd el ujracsatlakozni egy
+         *     mar befejezett futasra.
+         */
+        get: operations["job_stream_api_jobs__job_id__stream_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/send/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send Preview
+         * @description A mai terv teljes leveleivel, es egy 10 percig ervenyes token.
+         *
+         *     A TERV GUARDS NELKUL keszul. A `sender.py --dry` alapbol lefuttatja a
+         *     guardsot, de az IMAP-ot nyit ES IR (DNC, bounce-naplo) -- egy elonezet
+         *     nem irhat. A guards a kuldeskor fut le, es a tervet csak SZUKITENI tudja
+         *     (aki kozben valaszolt vagy leiratkozott, kimarad). A felulet ezt kiirja.
+         */
+        post: operations["send_preview_api_send_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/send/live": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send Live
+         * @description ELES KULDES. Csak ervenyes, fel nem hasznalt, friss tokennel indul.
+         *
+         *     A sorrend nem cserelheto fel:
+         *       1. ujra lekerdezzuk a tervet a kuldotol,
+         *       2. a token ellenorzese ES elhasznalasa EGY lepesben (dupla kattintas),
+         *       3. csak ezutan indul barmilyen folyamat.
+         *
+         *     Ha a 2. lepes elutasit, semmi nem indult el.
+         */
+        post: operations["send_live_api_send_live_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/send/sample": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send Sample
+         * @description Mintalevel a SAJAT cimedre (`preview.py --send-to`).
+         *
+         *     VALODI SMTP-kuldes, de a valodi cimzettek nem kapnak semmit, es a
+         *     `sent.csv` sem valtozik -- a lead szekvenciaja erintetlen marad.
+         */
+        post: operations["send_sample_api_send_sample_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -218,6 +541,19 @@ export interface components {
             aktiv: components["schemas"]["RiasztasSor"][];
             /** Lezart */
             lezart: components["schemas"]["RiasztasSor"][];
+        };
+        /** Body_financials_import_api_financials_import_post */
+        Body_financials_import_api_financials_import_post: {
+            /**
+             * File
+             * Format: binary
+             */
+            file: string;
+            /**
+             * Dry
+             * @default true
+             */
+            dry: boolean;
         };
         /**
          * CompanyDetailResponse
@@ -253,6 +589,20 @@ export interface components {
             suppression: {
                 [key: string]: unknown;
             }[];
+        };
+        /** CompanyFinancialsBody */
+        CompanyFinancialsBody: {
+            /** Revenue */
+            revenue?: number | null;
+            /** Headcount */
+            headcount?: number | null;
+            /** Financial Year */
+            financial_year?: number | null;
+            /**
+             * Missing
+             * @default false
+             */
+            missing: boolean;
         };
         /**
          * CompanyListItem
@@ -354,6 +704,34 @@ export interface components {
             /** Aktiv */
             aktiv: boolean;
         };
+        /** FinancialsImportResponse */
+        FinancialsImportResponse: {
+            /** Olvasott */
+            olvasott: number;
+            /** Frissitett */
+            frissitett: number;
+            /** Ures */
+            ures: number;
+            /** Hibas */
+            hibas: number;
+            /** Ismeretlen */
+            ismeretlen: number;
+            /** Ezer Forint Gyanu */
+            ezer_forint_gyanu: string[];
+            /** Ertekek */
+            ertekek: {
+                [key: string]: number;
+            };
+            /** Dry */
+            dry: boolean;
+        };
+        /** FinancialsSaveResponse */
+        FinancialsSaveResponse: {
+            /** Economic Value */
+            economic_value: string | null;
+            /** Figyelmeztetes */
+            figyelmeztetes: string | null;
+        };
         /** FunnelResponse */
         FunnelResponse: {
             /** Companies Total */
@@ -400,6 +778,128 @@ export interface components {
             migraciok: components["schemas"]["MigraciokAllapot"];
             /** Verzio */
             verzio: string;
+        };
+        /** JobCatalogItem */
+        JobCatalogItem: {
+            /** Kulcs */
+            kulcs: string;
+            /** Cimke */
+            cimke: string;
+            /** Magyarazat */
+            magyarazat: string;
+            /** Parancs */
+            parancs: string;
+            /** Parameterek */
+            parameterek: components["schemas"]["JobParamMeta"][];
+            koltseg: components["schemas"]["JobKoltseg"];
+        };
+        /** JobCatalogResponse */
+        JobCatalogResponse: {
+            /** Items */
+            items: components["schemas"]["JobCatalogItem"][];
+        };
+        /** JobCurrentResponse */
+        JobCurrentResponse: {
+            job: components["schemas"]["JobItem"] | null;
+        };
+        /** JobHistoryResponse */
+        JobHistoryResponse: {
+            /** Items */
+            items: components["schemas"]["JobItem"][];
+        };
+        /** JobItem */
+        JobItem: {
+            /** Id */
+            id: string;
+            /** Kulcs */
+            kulcs: string;
+            /** Cimke */
+            cimke: string;
+            /** Parancs */
+            parancs: string;
+            /** Fut */
+            fut: boolean;
+            /** Allapot */
+            allapot: string;
+            /** Allapot Cimke */
+            allapot_cimke: string;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+            /** Finished At */
+            finished_at: string | null;
+            /** Seconds */
+            seconds: number | null;
+            /** Exit Code */
+            exit_code: number | null;
+        };
+        /**
+         * JobKoltseg
+         * @description A becsult koltseg NYERSANYAGA, nem egy kesz szam.
+         *
+         *     Az Apify-resz szorzas (egysegar x darab), tehat a felulet ki tudja
+         *     szamolni, amint a felhasznalo allit a kereten. Az AI-resz elore NEM
+         *     becsulheto (tokenenkent szamlazodik) -- ilyenkor `ai_tokenenkent=True`,
+         *     es a felulet ezt irja ki, nem egy kitalalt osszeget (WEBUI-TERV.md F6).
+         */
+        JobKoltseg: {
+            /** Fizetos */
+            fizetos: boolean;
+            /** Apify Egysegar Usd */
+            apify_egysegar_usd: number | null;
+            /** Apify Fix Darab */
+            apify_fix_darab: number | null;
+            /** Apify Darab Parametere */
+            apify_darab_parametere: string | null;
+            /** Ai Tokenenkent */
+            ai_tokenenkent: boolean;
+            /** Magyarazat */
+            magyarazat: string;
+        };
+        /** JobOutputResponse */
+        JobOutputResponse: {
+            job: components["schemas"]["JobItem"];
+            /** Lines */
+            lines: string[];
+            /** Cursor */
+            cursor: number;
+        };
+        /**
+         * JobParamMeta
+         * @description Egy allithato keret. Az `alap` a CLI sajat argparse-abol jon
+         *     (webui/api/jobs.py `_alap_ertekek`), nem kezi masolatbol.
+         */
+        JobParamMeta: {
+            /** Nev */
+            nev: string;
+            /** Flag */
+            flag: string;
+            /** Cimke */
+            cimke: string;
+            /** Alap */
+            alap: number;
+            /** Minimum */
+            minimum: number;
+            /** Maximum */
+            maximum: number;
+        };
+        /** JobResponse */
+        JobResponse: {
+            job: components["schemas"]["JobItem"];
+        };
+        /** JobStartBody */
+        JobStartBody: {
+            /** Kulcs */
+            kulcs: string;
+            /**
+             * Params
+             * @default {}
+             */
+            params: {
+                [key: string]: number;
+            };
         };
         /** KampanyMeta */
         KampanyMeta: {
@@ -465,6 +965,19 @@ export interface components {
             /** Usd */
             usd: number;
         };
+        /**
+         * RejectBody
+         * @description A `reason` a /api/meta `suppression_okok` listajabol valaszthato a
+         *     fronton -- ez a mezo itt csak nyers string, az ervenyesseget a DB CHECK
+         *     constraint es a leadgen/review.py donti el, nem a webui.
+         */
+        RejectBody: {
+            /**
+             * Reason
+             * @default manual_block
+             */
+            reason: string;
+        };
         /** RepliesResponse */
         RepliesResponse: {
             /** Items */
@@ -499,6 +1012,15 @@ export interface components {
             company_name: string | null;
             /** Normalized Domain */
             normalized_domain: string | null;
+        };
+        /**
+         * ReviewActionResponse
+         * @description A jovahagyas/elutasitas eredmenye -- ugyanaz az uj allapot, amit a
+         *     CLI is kiirna (leadgen/review.py, egy forras a ket hivonak).
+         */
+        ReviewActionResponse: {
+            /** Uj Status */
+            uj_status: string;
         };
         /** RiasztasBlokk */
         RiasztasBlokk: {
@@ -549,6 +1071,80 @@ export interface components {
             log_last_written: string | null;
             /** Log Last Lines */
             log_last_lines: string[];
+        };
+        /**
+         * SendLevel
+         * @description Egy levele a mai tervnek, TELJES torzzsel -- nem az elso 400 karakter
+         *     (WEBUI-TERV.md F7). A `fok` a `sender._stage_of` szerinti szekvencia-fok
+         *     (cold / follow_up_1 / follow_up_2), leadenkent kulon.
+         */
+        SendLevel: {
+            /** Cimzett */
+            cimzett: string;
+            /** Ceg */
+            ceg: string;
+            /** Fok */
+            fok: string;
+            /** Targy */
+            targy: string;
+            /** Torzs */
+            torzs: string;
+        };
+        /**
+         * SendLiveBody
+         * @description A `/api/send/preview`-tol kapott token. Enelkul nincs eles kuldes.
+         */
+        SendLiveBody: {
+            /** Token */
+            token: string;
+        };
+        /** SendPreviewResponse */
+        SendPreviewResponse: {
+            /** Token */
+            token: string;
+            /**
+             * Lejar
+             * Format: date-time
+             */
+            lejar: string;
+            /** Levelek */
+            levelek: components["schemas"]["SendLevel"][];
+            /** Mai Keret */
+            mai_keret: number;
+            /** Terv Meret */
+            terv_meret: number;
+            /** Ablak Nyitva */
+            ablak_nyitva: boolean;
+            /** Ablak Ok */
+            ablak_ok: string;
+        };
+        /** SendSampleBody */
+        SendSampleBody: {
+            /** Cim */
+            cim: string;
+            /**
+             * Limit
+             * @default 1
+             */
+            limit: number;
+            /**
+             * Fok
+             * @default cold
+             */
+            fok: string;
+        };
+        /**
+         * SendSampleResponse
+         * @description A `preview.py --send-to` kimenete. A valodi cimzettek nem kapnak
+         *     semmit, es a `sent.csv` sem valtozik.
+         */
+        SendSampleResponse: {
+            /** Ok */
+            ok: boolean;
+            /** Sorok */
+            sorok: string[];
+            /** Error */
+            error: string | null;
         };
         /**
          * SenderAllapot
@@ -605,6 +1201,27 @@ export interface components {
             cimke: string;
             /** Sorrend */
             sorrend: number;
+        };
+        /** SuppressedCompanyItem */
+        SuppressedCompanyItem: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Normalized Domain */
+            normalized_domain: string | null;
+            /** Company Name */
+            company_name: string | null;
+            /** Status Note */
+            status_note: string | null;
+            /** Title */
+            title: string | null;
+        };
+        /** SuppressedListResponse */
+        SuppressedListResponse: {
+            /** Items */
+            items: components["schemas"]["SuppressedCompanyItem"][];
         };
         /** ValaszOsztalyMeta */
         ValaszOsztalyMeta: {
@@ -924,6 +1541,478 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LogResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    review_approve_api_review__company_id__approve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                company_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewActionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    review_reject_api_review__company_id__reject_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                company_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RejectBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewActionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    review_suppressed_api_review_suppressed_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SuppressedListResponse"];
+                };
+            };
+        };
+    };
+    financials_worklist_api_financials_worklist_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    financials_import_api_financials_import_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_financials_import_api_financials_import_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FinancialsImportResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    company_financials_save_api_companies__company_id__financials_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                company_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CompanyFinancialsBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FinancialsSaveResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    job_catalog_api_jobs_catalog_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobCatalogResponse"];
+                };
+            };
+        };
+    };
+    job_current_api_jobs_current_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobCurrentResponse"];
+                };
+            };
+        };
+    };
+    job_history_api_jobs_history_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobHistoryResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    job_start_api_jobs_start_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["JobStartBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    job_cancel_api_jobs__job_id__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    job_output_api_jobs__job_id__get: {
+        parameters: {
+            query?: {
+                cursor?: number;
+            };
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobOutputResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    job_stream_api_jobs__job_id__stream_get: {
+        parameters: {
+            query?: {
+                cursor?: number;
+            };
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    send_preview_api_send_preview_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SendPreviewResponse"];
+                };
+            };
+        };
+    };
+    send_live_api_send_live_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SendLiveBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    send_sample_api_send_sample_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SendSampleBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SendSampleResponse"];
                 };
             };
             /** @description Validation Error */

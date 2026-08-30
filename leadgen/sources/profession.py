@@ -47,7 +47,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from .. import blocklist, db, labels, normalize, storage
+from .. import blocklist, db, labels, normalize, pricing, storage
 from ..engines import EngineDef
 from . import apify
 
@@ -390,7 +390,7 @@ def resolve_pending(limit: int = 20, dry: bool = False,
         return stats
 
     if verbose:
-        koltseg = len(rows) * 0.005
+        koltseg = len(rows) * pricing.APIFY_TALALAT_USD
         print(f"{len(rows)} ceg feloldasa Google Maps-szel  (~${koltseg:.3f})"
               + ("   [SZARAZ FUTAS]" if dry else ""))
 

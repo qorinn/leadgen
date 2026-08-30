@@ -12,6 +12,8 @@ import { StatusBadge } from "@/components/status-badge";
 import { useMeta } from "@/lib/use-meta";
 import { api, ApiError, type CompanyDetail } from "@/lib/api";
 import { asBool, asNum, asStr, formatDatum, formatForint, formatSzam } from "@/lib/format";
+import { FinancialsForm } from "./financials-form";
+import { ReviewActions } from "./review-actions";
 import { Idezet, ListaUres, MezoGrid, Szekcio } from "./sections";
 
 export default function CegReszletPage() {
@@ -75,7 +77,16 @@ export default function CegReszletPage() {
         {asStr(c.status_note) && (
           <p className="text-sm text-muted-foreground">{asStr(c.status_note)}</p>
         )}
+        {asStr(c.campaign) && kampanyMeta && !kampanyMeta.jovahagyott && (
+          <p className="text-xs text-muted-foreground">
+            A(z) &bdquo;{asStr(c.campaign)}&rdquo; kampány még vázlat -- élesítés: szöveg
+            átírása → <code>preview.py</code> → felvétel az <code>APPROVED_CAMPAIGNS</code>
+            -ba. A felület ezt nem írhatja, csak megjeleníti.
+          </p>
+        )}
       </div>
+
+      <ReviewActions companyId={id} onKesz={betolt} />
 
       <Szekcio cim="Alapadatok">
         <MezoGrid
@@ -212,19 +223,7 @@ export default function CegReszletPage() {
         )}
       </Szekcio>
 
-      <Szekcio
-        cim="Pénzügy"
-        ures={
-          asNum(c.revenue) === null &&
-          asNum(c.headcount) === null &&
-          asNum(c.balance_total) === null &&
-          asNum(c.profit) === null &&
-          asNum(c.financial_year) === null &&
-          asStr(c.financial_source) === null &&
-          asStr(c.economic_value) === null &&
-          asNum(c.financial_bonus) === null
-        }
-      >
+      <Szekcio cim="Pénzügy">
         <MezoGrid
           mezok={[
             { cimke: "Árbevétel", ertek: formatForint(c.revenue) },
@@ -238,6 +237,7 @@ export default function CegReszletPage() {
             { cimke: "Ellenőrizve", ertek: formatDatum(c.financials_checked_at) },
           ]}
         />
+        <FinancialsForm companyId={id} onKesz={betolt} />
       </Szekcio>
 
       <Szekcio cim="Fejlesztő (8.2)" ures={!c.dev_name && !c.dev_domain && !c.dev_state}>

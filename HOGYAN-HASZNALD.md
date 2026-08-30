@@ -182,6 +182,14 @@ mappába. A keret magától emelkedik, ha jól mennek a levelek.
 > az újakat. Tehát ha sok leadet töltesz be, attól nem megy ki több levél —
 > csak hosszabb lesz a sor.
 
+**Ugyanez böngészőből.** A `./leadgen.sh ui` **Küldés** oldalán a 3.2 és a
+3.3 lépés egyben elvégezhető: kérsz egy előnézetet (ott a teljes levelek
+látszanak, ahogy a `preview.py`-ban), elolvasod, majd elindítod a küldést.
+A gép ilyenkor is ellenőrzi, hogy közben nem változott-e a terv — ha
+mégis, nem küld, hanem új előnézetet kér. A kiküldés menetét élőben látod.
+Ott találod a **mintalevél** gombot is: elküld egy levelet a saját címedre,
+hogy lásd, hogyan néz ki egy postafiókban.
+
 ---
 
 ## 4. folyamat — Napi zárás
@@ -836,7 +844,7 @@ Beállítás: `ALERT_EMAIL=sajat@cimed.hu` a gyökér `.env`-ben.
 
 | Mi hiányzik | Melyik fázis | Mit jelent ez most |
 |---|---|---|
-| **Webes felület** | 13. | Minden parancssorból megy. Az építés elkezdődött ([WEBUI-TERV.md](WEBUI-TERV.md)): `./leadgen.sh ui` egy rendszerállapot-oldalt mutat, az olvasó API (cégek, riportok, riasztások, válaszok, költségek) már kész a háttérben, de képernyő még nincs hozzá. |
+| **Webes felület** | 13. | Épül ([WEBUI-TERV.md](WEBUI-TERV.md)). A `./leadgen.sh ui` már használható felületet ad: irányítópult, cégek listája és részletei, emberi döntések (jóváhagyás, elutasítás, pénzügyi adat), **Futtatás** (parancsok indítása élő kimenettel) és **Küldés** — a kiküldés két lépésben, előnézettel. Ami még nincs kész: a válaszok és riasztások képernyője, a riportok és a beállítások. |
 
 ---
 
