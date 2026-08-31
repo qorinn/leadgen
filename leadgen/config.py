@@ -194,3 +194,81 @@ def require_database_url() -> str:
             "  Supabase -> Connect -> Session pooler -> URI (5432-es port)."
         )
     return DATABASE_URL
+
+
+def _maszkolt(ertek: str) -> str:
+    """Titok maszkolasa: soha nem a teljes ertek, legfeljebb az utolso 4
+    karakter (webui F10 -- 'Beallitasok', WEBUI-TERV.md Invariansok #4)."""
+    ertek = (ertek or "").strip()
+    if not ertek:
+        return "HIANYZIK"
+    if len(ertek) <= 4:
+        return "be van allitva"
+    return f"be van allitva (...{ertek[-4:]})"
+
+
+def settings_adat() -> list[dict]:
+    """A .env ertekei maszkolva (webui F10 -- 'Beallitasok').
+
+    A titkok (kulcsok, jelszo, DATABASE_URL) sosem mennek ki teljes
+    ertekben -- lasd `_maszkolt()`. A kuldo SMTP-fiokjait a
+    `sender_smtp_accounts()`-szal olvassuk, a nyers `SMTP_ACCOUNTS` string
+    (jelszavakkal egyutt) soha nem kerul ide, csak a fiokok szama.
+    """
+    fiokok = sender_smtp_accounts()
+    return [
+        {"csoport": "Adatbazis", "kulcs": "DATABASE_URL",
+         "ertek": _maszkolt(DATABASE_URL), "titok": True},
+
+        {"csoport": "AI-modellek", "kulcs": "LLM_BULK_MODEL",
+         "ertek": LLM_BULK_MODEL, "titok": False},
+        {"csoport": "AI-modellek", "kulcs": "LLM_QUALITY_MODEL",
+         "ertek": LLM_QUALITY_MODEL, "titok": False},
+        {"csoport": "AI-modellek", "kulcs": "OPENAI_API_KEY",
+         "ertek": _maszkolt(OPENAI_API_KEY), "titok": True},
+        {"csoport": "AI-modellek", "kulcs": "ANTHROPIC_API_KEY",
+         "ertek": _maszkolt(ANTHROPIC_API_KEY), "titok": True},
+        {"csoport": "AI-modellek", "kulcs": "GEMINI_API_KEY",
+         "ertek": _maszkolt(GEMINI_API_KEY), "titok": True},
+
+        {"csoport": "Email-validacio", "kulcs": "EMAIL_VALIDATION",
+         "ertek": EMAIL_VALIDATION, "titok": False},
+        {"csoport": "Email-validacio", "kulcs": "REOON_API_KEY",
+         "ertek": _maszkolt(REOON_API_KEY), "titok": True},
+        {"csoport": "Email-validacio", "kulcs": "VERIFY_CACHE_DAYS",
+         "ertek": str(VERIFY_CACHE_DAYS), "titok": False},
+
+        {"csoport": "Riasztas", "kulcs": "ALERT_EMAIL",
+         "ertek": ALERT_EMAIL or "HIANYZIK", "titok": False},
+
+        {"csoport": "Forrasok", "kulcs": "APIFY_TOKEN",
+         "ertek": _maszkolt(APIFY_TOKEN), "titok": True},
+
+        {"csoport": "Kuldo (SMTP)", "kulcs": "SMTP_HOST",
+         "ertek": SENDER_SMTP_HOST or "HIANYZIK", "titok": False},
+        {"csoport": "Kuldo (SMTP)", "kulcs": "SMTP_PORT",
+         "ertek": str(SENDER_SMTP_PORT), "titok": False},
+        {"csoport": "Kuldo (SMTP)", "kulcs": "SMTP_USE_SSL",
+         "ertek": str(SENDER_SMTP_SSL), "titok": False},
+        {"csoport": "Kuldo (SMTP)", "kulcs": "SMTP_ACCOUNTS",
+         "ertek": f"{len(fiokok)} fiok beallitva" if fiokok else "HIANYZIK",
+         "titok": True},
+
+        {"csoport": "Leiratkozas", "kulcs": "UNSUB_BASE_URL",
+         "ertek": UNSUB_BASE_URL or "HIANYZIK", "titok": False},
+
+        {"csoport": "Penzugyi kuszobok", "kulcs": "REVENUE_MEDIUM_HUF",
+         "ertek": str(REVENUE_MEDIUM_HUF), "titok": False},
+        {"csoport": "Penzugyi kuszobok", "kulcs": "REVENUE_HIGH_HUF",
+         "ertek": str(REVENUE_HIGH_HUF), "titok": False},
+        {"csoport": "Penzugyi kuszobok", "kulcs": "HEADCOUNT_MEDIUM",
+         "ertek": str(HEADCOUNT_MEDIUM), "titok": False},
+        {"csoport": "Penzugyi kuszobok", "kulcs": "HEADCOUNT_HIGH",
+         "ertek": str(HEADCOUNT_HIGH), "titok": False},
+        {"csoport": "Penzugyi kuszobok", "kulcs": "WEBSHOP_REVENUE_MIN_HUF",
+         "ertek": str(WEBSHOP_REVENUE_MIN_HUF), "titok": False},
+        {"csoport": "Penzugyi kuszobok", "kulcs": "TIER_A_SCORE",
+         "ertek": str(TIER_A_SCORE), "titok": False},
+        {"csoport": "Penzugyi kuszobok", "kulcs": "TIER_B_SCORE",
+         "ertek": str(TIER_B_SCORE), "titok": False},
+    ]

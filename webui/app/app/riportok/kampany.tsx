@@ -29,7 +29,7 @@ import { formatForint, formatSzam } from "@/lib/format";
 import { Szekcio } from "./szekcio";
 
 export function Kampany() {
-  const { meta } = useMeta();
+  const { meta, hiba: metaHiba, ujra: metaUjra } = useMeta();
   const [nev, setNev] = useState<string | null>(null);
   const [adat, setAdat] = useState<Campaign | null>(null);
   const [hiba, setHiba] = useState<string | null>(null);
@@ -56,6 +56,7 @@ export function Kampany() {
 
   useEffect(betolt, [betolt]);
 
+  if (metaHiba) return <HibaAllapot uzenet={metaHiba} ujra={metaUjra} />;
   if (!meta) return <Betoltes sorok={6} />;
 
   if (!meta.kampanyok.length) {

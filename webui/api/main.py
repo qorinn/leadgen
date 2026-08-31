@@ -22,7 +22,8 @@ app.add_middleware(
 )
 
 from .routers import (alerts, companies, costs, financials, health, jobs,  # noqa: E402
-                       logs, meta, replies, report, review, schedule, send)
+                       logs, meta, replies, report, review, schedule, send,
+                       settings)
 
 app.include_router(health.router)
 app.include_router(meta.router)
@@ -37,3 +38,4 @@ app.include_router(review.router)
 app.include_router(financials.router)
 app.include_router(jobs.router)
 app.include_router(send.router)
+app.include_router(settings.router)

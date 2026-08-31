@@ -125,6 +125,22 @@ def lepesek(limit: int = 0, skip_ingest: bool = False) -> list[Lepes]:
     out += [
         Lepes("enrich", ["enrich", "--limit", "50"],
               "weboldalak feldolgozasa (`new` -> `enriched`)"),
+        # A `qualify` a `pipeline.run_qualify`-t hivja: kulcsszo-alapu,
+        # AI-hivas nelkuli dontes `enriched` -> `ready`/`review`/`scored`/
+        # `suppressed` kozott, az `--engine` sajat kulcsszavai szerint. A
+        # `--engine` alapertelmezese (`agency_partner`) egyezik az EGYETLEN
+        # ma aktiv engine-nel (`engines.ALL_ENGINES`), ezert nem kell itt
+        # kulon megadni -- ha valaha tobb aktiv engine lenne, ezt a lepest
+        # boviteni kell.
+        #
+        # KORABBAN EZ HIANYZOTT A LANCBOL: az `enrich` utan a cegek
+        # `enriched` allapotban vartak, es semmi nem vitte oket tovabb
+        # `ready`/`review` fele, amig valaki kezzel le nem futtatta a
+        # `qualify`-t. Az ops_pain engine-t ez nem erinti: az a `score`
+        # lepesen (AI-utvonal) keresztul mar most is automatikusan kapja
+        # meg a sajat `ready`/`scored` dontesét.
+        Lepes("qualify", ["qualify", "--limit", "50"],
+              "minosites (`enriched` -> `ready`/`review`/`scored`)"),
         Lepes("dead-dev", ["enrich", "dead-dev", "--limit", "50"],
               "8.2: ki keszitette a weboldalt, es el-e meg"),
         Lepes("score", ["score", "--limit", "50"],
@@ -171,7 +187,7 @@ def napi_lanc(dry: bool = False, limit: int = 0, skip_ingest: bool = False) -> i
             jel = "  [KOTELEZO]" if lepes.kotelezo else ""
             _ki(f"  {i}. {lepes.nev:<18} {lepes.magyarazat}{jel}")
             _ki(f"     ./leadgen.sh {' '.join(lepes.argv)}")
-        _ki("\n  9. alert            riasztasok ellenorzese (MINDIG fut)")
+        _ki(f"\n  {len(sorozat) + 1}. alert            riasztasok ellenorzese (MINDIG fut)")
         _ki("\n(--dry: semmit nem futtattunk)")
         _ki("\nA KULDES SZANDEKOSAN NEM RESZE A LANCNAK:")
         _ki("  cd cold-email-starter && python3 sender.py --dry   # nezd at")
@@ -313,17 +329,13 @@ def _plist_dict() -> dict:
     }
 
 
-def telepit(dry: bool = False) -> int:
+def telepit_adat() -> dict:
+    """A tenyleges telepites (launchd plist iras + betoltes), dict-kent
+    (webui F10 -- "Utemezes" telepites gomb). A `--dry` elonezet a
+    `telepit()`-ben marad: az csak a CLI-nek szol, oldalhatas nelkul, tehat
+    nincs ertelme az API-n keresztul elerhetove tenni.
+    """
     plist = _plist_dict()
-    tartalom = plistlib.dumps(plist).decode("utf-8")
-
-    if dry:
-        print(f"Ide kerulne: {PLIST_PATH}\n")
-        print(tartalom)
-        print(f"Indulas: minden nap {INDULAS_ORA:02d}:{INDULAS_PERC:02d}")
-        print("\n(--dry: nem telepitettunk)")
-        return 0
-
     PLIST_PATH.parent.mkdir(parents=True, exist_ok=True)
     # Ha mar be van toltve, eloszor kivesszuk: a `load` egy mar betoltott
     # labelre hibat ad, es a regi (esetleg mas idopontu) bejegyzes maradna
@@ -335,7 +347,24 @@ def telepit(dry: bool = False) -> int:
     proc = subprocess.run(["launchctl", "load", str(PLIST_PATH)],
                           capture_output=True, text=True)
     if proc.returncode != 0:
-        print(f"HIBA: a launchctl load nem sikerult:\n{proc.stderr.strip()}")
+        return {"ok": False, "hiba": proc.stderr.strip()}
+    return {"ok": True, "hiba": None}
+
+
+def telepit(dry: bool = False) -> int:
+    plist = _plist_dict()
+    tartalom = plistlib.dumps(plist).decode("utf-8")
+
+    if dry:
+        print(f"Ide kerulne: {PLIST_PATH}\n")
+        print(tartalom)
+        print(f"Indulas: minden nap {INDULAS_ORA:02d}:{INDULAS_PERC:02d}")
+        print("\n(--dry: nem telepitettunk)")
+        return 0
+
+    eredmeny = telepit_adat()
+    if not eredmeny["ok"]:
+        print(f"HIBA: a launchctl load nem sikerult:\n{eredmeny['hiba']}")
         return 1
 
     print(f"Telepitve: {PLIST_PATH}")
@@ -349,13 +378,21 @@ def telepit(dry: bool = False) -> int:
     return 0
 
 
-def eltavolit() -> int:
+def eltavolit_adat() -> dict:
+    """A tenyleges eltavolitas, dict-kent (webui F10 -- eltavolitas gomb)."""
     if not PLIST_PATH.exists():
-        print(f"Nincs telepitve (nincs ilyen fajl: {PLIST_PATH})")
-        return 0
+        return {"ok": True, "volt_telepitve": False}
     subprocess.run(["launchctl", "unload", str(PLIST_PATH)],
                    capture_output=True, text=True)
     PLIST_PATH.unlink()
+    return {"ok": True, "volt_telepitve": True}
+
+
+def eltavolit() -> int:
+    eredmeny = eltavolit_adat()
+    if not eredmeny["volt_telepitve"]:
+        print(f"Nincs telepitve (nincs ilyen fajl: {PLIST_PATH})")
+        return 0
     print(f"Eltavolitva: {PLIST_PATH}")
     print("A napi lanc tovabbra is futtathato kezzel: ./leadgen.sh daily")
     return 0

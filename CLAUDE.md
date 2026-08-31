@@ -11,6 +11,9 @@ A repó két rendszert tartalmaz, amiket össze kell hangolni:
 - `leadgen/` — a **lead-scraper**, épül. Saját venv (Python 3.12), Supabase Postgres.
   Az 1. szakasz (alapozás) 2026-08-19-én elkészült: séma, migrációk, normalizáló réteg.
   Üzleti logika még nincs benne.
+- `webui/` — a **webes felület** (13. szakasz, 2026-08-30-án lezárva): FastAPI
+  backend + Next.js frontend, csak `localhost`-on. Lásd lent „A webes felület
+  (`webui/`)" szakaszt.
 - [HOGYAN-HASZNALD.md](HOGYAN-HASZNALD.md) — **a felhasználói útmutató**: a valódi
   folyamatok, hogyan kell futtatni őket, mi opcionális bennük, és mi nincs még kész.
   Laikusnak írva, rövid mondatokkal. **Lásd lent a karbantartási kötelezettséget.**
@@ -28,10 +31,11 @@ A repó két rendszert tartalmaz, amiket össze kell hangolni:
   közti kontraktus, az eldöntött integrációs kérdések, a szakaszok és az állapotuk.
   Egy új session ezzel kezdjen — a tetején lévő állapot-blokk megmondja, hol tartunk.
 - [WEBUI-TERV.md](WEBUI-TERV.md) — **a webes felület (13. szakasz) végrehajtási terve**,
-  12 fázisra bontva, fázisonkénti ellenőrzéssel. Mellette
+  12 fázisra bontva (F0–F11), fázisonkénti ellenőrzéssel. Mellette
   [WEBUI-MODELLEK.md](WEBUI-MODELLEK.md) (melyik fázis melyik modellel) és
   [WEBUI-PROMPT.md](WEBUI-PROMPT.md) (a bemásolható fázis-prompt).
-  **A felület még nem épült meg** — ez terv, nem leírás.
+  **A felület megépült** (F0–F11 kész, 2026-08-30) — indítás: `./leadgen.sh ui`.
+  A felhasználói leírás: [HOGYAN-HASZNALD.md](HOGYAN-HASZNALD.md) „17. folyamat".
 - [SCRAPER-PLAN.md](SCRAPER-PLAN.md) — **a repó elsődleges követelményrendszere**, 3258 sor.
   Ne olvastasd végig egy sessionben; célzottan olvasd `sed -n`-nel. A load-bearing fejezetek:
 
@@ -500,6 +504,47 @@ szándékosan soha**, mert egy téves névegyezés rossz céghez írna árbevét
 **A domain lock adatbázis-szinten él:** részleges UNIQUE index az
 `outreach (company_id) WHERE status IN ('queued','sent')` feltétellel. A küldő ezt
 nem tudja kifejezni (`build_plan` email szerint kulcsol), ezért itt kell kikényszeríteni.
+
+## A webes felület (`webui/`) — 13. szakasz óta létezik
+
+Harmadik réteg a scraper és a küldő mellett, de **nem harmadik igazságforrás**:
+csak megjelenít és gombot nyom, dönteni nem dönt. A teljes végrehajtási terv
+(fázisonként, ellenőrzéssel): [WEBUI-TERV.md](WEBUI-TERV.md). A felhasználói
+nézet: [HOGYAN-HASZNALD.md](HOGYAN-HASZNALD.md) „17. folyamat — A felület".
+
+| | |
+|---|---|
+| Indítás | `./leadgen.sh ui` — a `leadgen` venv-jéből fut, **nem** a `python3` 3.9.6-on |
+| Backend | `webui/api/` — FastAPI, csak `127.0.0.1`-en, `leadgen` függvényeket importál |
+| Frontend | `webui/app/` — Next.js + shadcn/ui + Bklit UI (chartok), TypeScript |
+| Kontraktus | `GET /api/meta` — innen tudja a felület, mi a jóváhagyott kampány, mi a suppression-ok, mi a státusz-sorrend |
+
+**A legfontosabb szabály: az üzleti logika soha nem másolódik TypeScriptbe.**
+Egy `tests/test_webui_contract.py` teszt (`test_a_frontend_nem_drotoz_be_uzleti_listat`)
+ezt automatikusan ellenőrzi is — string-literálként keresi a frontend
+forrásaiban a `report.STATUS_ORDER`, `contract.APPROVED_CAMPAIGNS` és hasonló
+Python-listák elemeit, és elbukik, ha bármelyik előfordul. Ha egy jövőbeli
+fázis egy Python-oldali listát akar a frontenden megjeleníteni, a helyes út
+egy új mező a `/api/meta` válaszban, nem egy bedrótozott TS-tömb.
+
+**A küldő (`cold-email-starter/`) moduljait a webui is csak subprocess-en át
+hívja** — ugyanaz az ok, mint a `leadgen/report.py`-nál (`_sender_state()`):
+másik interpreteren futnak. A `webui/api/routers/send.py` és a `jobs.py` ezt
+a mintát követi.
+
+**Minden riport-jellegű Python-függvénynek van egy `*_adat()` ikertestvére**
+(pl. `report.funnel_adat()` a `report.funnel()` mellett): az `*_adat()`
+dict-et ad vissza, amit a CLI kiíró függvénye ÉS a webui router is hív. Ha
+egy új API-végpont közvetlenül `db.query()`-t írna a router fájlba a meglévő
+`leadgen`-függvény megkerülésével, két igazság lenne ugyanarra a számra — ez
+az, amit a fázis-promptok „ne írj új lekérdezést, ha van már függvény"
+szabálya elkerül.
+
+**A titkok maszkolása Pythonban dől el, nem a routerben.** A `.env` értékeit
+a `leadgen.config.settings_adat()` maszkolja (`webui/api/routers/settings.py`
+csak hívja) — egy `tests/test_webui_contract.py` teszt (`test_egyetlen_valasz_sem_tartalmaz_titkot`)
+minden GET-végpontot végigmegy, és a MA beállított titkok egyikét sem szabad
+megtalálnia egyetlen válaszban sem.
 
 ## 📌 Dokumentáció-karbantartás — kötelező, nem opcionális
 

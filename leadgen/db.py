@@ -142,6 +142,23 @@ def server_info() -> dict[str, Any]:
     return rows[0] if rows else {}
 
 
+def migrations_adat() -> list[dict[str, Any]]:
+    """Az alkalmazott migraciok listaja, fajlnev szerint (webui F10,
+    'Diagnosztika' -- a `schema_migrations` a `migrate()` sajat naploja)."""
+    return query("select filename, applied_at from schema_migrations order by filename")
+
+
+def feedback_watermark_adat() -> list[dict[str, Any]]:
+    """A feedback-import allasa kuldo-CSV-nkent (webui F10, 'Diagnosztika').
+
+    A `feedback.py` ezt hasznalja az inkrementalis olvasashoz -- itt csak
+    megmutatjuk, hol tart, nem irjuk."""
+    return query(
+        "select file, last_ts, last_row, updated_at from feedback_watermark "
+        "order by file"
+    )
+
+
 def suppression_reasons() -> list[str]:
     """A `suppression.reason` engedelyezett ertekei.
 

@@ -36,7 +36,10 @@ export type Economic = Schemas["EconomicResponse"];
 export type Campaign = Schemas["CampaignResponse"];
 export type SenderCsv = Schemas["SenderCsvResponse"];
 export type ScheduleStatus = Schemas["ScheduleStatusResponse"];
+export type ScheduleAction = Schemas["ScheduleActionResponse"];
 export type LogTail = Schemas["LogResponse"];
+export type Settings = Schemas["SettingsResponse"];
+export type Diagnostics = Schemas["DiagnosticsResponse"];
 export type ReviewAction = Schemas["ReviewActionResponse"];
 export type SuppressedList = Schemas["SuppressedListResponse"];
 export type FinancialsImportResult = Schemas["FinancialsImportResponse"];
@@ -140,8 +143,14 @@ export const api = {
   costsDaily: () => get<DailyCosts>("/api/costs/daily"),
   runs: (limit?: number) => get<Runs>("/api/runs", { limit }),
   scheduleStatus: () => get<ScheduleStatus>("/api/schedule/status"),
+  scheduleInstall: () => post<ScheduleAction>("/api/schedule/install"),
+  scheduleUninstall: () => post<ScheduleAction>("/api/schedule/uninstall"),
   log: (nev: "sender" | "alerts" | "daily", lines?: number) =>
     get<LogTail>(`/api/logs/${nev}`, { lines }),
+
+  // ── F10: uzemeltetes ───────────────────────────────────────────────────
+  settings: () => get<Settings>("/api/settings"),
+  diagnostics: () => get<Diagnostics>("/api/diagnostics"),
 
   // ── F5: emberi dontesek ────────────────────────────────────────────────
   reviewApprove: (companyId: string) =>

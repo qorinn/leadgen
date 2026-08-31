@@ -77,9 +77,10 @@ function NaploTablazat({ nev }: { nev: string }) {
  * es a webui-kontraktus teszt pont ezt a fajta veletlen atfedest is
  * ellenorzi. */
 export function NyersNaplok() {
-  const { meta } = useMeta();
+  const { meta, hiba, ujra } = useMeta();
   const nevek = meta?.kuldo_csv_nevek ?? [];
 
+  if (hiba) return <HibaAllapot uzenet={hiba} ujra={ujra} />;
   if (!nevek.length) return <Betoltes sorok={4} />;
 
   return (

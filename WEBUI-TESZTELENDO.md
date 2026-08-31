@@ -602,3 +602,142 @@ venne fel a frontendbe, ami VÉLETLENÜL egybeesik egy üzleti kulccsal (akkor
 is, ha a jelentése teljesen más), a `/api/meta`-ból olvasás nemcsak a
 tesztet elégíti ki, hanem el is kerüli a jövőbeli félreértést, ha a két
 lista valaha tényleg összefonódna.
+
+---
+
+## F10 — Ütemezés és beállítások
+
+### 18. A terv nem adott "Ellenőrzés" blokkot F10-hez
+
+**Mi történt:** F9-hez hasonlóan F10-nek sincs explicit `### Ellenőrzés`
+szakasza a WEBUI-TERV.md-ben.
+
+**Mit döntöttünk:** a többi fázis mintáját követve a `./leadgen.sh schedule
+status` CLI-kimenetét vetettem össze a `GET /api/schedule/status` válaszával
+(mezőről mezőre egyezik), és a `leadgen/config.settings_adat()` /
+`leadgen/db.migrations_adat()` / `feedback_watermark_adat()` függvényeket
+éles adaton futtattam le a `/api/settings` és `/api/diagnostics` mögött —
+ezeknek nincs CLI-ikertestvérük (a "Beállítások" és a "Diagnosztika" fül
+tisztán webui-only nézet, korábban egyik parancs sem irta ki ezt az adatot
+egyben), tehát csak a helyesség ellenőrizhető, az egyezés nem.
+
+**Mit tesztelj később:** ha az F11 "API-szerződés tesztek" pontja ezekre a
+végpontokra is tesztet ír, vegye figyelembe, hogy a `/api/settings` és a
+`/api/diagnostics` szándékosan NEM `report.py`-stílusú `*_adat()`/print
+ikerpár — a maszkolást és az osszefuzest a `leadgen.config.settings_adat()`
+illetve a `leadgen.db.migrations_adat()`/`feedback_watermark_adat()` vegzi,
+onnan kell a vart erteket venni, nem egy CLI kimenetbol.
+
+### 19. A telepítés/eltávolítás gombot NEM futtattam végig élesben
+
+**Mi történt:** a `leadgen/schedule.py` `telepit()`/`eltavolit()`
+függvényeit szétválasztottam a bevett `*_adat()` mintára
+(`telepit_adat()`/`eltavolit_adat()` dict-et ad vissza, a CLI-print
+függvény ezt hívja és íratlan marad a kimenete) — ezt a `webui F10`
+"Gombok: telepítés / eltávolítás" követelménye kényszerítette ki, mert a
+router-nek strukturált JSON kell, nem szöveg. A böngészős ellenőrzésnél
+megnyitottam az "Eltávolítás" gomb megerősítő dialógusát (a szöveg és a
+gombok helyesek), de **nem nyomtam meg a végleges gombot** — Escape-pel
+zártam be —, mert ez a gép **valódi**, élesben telepített launchd-
+bejegyzését törölte volna. Utána ellenőriztem `GET /api/schedule/status`-
+szal, hogy a rendszer változatlanul `installed: true, loaded: true`.
+
+**Mit döntöttünk:** a `POST /api/schedule/install` és `.../uninstall`
+végpontot csak kód-olvasással és a GET-tel való összevetéssel ellenőriztem,
+a tényleges POST-ot nem futtattam le sem telepített, sem el nem távolított
+állapotból indulva.
+
+**Mit tesztelj később:** az F11 "Teljes végigjátszás" pontjánál valaki
+tudatosan nyomja meg mindkét gombot (eltávolítás → `launchctl list` a
+labelre → telepítés → `launchctl list` újra), lehetőleg úgy, hogy közben
+tudja, hogy ez a gép tényleges reggeli automatizmusát kapcsolja ki/be.
+
+---
+
+## F11 — Lezárás
+
+### 20. A `/api/meta`-ra épülő nézetek végtelen betöltő-vázat mutattak API-hiba esetén
+
+**Mi történt:** a "hibaállapotok végigvitele" auditnál kiderült, hogy a
+`useMeta()` hook hibaágát (`hiba` mező) **egyik komponens sem olvasta ki** —
+a `riportok/kampany.tsx`, a `riportok/nyers-naplok.tsx` és a
+`beallitasok/diagnosztika.tsx` mind `if (!meta) return <Betoltes />`
+mintával blokkolt, ami `/api/meta` hiba eseten **örökre** betöltő-váz marad:
+nincs hibaüzenet, nincs Újra gomb. Élesben ellenőrizve (API leállítva,
+frontend futva): a Kampány fül tényleg végtelen skeletont mutatott.
+
+Egy MÁSIK, súlyosabb hiba is kiderült eközben: a `useMeta()` modul-szintű
+`inFlight` cache-e egy ELUTASÍTOTT Promise-t is örökre megtartott —
+tehát az ELSŐ `/api/meta` hiba után **egyetlen későbbi próbálkozás sem
+indított volna új HTTP-hívást**, még akkor sem, ha a szerver közben
+visszajött. Ez a hiba addig rejtve maradt, mert eddig semelyik komponens
+nem próbált újra.
+
+**Mit döntöttünk:** a `useMeta()` most `.catch()`-ben nullázza az
+`inFlight`-ot (új próbálkozás = új HTTP-hívás), és egy `ujra()` függvényt is
+visszaad, ami MINDEN `useMeta()`-t használó komponensre hat (modul-szintű
+cache). A három érintett komponens most `metaHiba ? <HibaAllapot ujra=.../>
+: !meta ? <Betoltes /> : ...` mintára vált. Külön javítás:
+`futtatas/elozmenyek.tsx` `if (!adat) return null;` (néma, üres képernyő
+betöltés közben) és nyers `<p className="text-destructive">` (Újra gomb
+nélkül) helyett most `Betoltes`/`HibaAllapot`-ot használ, mint minden más
+lista-nézet.
+
+**Mit tesztelj később:** ha egy jövőbeli komponens `useMeta()`-t hard
+blokkoló feltételként használja (`if (!meta) return <Betoltes />`), mindig
+olvassa ki és kezelje a `hiba`/`ujra` mezőt is — ez most már a hook
+szerződésének a része, nem csak a `meta`/`betoltve` pár.
+
+### 21. Az F11 API-szerződés tesztjei a meglévő `test_webui_contract.py`-ba kerültek
+
+**Mi történt:** a WEBUI-TERV.md F11 szakasza `tests/test_webui.py` fájlt
+nevez meg a négy ellenőrzéshez, de a webui-kontraktus tesztek már F1 óta a
+`tests/test_webui_contract.py`-ban élnek, és pont ugyanezt a célt szolgálják
+(a docstringje szó szerint erről szól).
+
+**Mit döntöttünk:** nem hoztam létre egy második, átfedő célú fájlt — a
+három hiányzó ellenőrzést (a `/api/meta` kampányai az AKTUÁLIS
+`APPROVED_CAMPAIGNS`-t tükrözik; egyetlen GET-válasz sem tartalmaz titkot;
+a `/api/send/live` érvénytelen tokennel 409-et ad) a meglévő fájlba tettem.
+A negyedik pontot (nincs `--live` a katalógusban) NEM ismételtem meg — az
+már F6/F7 óta megvan `test_webui_jobs.py`-ban és `test_webui_send.py`-ban.
+A titok-ellenőrző tesztet szándékosan **valódi leakkel** is lefuttattam
+(ideiglenesen kikapcsoltam a maszkolást, futtattam, visszaállítottam) —
+tényleg elbukott, tehát nem csak vakon zöld.
+
+**Mit tesztelj később:** ha valaha tényleg szükség lenne egy külön
+`tests/test_webui.py`-ra (pl. mert a kontraktus fájl túl naggyá nő), a
+szétválasztás egy tudatos refaktor legyen, ne egy fázis mellékterméke.
+
+### 22. A "Teljes végigjátszás" alatt két valódi `sender.py --live` kísérletet találtam a jobs-előzményben
+
+**Mi történt:** a Futtatás oldal élő tesztelésekor az Előzmények táblában két
+"Éles küldés" bejegyzés szerepelt **2026-08-30 18:06:09** és **18:09:05**
+időbélyeggel (az egyik `Kesz`, a másik `Hibara futott exit 1`) — jóval az
+aznapi agent-munkamenet aktivitása előtt (~21:30 körül). Ez NEM az én
+munkamenetemből indult: a `POST /api/send/live` a `Küldés` oldal
+kétlépcsős, emberi megerősítést igénylő útján keresztül hívható csak, és a
+job-történet minden induló forrást megjelenít, nem csak az agenttől
+jövőket.
+
+**Ellenőrizve:** a `cold-email-starter/data/sent.csv` **változatlan**
+maradt (még mindig csak az egyetlen, 2026-08-20-i `.invalid` teszt-sor van
+benne) — tehát egyik kísérlet sem küldött ki valódi levelet. Ez azért
+történhetett biztonságosan, mert 18:06/18:09 **a küldési ablakon (8:00-17:00)
+kívül** volt: a `sender.py --live` ilyenkor ártalmatlanul kilép, mielőtt
+bármit kiküldene (CLAUDE.md: „AZ ABLAK dry-run alatt nincs kikényszerítve,
+de éles alatt igen").
+
+**Mit döntöttünk:** nem nyúltam hozzá (nem törölhető és nem is kellene
+törölni egy valódi job-history bejegyzést), és nem próbáltam kideríteni,
+ki indította — feltehetően a felhasználó saját tesztje párhuzamosan. A
+"Teljes végigjátszás" ellenőrzésnél emiatt még óvatosabban jártam el: az
+Éles küldés gombot magát sehol nem nyomtam meg, csak az előnézetig mentem.
+
+**Mit tesztelj később:** ha ez a mintázat rendszeresen előfordul (valaki
+a küldési ablakon kívül próbálkozik éles küldéssel), érdemes lehet a
+Küldés oldalon egy előre jelzést adni, mielőtt az ember egyáltalán
+eljutna a megerősítő dialógusig — jelenleg az `Elonezet` komponens csak
+FIGYELMEZTET az ablakra, de nem tiltja le a gombot (ez tudatos döntés
+volt F7-ben: a szerver úgyis elutasítja/ártalmatlanul kilép, a felület
+csak kényelem).

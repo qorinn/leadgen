@@ -10,6 +10,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Betoltes } from "@/components/betoltes";
+import { HibaAllapot } from "@/components/hiba-allapot";
 import { UresAllapot } from "@/components/ures-allapot";
 import { type JobHistory, api, ApiError } from "@/lib/api";
 
@@ -24,6 +26,7 @@ export function Elozmenyek({ frissites }: { frissites: number }) {
   const [hiba, setHiba] = useState<string | null>(null);
 
   const betolt = useCallback(() => {
+    setHiba(null);
     api
       .jobHistory(30)
       .then(setAdat)
@@ -34,8 +37,8 @@ export function Elozmenyek({ frissites }: { frissites: number }) {
 
   useEffect(betolt, [betolt, frissites]);
 
-  if (hiba) return <p className="text-sm text-destructive">{hiba}</p>;
-  if (!adat) return null;
+  if (hiba) return <HibaAllapot uzenet={hiba} ujra={betolt} />;
+  if (!adat) return <Betoltes sorok={3} />;
 
   return (
     <section className="flex flex-col gap-3">

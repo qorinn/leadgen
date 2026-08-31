@@ -276,6 +276,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/schedule/install": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Schedule Install */
+        post: operations["schedule_install_api_schedule_install_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/schedule/uninstall": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Schedule Uninstall */
+        post: operations["schedule_uninstall_api_schedule_uninstall_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/logs/{nev}": {
         parameters: {
             query?: never;
@@ -616,6 +650,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Settings */
+        get: operations["settings_api_settings_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/diagnostics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Diagnostics */
+        get: operations["diagnostics_api_diagnostics_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -819,6 +887,13 @@ export interface components {
             /** Tablak */
             tablak: number;
         };
+        /** DiagnosticsResponse */
+        DiagnosticsResponse: {
+            /** Migraciok */
+            migraciok: components["schemas"]["MigrationRow"][];
+            /** Feedback Watermark */
+            feedback_watermark: components["schemas"]["FeedbackWatermarkRow"][];
+        };
         /** EconomicResponse */
         EconomicResponse: {
             /** Total */
@@ -881,6 +956,20 @@ export interface components {
             cimke: string;
             /** Aktiv */
             aktiv: boolean;
+        };
+        /** FeedbackWatermarkRow */
+        FeedbackWatermarkRow: {
+            /** File */
+            file: string;
+            /** Last Ts */
+            last_ts: string | null;
+            /** Last Row */
+            last_row: number;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
         };
         /** FinancialsImportResponse */
         FinancialsImportResponse: {
@@ -1018,6 +1107,8 @@ export interface components {
             /** Parameterek */
             parameterek: components["schemas"]["JobParamMeta"][];
             koltseg: components["schemas"]["JobKoltseg"];
+            /** Naponta Fut */
+            naponta_fut: boolean;
         };
         /** JobCatalogResponse */
         JobCatalogResponse: {
@@ -1182,6 +1273,16 @@ export interface components {
             /** Utolso */
             utolso: string | null;
         };
+        /** MigrationRow */
+        MigrationRow: {
+            /** Filename */
+            filename: string;
+            /**
+             * Applied At
+             * Format: date-time
+             */
+            applied_at: string;
+        };
         /** ModellKoltseg */
         ModellKoltseg: {
             /** Hivasok */
@@ -1295,6 +1396,20 @@ export interface components {
             items: components["schemas"]["SourceRunItem"][];
             /** Total */
             total: number;
+        };
+        /**
+         * ScheduleActionResponse
+         * @description A telepites/eltavolitas eredmenye (F10). A `hiba` csak telepitesnel
+         *     toltodik ki; a `volt_telepitve` csak eltavolitasnal (a ket muvelet
+         *     Python-oldali eredmenye mas alaku, lasd leadgen/schedule.py).
+         */
+        ScheduleActionResponse: {
+            /** Ok */
+            ok: boolean;
+            /** Hiba */
+            hiba?: string | null;
+            /** Volt Telepitve */
+            volt_telepitve?: boolean | null;
         };
         /** ScheduleStatusResponse */
         ScheduleStatusResponse: {
@@ -1436,6 +1551,27 @@ export interface components {
             ok: boolean;
             /** Ut */
             ut: string;
+        };
+        /**
+         * SettingsItem
+         * @description Egy .env-ertek, maszkolva -- lasd `leadgen.config.settings_adat()`.
+         *     A `titok` mezo NEM dontes itt: mar maszkolt `ertek`-et kap a router,
+         *     csak a felulet tudja belole, hogy pl. jelszo-ikont mutasson-e.
+         */
+        SettingsItem: {
+            /** Csoport */
+            csoport: string;
+            /** Kulcs */
+            kulcs: string;
+            /** Ertek */
+            ertek: string;
+            /** Titok */
+            titok: boolean;
+        };
+        /** SettingsResponse */
+        SettingsResponse: {
+            /** Tetelek */
+            tetelek: components["schemas"]["SettingsItem"][];
         };
         /** SourceRunItem */
         SourceRunItem: {
@@ -1904,6 +2040,46 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ScheduleStatusResponse"];
+                };
+            };
+        };
+    };
+    schedule_install_api_schedule_install_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScheduleActionResponse"];
+                };
+            };
+        };
+    };
+    schedule_uninstall_api_schedule_uninstall_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScheduleActionResponse"];
                 };
             };
         };
@@ -2409,6 +2585,46 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    settings_api_settings_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SettingsResponse"];
+                };
+            };
+        };
+    };
+    diagnostics_api_diagnostics_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiagnosticsResponse"];
                 };
             };
         };

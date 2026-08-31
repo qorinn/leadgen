@@ -212,7 +212,31 @@ def _alap_ertekek(parancs: Parancs) -> dict[str, int]:
     return {p.nev: int(getattr(ns, p.nev)) for p in parancs.parameterek}
 
 
+def _lepes_alap_argv(argv: tuple[str, ...]) -> tuple[str, ...]:
+    """Egy napi-lanc-lepes argv-je a `--limit`/`--max-results` szam nelkul --
+    igy hasonlithato ossze a katalogus (meg parameter nelkuli) argv-jevel."""
+    argv = list(argv)
+    if len(argv) >= 2 and argv[-2] in ("--limit", "--max-results"):
+        argv = argv[:-2]
+    return tuple(argv)
+
+
+def _naponta_fut_argvk() -> set[tuple[str, ...]]:
+    """Melyik parancsok futnak le a napi lancban MAGATOL -- a
+    `schedule.lepesek()`-bol szarmaztatva, nem itt masodszor felsorolva
+    (WEBUI-TERV.md: "ne talalj ki szamot/listat, ami mar letezik").
+
+    Az `alert` nincs benne a `lepesek()` listajaban (a `schedule.napi_lanc()`
+    kulon, a lanc vegen, MINDIG lefuttatja -- lasd annak docstringjet), ezert
+    ide kezzel hozza kell venni.
+    """
+    argvk = {_lepes_alap_argv(l.argv) for l in schedule.lepesek()}
+    argvk.add(("alert",))
+    return argvk
+
+
 def katalogus_adat() -> list[dict[str, Any]]:
+    naponta_fut_argvk = _naponta_fut_argvk()
     out = []
     for p in KATALOGUS:
         alapok = _alap_ertekek(p)
@@ -235,6 +259,14 @@ def katalogus_adat() -> list[dict[str, Any]]:
                 "ai_tokenenkent": p.ai,
                 "magyarazat": _koltseg_magyarazat(p),
             },
+            # A "daily"/"daily-skip-ingest" gomb maga a lanc -- ujra
+            # inditasa ugyanazt csinalna, amit az utemezes ugyis lefuttat,
+            # tehat ez is "automatikusan lefut" (webui F futtatas nezet:
+            # elhalvanyitott/kiemelt gombok).
+            "naponta_fut": (
+                p.kulcs in ("daily", "daily-skip-ingest")
+                or tuple(p.argv) in naponta_fut_argvk
+            ),
         })
     return out
 

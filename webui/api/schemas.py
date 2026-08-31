@@ -375,6 +375,15 @@ class ScheduleStatusResponse(BaseModel):
     log_last_lines: list[str]
 
 
+class ScheduleActionResponse(BaseModel):
+    """A telepites/eltavolitas eredmenye (F10). A `hiba` csak telepitesnel
+    toltodik ki; a `volt_telepitve` csak eltavolitasnal (a ket muvelet
+    Python-oldali eredmenye mas alaku, lasd leadgen/schedule.py)."""
+    ok: bool
+    hiba: str | None = None
+    volt_telepitve: bool | None = None
+
+
 # ─── /api/logs/{nev} ───────────────────────────────────────────────────────
 
 
@@ -497,6 +506,10 @@ class JobCatalogItem(BaseModel):
     parancs: str
     parameterek: list[JobParamMeta]
     koltseg: JobKoltseg
+    # Igaz, ha ez a lepes a napi lancnak is resze (`schedule.lepesek()`) --
+    # a felulet ez alapjan halvanyitja el azt, amit ugyis magatol lefuttat
+    # az utemezes, es emeli ki, amit tenyleg neked kell kezzel elinditanod.
+    naponta_fut: bool
 
 
 class JobCatalogResponse(BaseModel):
@@ -592,3 +605,37 @@ class SendSampleResponse(BaseModel):
     ok: bool
     sorok: list[str]
     error: str | None
+
+
+# ─── /api/settings, /api/diagnostics (F10) ─────────────────────────────────
+
+
+class SettingsItem(BaseModel):
+    """Egy .env-ertek, maszkolva -- lasd `leadgen.config.settings_adat()`.
+    A `titok` mezo NEM dontes itt: mar maszkolt `ertek`-et kap a router,
+    csak a felulet tudja belole, hogy pl. jelszo-ikont mutasson-e."""
+    csoport: str
+    kulcs: str
+    ertek: str
+    titok: bool
+
+
+class SettingsResponse(BaseModel):
+    tetelek: list[SettingsItem]
+
+
+class MigrationRow(BaseModel):
+    filename: str
+    applied_at: dt.datetime
+
+
+class FeedbackWatermarkRow(BaseModel):
+    file: str
+    last_ts: str | None
+    last_row: int
+    updated_at: dt.datetime
+
+
+class DiagnosticsResponse(BaseModel):
+    migraciok: list[MigrationRow]
+    feedback_watermark: list[FeedbackWatermarkRow]

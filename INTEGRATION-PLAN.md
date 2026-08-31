@@ -2104,7 +2104,7 @@ sender.py --dry --skip-guards .. változatlanul fut (a flock nem törte el)
 
 ---
 
-## 13. szakasz — Webes felület `[megtervezve: 2026-08-29]`
+## ✅ 13. szakasz — Webes felület `[kész: 2026-08-30]`
 
 > **A végrehajtási terv külön fájlban van: [WEBUI-TERV.md](WEBUI-TERV.md)**
 > — 12 fázis, fázisonkénti ellenőrzéssel. Modellválasztás:
@@ -2117,8 +2117,11 @@ funkció gombbal indul.
 **Kész-definíció:** a napi rutin végigvihető a felületen, terminál nélkül
 (a `--live` küldés kétlépcsős megerősítéssel).
 
-**Ez még nem épült meg.** Amit viszont **már most úgy csinálunk**, hogy később ne
-kelljen újraírni:
+**Megépült, F0–F11 fázisokban (lásd [WEBUI-TERV.md](WEBUI-TERV.md)).** A napi
+rutin — irányítópult, cégek, review, válaszok, riasztások, riportok,
+ütemezés, beállítások, kétlépcsős küldés — végigvihető a felületen. Amit
+**már az 1-12. szakaszban úgy csináltunk**, hogy a felületnél ne kelljen
+újraírni:
 
 | Döntés az 1-12. szakaszban | Miért fizetődik ki a 13.-nál |
 |---|---|

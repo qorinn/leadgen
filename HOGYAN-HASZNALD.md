@@ -785,13 +785,18 @@ Reggel 7:30-kor sorban lefut:
 |---|---|
 | 1. gyűjtés | új cégek a Google Mapsről *(ez pénzbe kerül, napi 50 találat a keret)* |
 | 2. feldolgozás | letölti és elolvassa a weboldalukat |
-| 3. fejlesztő-keresés | ki készítette az oldalt, él-e még |
-| 4. AI-értékelés | ki a jó lead, és mi legyen a levél első mondata |
-| 5. webshop-vizsgálat | dobozos platformon van-e a boltjuk |
-| 6. visszajelzés | ki válaszolt, ki iratkozott le, mi pattant vissza |
-| 7. válasz-besorolás | az AI elolvassa az új válaszokat |
-| 8. átadás | megírja a `leads.csv`-t a küldőnek |
-| 9. ellenőrzés | van-e baj, amiről szólni kell |
+| 3. minősítés | kulcsszó alapján eldönti: kész-e a lead, átnézésre vár-e, vagy versenytárs |
+| 4. fejlesztő-keresés | ki készítette az oldalt, él-e még |
+| 5. AI-értékelés | ki a jó lead, és mi legyen a levél első mondata |
+| 6. webshop-vizsgálat | dobozos platformon van-e a boltjuk |
+| 7. visszajelzés | ki válaszolt, ki iratkozott le, mi pattant vissza |
+| 8. válasz-besorolás | az AI elolvassa az új válaszokat |
+| 9. átadás | megírja a `leads.csv`-t a küldőnek |
+| 10. ellenőrzés | van-e baj, amiről szólni kell |
+
+> A 3. lépés (minősítés) 2026-08-31 óta része a láncnak — korábban csak
+> kézzel (`./leadgen.sh qualify`) lehetett elindítani, és enélkül a cégek
+> „feldolgozva" állapotban vártak a sorban, senki nem vitte őket tovább.
 
 ### Amit szándékosan NEM csinál magától
 
@@ -813,6 +818,12 @@ Ugyanígy kézi marad az esti `deliverability.py` is — az a küldés után fut
 Az `install` **nem indít el semmit azonnal** — az első futás másnap reggel lesz.
 
 Ha a géped 7:30-kor alszik, a futás **nem marad el**: felébredés után bepótolja.
+
+**Ugyanez böngészőből.** A `./leadgen.sh ui` **Beállítások → Ütemezés** füle
+mutatja, telepítve és betöltve van-e a lánc, mikor indul, és a
+`leadgen_daily.log` utolsó sorait. Telepítés/eltávolítás gombbal, mindkettő
+megerősítést kér — pontosan ugyanazt a két függvényt hívják, ami a CLI
+`schedule install`/`uninstall` mögött is fut.
 
 ### A napi rutinod ezután
 
@@ -864,13 +875,73 @@ riasztást sem vennéd észre.
 Ha nem érkezik email, a riasztás akkor is megvan a fájlban és a riportban.
 Beállítás: `ALERT_EMAIL=sajat@cimed.hu` a gyökér `.env`-ben.
 
+**Hol látod, mi van beállítva.** A `./leadgen.sh ui` **Beállítások →
+Beállítások** füle kiírja a gyökér és a küldő `.env`-jének minden értékét —
+a titkokat (API-kulcsok, `DATABASE_URL`, SMTP-jelszó) csak az utolsó pár
+karakterig maszkolva, hogy lásd, be van-e állítva valami, anélkül hogy
+kimásolhatnád. **A felület nem írja a `.env`-et** — kézi szerkesztés marad.
+A **Diagnosztika** fül a motorháztető alá enged: mely engine-ek aktívak,
+mely kampányok vannak jóváhagyva, mely migrációk futottak le, és hol tart a
+feedback-import fájlonként.
+
+---
+
+## 17. folyamat — A felület
+
+**Mikor:** bármikor — a napi rutin terminál nélkül, elejétől végig
+végigvihető rajta (a `--live` küldés kivételével, ami szándékosan kézben marad).
+
+```bash
+./leadgen.sh ui
+```
+
+Ez elindítja a háttér-API-t (FastAPI, 8000-es port) és a felületet (Next.js,
+3000-as port), és megnyitja a böngészőt. Ctrl+C mindkettőt leállítja. **Csak
+a saját gépeden (`localhost`) érhető el** — a DB valódi cég- és
+személyes adatot tartalmaz, nincs kitett port.
+
+A bal oldali sáv nyolc oldalt ad:
+
+| Oldal | Mit mutat |
+|---|---|
+| **Irányítópult** | a `report --daily` képe: riasztások, a mai keret, a sorbanállás, „rád vár" |
+| **Cégek** | lista szűréssel/kereséssel + részletnézet (nyers forrás, AI-szögek és szó szerinti idézetek, pénzügy, jóváhagyás/elutasítás) |
+| **Válaszok** | a beérkezett válaszok besorolással, kiemelve az érdeklődőket (24 órás órával) |
+| **Riasztások** | az `alerts` tábla, aktív és lezárt |
+| **Futtatás** | bármelyik parancs indítása gombbal, élő kimenettel; fizetős parancsoknál becsült költség + megerősítés |
+| **Küldés** | a kétlépcsős kiküldés: előnézet a teljes levelekkel, aztán külön „Éles küldés" gomb |
+| **Riportok** | tölcsér, grounding, gazdasági érték, kampányonkénti bontás, LLM-költségek, mérőeszközök állapota, a küldő nyers CSV-i |
+| **Beállítások** | az ütemezés telepítése/eltávolítása, a `.env` maszkolt értékei, diagnosztika |
+
+Minden képernyőnél az adott folyamat leírásánál (fentebb) egy **„Ugyanez
+böngészőből"** bekezdés mondja el, melyik fülön található és mit vár el a
+CLI-hez képest.
+
+**Amit a felület szándékosan nem tud:**
+
+- **Nem indítja a `sender.py --live`-ot közvetlenül.** Ezt a szervert
+  kényszeríti ki, nem a gomb — az éles küldés a `Küldés` oldalon, két
+  lépésben megy (előnézet → külön megerősítés).
+- **Nem írja a `.env`-et.** A Beállítások fül csak megmutatja, mi van
+  beállítva (a titkokat maszkolva) — a szerkesztés kézi marad.
+- **Nem mutat megnyitási arányt.** Nincs nyitás-követés, és nem is lesz — ez
+  a küldő saját invariánsa.
+- **Nem szivárogtat titkot.** API-kulcs, jelszó, `DATABASE_URL` egyetlen
+  API-válaszban sem jelenik meg teljes értékben.
+
+Ha az API nem érhető el (pl. nem fut a `./leadgen.sh ui`, vagy közben
+leállt), minden oldal egy „Nem érhető el az API" üzenetet és egy **Újra**
+gombot mutat — nem fagy be és nem üres képernyőt ad.
+
 ---
 
 # Mi nincs még kész
 
-| Mi hiányzik | Melyik fázis | Mit jelent ez most |
-|---|---|---|
-| **Webes felület** | 13. | Épül ([WEBUI-TERV.md](WEBUI-TERV.md)). A `./leadgen.sh ui` már használható felületet ad: irányítópult, cégek listája és részletei, emberi döntések (jóváhagyás, elutasítás, pénzügyi adat), **Futtatás** (parancsok indítása élő kimenettel), **Küldés** (kiküldés két lépésben, előnézettel), **Válaszok**, **Riasztások** és **Riportok** (tölcsér, grounding, gazdasági érték, kampányonkénti bontás, LLM-költségek, mérőeszközök állapota, a küldő nyers CSV-i). Ami még nincs kész: a beállítások. |
+A **webes felület** (13. szakasz, [WEBUI-TERV.md](WEBUI-TERV.md)) 2026-08-30-án
+lezárult (F0–F11): minden tervezett képernyő megvan, hibaállapotokkal,
+API-szerződés tesztekkel, és a napi rutin terminál nélkül végigvihető rajta —
+lásd „17. folyamat — A felület" fentebb. Jelenleg nincs ismert hiányzó
+funkció ezen a listán.
 
 ---
 

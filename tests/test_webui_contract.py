@@ -19,15 +19,24 @@ Konkret peldak, amiket ez a teszt elkap:
 A masik fele: minden endpointnak legyen `response_model`-je. Enelkul az
 OpenAPI sema URES objektum, a generalt `api-types.ts` hasznalhatatlan, es a
 frontend KENYTELEN kezi tipust irni -- amit ugyanez az invarians tilt.
+
+F11 (lezaras) harom tovabbi ellenorzest tesz ide, a WEBUI-TERV.md sajat
+listaja szerint: a `/api/meta` a kampanyok AKTUALIS jovahagyasi allapotat
+tukrozi (nem egy regi masolatot), egyetlen GET-valasz sem tartalmaz titkot,
+es a `/api/send/live` ervenytelen tokennel elutasit. A negyedik F11-pont (a
+job-katalogusban nincs `--live`) mar F6/F7-ben megvan (test_webui_jobs.py,
+test_webui_send.py) -- azt itt nem ismeteljuk.
 """
 import ast
 import re
 from pathlib import Path
 
 import pytest
+from fastapi.testclient import TestClient
 
-from leadgen import engines, report
+from leadgen import config, engines, report
 from leadgen.contract import APPROVED_CAMPAIGNS
+from webui.api.main import app
 
 REPO = Path(__file__).resolve().parent.parent
 APP_DIR = REPO / "webui" / "app"
@@ -213,3 +222,115 @@ def test_a_frontend_csak_localhostra_mutat():
             assert re.match(r"https?://(127\.0\.0\.1|localhost)(:\d+)?", url), (
                 f"{path.relative_to(REPO)}: nem-localhost cim: {url}"
             )
+
+
+# ─── F11: lezaras -- a terv sajat harom ellenorzese ────────────────────────
+
+
+def test_meta_kampanyok_az_approved_campaigns_aktualis_allapotat_tukrozi():
+    """WEBUI-TERV.md F11: "a /api/meta tartalmazza a contract.APPROVED_CAMPAIGNS
+    AKTUALIS tartalmat (ne legyen bedrotozott masolat)".
+
+    A router fuggvenyet KOZVETLENUL hivjuk (nem csak a HTTP-valaszt nezzuk),
+    hogy a hiba akkor is kiderujon, ha valaki egy statikus listat masolna a
+    meta.py-ba a `sorted(campaign_keys)` helyett."""
+    from webui.api.routers.meta import meta
+
+    valasz = meta()
+    jovahagyott = {k["kulcs"] for k in valasz["kampanyok"] if k["jovahagyott"]}
+    assert jovahagyott == set(APPROVED_CAMPAIGNS)
+
+
+def test_send_live_ervenytelen_tokennel_409et_ad(monkeypatch):
+    """WEBUI-TERV.md F11: "a /api/send/live ervenytelen tokennel elutasit".
+
+    A `send.terv()` a kuldot kerdezi meg egy subprocess-en -- ezt
+    monkeypatch-eljuk, hogy a teszt eredmenye ne fuggjon attol, be van-e
+    allitva ezen a gepen eppen a cold-email-starter/.env (a token-kaput
+    magat, tervvaltozas-erzekenyseget stb. a test_webui_send.py meri)."""
+    from leadgen import send
+    from webui.api.routers import send as send_router
+
+    hamis_terv = send.Terv(
+        ok=True,
+        levelek=[send.Level(cimzett="a@pelda.hu", ceg="pelda.hu", fok="cold",
+                             targy="targy", torzs="torzs")],
+    )
+    monkeypatch.setattr(send_router.send, "terv", lambda: hamis_terv)
+
+    valasz = TestClient(app).post("/api/send/live", json={"token": "nincs-ilyen-token"})
+    assert valasz.status_code == 409
+
+
+# A generatoros GET vegpontok (path-parameterrel) kezelese a titok-sepro
+# teszthez -- (utvonal-sablon -> konkret (utvonal, query) parok). Ha egy uj
+# parameteres GET vegpont kerul be, es nincs itt bejegyzese, a teszt HANGOSAN
+# elbukik (lasd lent), nem csendben kihagyja.
+_NEM_JSON_UTVONALAK = {"/openapi.json", "/docs", "/docs/oauth2-redirect", "/redoc"}
+_NINCS_TESZTADAT_UTVONALAK = {"/api/jobs/{job_id}", "/api/jobs/{job_id}/stream"}
+
+
+def _titkos_ertekek() -> list[str]:
+    """A MA beallitott titkok valodi erteke -- csak a nem-ureseket adjuk
+    vissza, kulonben egy ures string "egyezne" mindenhol."""
+    ertekek = [
+        config.DATABASE_URL, config.OPENAI_API_KEY, config.ANTHROPIC_API_KEY,
+        config.GEMINI_API_KEY, config.REOON_API_KEY, config.APIFY_TOKEN,
+    ]
+    ertekek += [fiok["password"] for fiok in config.sender_smtp_accounts()]
+    return [e for e in ertekek if e]
+
+
+def test_egyetlen_valasz_sem_tartalmaz_titkot():
+    """WEBUI-TERV.md F11: "egyetlen API-valasz sem tartalmaz titkot (kulcs,
+    jelszo, DATABASE_URL)".
+
+    A vegpont-listat magabol az `app`-bol olvassuk (nem egy itt karbantartott
+    masolatbol) -- egy uj GET vegpont automatikusan bekerul az ellenorzesbe.
+    """
+    titkok = _titkos_ertekek()
+    if not titkok:
+        pytest.skip("nincs beallitott titok ezen a gepen -- nincs mit ellenorizni")
+
+    client = TestClient(app)
+
+    cegek = client.get("/api/companies", params={"per_page": 1}).json()
+    elso_ceg_id = cegek["items"][0]["id"] if cegek["items"] else None
+    meta_valasz = client.get("/api/meta").json()
+    csv_nevek = meta_valasz["kuldo_csv_nevek"]
+    elso_kampany = meta_valasz["kampanyok"][0]["kulcs"] if meta_valasz["kampanyok"] else None
+
+    helyettesitesek: dict[str, list[tuple[str, dict]]] = {
+        "/api/report/sender-csv/{nev}": [(f"/api/report/sender-csv/{n}", {}) for n in csv_nevek],
+        "/api/logs/{nev}": [(f"/api/logs/{n}", {}) for n in ("sender", "alerts", "daily")],
+        "/api/companies/{company_id}": (
+            [(f"/api/companies/{elso_ceg_id}", {})] if elso_ceg_id else []
+        ),
+    }
+
+    ellenorzendo: list[tuple[str, dict]] = []
+    for route in app.routes:
+        methods = getattr(route, "methods", None)
+        path = getattr(route, "path", None)
+        if not methods or "GET" not in methods:
+            continue
+        if path in _NEM_JSON_UTVONALAK or path in _NINCS_TESZTADAT_UTVONALAK:
+            continue
+        if "{" in path:
+            csere = helyettesitesek.get(path)
+            assert csere is not None, (
+                f"uj parameteres GET vegpont ({path}) nincs kezelve a titok-sepro "
+                "tesztben -- vedd fel a `helyettesitesek` tablaba"
+            )
+            ellenorzendo.extend(csere)
+        else:
+            ellenorzendo.append((path, {}))
+
+    if elso_kampany:
+        ellenorzendo.append(("/api/report/campaign", {"name": elso_kampany}))
+
+    for path, params in ellenorzendo:
+        valasz = client.get(path, params=params)
+        szoveg = valasz.text
+        for titok in titkok:
+            assert titok not in szoveg, f"{path}: titkos ertek szivargott a valaszba"

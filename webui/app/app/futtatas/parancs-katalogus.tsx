@@ -111,8 +111,18 @@ function ParancsKartya({
 
   const usd = becsultUsd(parancs, params);
 
+  // A napi lanc ugyis lefuttatja ezt magatol (schedule.lepesek(), lasd
+  // webui/api/jobs.py `naponta_fut`) -- elhalványítva kevésbé vonja a
+  // figyelmet, mint amit TÉNYLEG neked kell kézzel elindítanod.
+  const kiemelve = !parancs.naponta_fut;
+
   return (
-    <div className="flex flex-col gap-3 rounded-lg border p-4">
+    <div
+      className={
+        "flex flex-col gap-3 rounded-lg border p-4 transition-opacity" +
+        (kiemelve ? "" : " opacity-50 hover:opacity-100 focus-within:opacity-100")
+      }
+    >
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="flex flex-col gap-0.5">
           <span className="font-medium">{parancs.cimke}</span>

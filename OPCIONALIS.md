@@ -205,8 +205,76 @@ külön példány olcsóbb megoldás.
 A terv 13. fázisa, opcionálisként. Napi 20-40 lead kézzel is átnézhető a
 `review` paranccsal. Akkor éri meg, ha a napi átnézés 15 percnél többet visz.
 
+### B4. `score.py` kontakt- ÉS domain-ellenőrzés az AI-hívás elé, + a `resolve-domains` versenyhelyzete  `~30 perc`
+
+**A jelenlegi viselkedés** (mérve, majd ugyanaznap bővítve, 2026-08-31): a
+`leadgen/score.py` az ops_pain (Profession.hu) cégeket AI-val minősíti, és
+csak UTÁNA — a `status`-t eldöntő lépésnél — nézi meg, van-e használható
+kapcsolata (`van_kapcsolat`). Ha nincs, a cég `status='scored'`-ra áll
+(`"nincs hasznalhato kapcsolat"` jegyzettel), de az AI-hívás (és a vele járó
+token-költség) **már megtörtént**.
+
+**Ez ELSŐRE csak pénzkidobásnak tűnt, de valójában rosszabb: eltéríti a
+domain-feloldás egyetlen belépési pontját.** A `score.run()` lekérdezése
+(`status not in ('suppressed','rejected')`) **nem zárja ki** a domain
+nélküli, `status='error'` cégeket sem — tehát a napi lánc automatikus
+`score` lépése ezeket a cégeket IS AI-val minősíti, és a saját döntése
+szerint kiírja őket `error`-ból `scored`/`ready`-be. A `resolve-domains`
+(Google Maps-es domain-feloldás) viszont **kizárólag `status='error'`**
+cégeket keres — miután a `score` egyszer hozzáért egy domain nélküli
+céghez, az a `resolve-domains` számára örökre láthatatlanná válik, hiába
+nincs neki valójában domainje.
+
+Élesben ellenőrizve (2026-08-31): **mind a 32 domain nélküli ops_pain cég**
+`scored`/`ready` állapotban volt, **egyetlen egy sem `error`-ban** — a
+`resolve-domains`-nak jelenleg nincs mit feldolgoznia, pedig mind a 32-nek
+tényleg nincs domainje. A napi lánc lépéssorrendje (`ingest → enrich →
+qualify → dead-dev → score → ...`) miatt ez minden reggel, minden új
+domain nélküli cégen automatikusan megtörténik, mire az ember egyáltalán
+kézzel elindíthatná a `resolve-domains`-t.
+
+**Amit ez a módosítás adna:** két külön szűrés, ugyanabban a `score.run()`
+lekérdezésben:
+1. domain-ellenőrzés (`normalized_domain is not null`) — egy domain nélküli
+   cég meg se induljon az AI felé, amíg a `resolve-domains` esélyt nem
+   kapott rá;
+2. kontakt-ellenőrzés (a meglévő `van_kapcsolat`) — korábbra hozva, hogy egy
+   domainnel rendelkező, de kapcsolat nélküli cég se fusson be feleslegesen.
+
+A cég egyik esetben sem esne ki — csak később, a `resolve-domains`/
+kontakt-találat UTÁN kapná meg az AI-minősítést, amikor már tényleg
+exportálható lenne belőle valami.
+
+**Mikor éri meg:** most már nem csak "ha sokat költünk feleslegesen" kérdés
+— a `resolve-domains` parancs jelenleg gyakorlatilag használhatatlan emiatt.
+Mérőszám: a `domain_missing` címkéjű cégek száma `status='error'`-ban
+(ma: 0, a valós domain-hiányos cégek száma: 32).
+
 ---
 
 ## C) A te ötleteid
 
 *(ide kerülnek, amiket menet közben mondasz)*
+
+### C1. Leiratkozás HTML linkként — MEGFONTOLVA, egyelőre marad plain text
+
+**A felvetés** (2026-08-31): zavaró, hogy a leiratkozó link teljes URL-ként
+látszik a levél alján, nem kattintható szövegként ("unprofessional" hatás).
+
+**Miért marad mégis plain text:** ez nem elfeledett részlet, hanem egy mért,
+dokumentált döntés a küldőben (`cold-email-starter/mailer.py` fejléce). Az
+első éles próbalevél HTML-es/tömeges jelekkel a Gmail **Promóciók** fülén
+landolt, nem az Elsődlegesben. Emiatt a rendszer tudatosan kerül minden
+jelet, ami "tömeges levelezőnek" néz ki: nincs `List-Unsubscribe` fejléc
+sem (pedig azt könnyű lenne feltenni), és quoted-printable kódolást használ
+base64 helyett, hogy géppel nézve is emberi kézzel írt levélnek tűnjön. Egy
+HTML link ennél is erősebb "ez marketing-levél" jel lenne — pont azt adná
+fel, amiért a rendszer egyáltalán plain textet küld
+(CLAUDE.md Invariánsok #5: "Nincs HTML levél. Plain text only.").
+
+**Mikor éri meg mégis megfontolni:** a `mailer.py` maga jelzi, hogy ez a
+döntés napi 20 levélnél érvényes — a Gmail 2024-es "bulk sender"
+előírásai napi 5000 levél felett **kötelezővé teszik** a
+`List-Unsubscribe` fejlécet. Ha valaha odáig nő a volumen (jelenleg
+elképzelhetetlenül távoli), a HTML kérdést is újra kell nyitni, mert addigra
+a bulk-jelek elkerülése amúgy sem lesz opció.
