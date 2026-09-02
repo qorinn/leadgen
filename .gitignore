@@ -28,3 +28,14 @@ __pycache__/
 
 # ─── macOS ─────────────────────────────────────────────────────────────────
 .DS_Store
+
+# minden környezeti konfiguráció, a dokumentált példa kivételével
+.env.*
+!.env.example
+
+# kulcsok és tanúsítványok
+*.pem
+*.p12
+*.pfx
+*.crt
+*.cert
