@@ -142,6 +142,159 @@ def terv() -> Terv:
     )
 
 
+# ─── Cim-valasztas a kuldes elott (F7 bovites, 2026-09-02) ─────────────────
+#
+# MIERT ITT ES NEM A ROUTERBEN: melyik sorhoz szabad egyaltalan mas cimet
+# valasztani, az UZLETI dontes -- a webui csak megjeleniti. (CLAUDE.md: "az
+# uzleti logika soha nem masolodik TypeScriptbe".)
+#
+# ⚠️ CSAK A `cold` FOKON SZABAD CIMET CSERELNI. A kuldo a szekvencia-fokot a
+# `sent.csv`-bol vezeti le, EMAIL-CIM SZERINT (`sender._stage_of`). Ha egy
+# follow-upra varo lead cimet kicserelnenk, az uj cimnek NEM lenne elozmenye,
+# tehat a rendszer ujra COLD levelet kuldene neki -- ugyanannak a cegnek,
+# masodszor, bemutatkozo levellel. A tiltas tehat nem ovatossag, hanem a
+# `_stage_of` mukodesebol kovetkezik.
+CSEREHETO_FOK = "cold"
+
+
+def kontakt_valasztek(cimzettek: list[str]) -> dict[str, list[dict]]:
+    """cimzett email -> a ceg OSSZES hasznalhato cime (magat is beleertve).
+
+    Csak azok a cegek kerulnek bele, ahol tenylegesen VAN mibol valasztani
+    (egynel tobb hasznalhato cim) -- egyetlen cim mellett a select csak zajt
+    adna a felulethez.
+    """
+    from . import db
+
+    cimek = [(e or "").strip().lower() for e in cimzettek if e]
+    if not cimek:
+        return {}
+
+    rows = db.query(
+        """
+        select alap.email                as cimzett,
+               tars.email                as email,
+               tars.email_type           as email_type,
+               tars.source_kind          as source_kind,
+               tars.verify_result        as verify_result,
+               (c.preferred_contact_id = tars.id) as preferred
+          from contacts alap
+          join companies c on c.id = alap.company_id
+          join contacts tars on tars.company_id = c.id
+         where alap.email = any(%s)
+           and tars.local_check is distinct from 'fail'
+           and coalesce(tars.verify_result, '') <> 'invalid'
+           and coalesce(tars.bounce_state, '') <> 'hard_bounce'
+         order by alap.email, tars.created_at
+        """,
+        (cimek,),
+    )
+
+    out: dict[str, list[dict]] = {}
+    for r in rows:
+        out.setdefault(r["cimzett"], []).append({
+            "email": r["email"],
+            "email_type": r["email_type"] or "",
+            "source_kind": r["source_kind"] or "",
+            "verify_result": r["verify_result"] or "unknown",
+            "preferred": bool(r["preferred"]),
+        })
+    return {cim: lista for cim, lista in out.items() if len(lista) > 1}
+
+
+@dataclass
+class CsereEredmeny:
+    ok: bool
+    hiba: str = ""
+
+
+def kontakt_csere(regi_email: str, uj_email: str) -> CsereEredmeny:
+    """A cimzett cseréje EGY cegnel, a kuldes elott.
+
+    HAROM DOLGOT KELL EGYUTT INTEZNI, es egyik sem hagyhato el:
+
+    1. `companies.preferred_contact_id` -- a TARTOS dontes. Enelkul a
+       kovetkezo export ujra a rangsor szerinti cimet valasztana.
+    2. `outreach.contact_id` a MAR SORBAN ALLO (`queued`) sornal -- az export
+       `SQL_INFLIGHT`-ja innen veszi a cimet, nem a preferenciabol (ott a
+       kampany es a cim a sorba allitas pillanataban van BEFAGYASZTVA). E
+       nelkul a valasztas a felulen megtortenne, de a levél a regi cimre
+       menne.
+    3. `leads.csv` ujrairasa -- a kuldo ebbol a fajlbol dolgozik, nem a
+       DB-bol. Ezt a hivo (`webui`) inditja kulon, mert az export hosszabb
+       muvelet (feedback + validacio), es a felulet allapotjelzot mutat ra.
+
+    A `sent` allapotu sorokat NEM nyulja: lasd `CSEREHETO_FOK`.
+    """
+    from . import db
+
+    regi = (regi_email or "").strip().lower()
+    uj = (uj_email or "").strip().lower()
+    if not regi or not uj:
+        return CsereEredmeny(ok=False, hiba="hianyzo cim")
+    if regi == uj:
+        return CsereEredmeny(ok=True)
+
+    with db.connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            select alap.company_id, uj.id as uj_id
+              from contacts alap
+              join contacts uj on uj.company_id = alap.company_id and uj.email = %s
+             where alap.email = %s
+               and uj.local_check is distinct from 'fail'
+               and coalesce(uj.verify_result, '') <> 'invalid'
+               and coalesce(uj.bounce_state, '') <> 'hard_bounce'
+            """,
+            (uj, regi),
+        )
+        hit = cur.fetchone()
+        if not hit:
+            return CsereEredmeny(
+                ok=False,
+                hiba="a ket cim nem ugyanahhoz a ceghez tartozik, "
+                     "vagy az uj cim nem hasznalhato")
+
+        cur.execute("update companies set preferred_contact_id = %s where id = %s",
+                    (hit["uj_id"], hit["company_id"]))
+        # CSAK `queued`: a `sent` sor cimet nem irjuk at (lasd CSEREHETO_FOK).
+        cur.execute(
+            "update outreach set contact_id = %s "
+            " where company_id = %s and status = 'queued'",
+            (hit["uj_id"], hit["company_id"]))
+    return CsereEredmeny(ok=True)
+
+
+def guards_futtat() -> tuple[int, str]:
+    """A kuldo vedelmi kore (`guards.py`) a SAJAT interpreteren. (kod, kimenet)
+
+    MIERT KELL EZ A SCRAPER-OLDALON: a `guards.py` irja a `bounces.csv`-t es a
+    `do-not-contact.csv`-t, a `feedback` pedig EZEKET olvassa. Csakhogy a
+    guards eddig kizarolag a `sender.py` reszekent futott (annak az elso
+    lepese), tehat aki egy nap nem kuldott, annal a valaszok, leiratkozasok es
+    visszapattanasok FELDOLGOZATLANUL maradtak -- a `feedback` hiaba futott le
+    a napi lancban, nem volt mit beolvasnia.
+
+    Eles eset (2026-08-31): a `padavan@thepitch.hu` cimre kikuldott level
+    percekkel a kuldes UTAN pattant vissza. A guards a futas ELEJEN futott le,
+    tehat ezt mar nem lathatta -- es mivel azota nem volt kuldes, a bounce ket
+    napig feldolgozatlanul allt a postafiokban.
+
+    EZ NEM KULD SEMMIT. Csak IMAP-ot olvas, es a ket vedelmi CSV-t irja. Ezert
+    kerulhet be a napi lancba anelkul, hogy a "`--live`-ot ember inditja"
+    szabaly serulne.
+    """
+    try:
+        proc = subprocess.run(
+            ["python3", "guards.py"],
+            cwd=config.SENDER_DIR, capture_output=True, text=True,
+            timeout=_TIMEOUT_MP,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return 1, f"{type(exc).__name__}: {exc}"
+    return proc.returncode, ((proc.stdout or "") + (proc.stderr or "")).strip()
+
+
 def _kuldo_kerdez(kod: str) -> dict[str, Any] | str:
     """Egy kerdes a kuldohoz, a SAJAT interpreteren. Hiba eseten szoveget ad
     vissza, nem dob -- a hivo ezt tovabbadja a felhasznalonak."""

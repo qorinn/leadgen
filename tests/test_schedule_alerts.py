@@ -101,6 +101,26 @@ def test_a_feedback_kotelezo_es_megelozi_az_exportot():
         "a feedback hibaja utan a lancnak MEG KELL ALLNIA (kotelezo=True)"
 
 
+def test_a_guards_megelozi_a_feedbacket_es_nem_kotelezo():
+    """A guards IRJA a ket vedelmi CSV-t, a feedback OLVASSA oket.
+
+    Ha a guards a feedback UTAN futna, a feedback a tegnapi allapotot latna,
+    es a ma reggel erkezett leiratkozas/bounce csak holnap vezetodne at --
+    kozben a mai export mar kikuldte volna a kovetkezo levelet.
+
+    NEM `kotelezo`: egy IMAP-kimaradas ne allitsa meg az egesz lancot. A
+    valodi kapu a kuldesnel van (a `sender.py` elso lepese szinten a guards,
+    es ott a hiba MAR megallitja a kuldest).
+    """
+    nevek = [l.nev for l in schedule.lepesek()]
+    assert "guards" in nevek, "a guards legyen a napi lanc resze"
+    assert nevek.index("guards") < nevek.index("feedback"), \
+        "a guards-nak MEG KELL ELOZNIE a feedbacket (o irja, amit az olvas)"
+
+    guards = next(l for l in schedule.lepesek() if l.nev == "guards")
+    assert not guards.kotelezo
+
+
 def test_az_ingest_nem_kotelezo():
     """Egy kulso szolgaltatas kimaradasa ne essen ki egy egesz napot.
 

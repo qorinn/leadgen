@@ -106,8 +106,10 @@ select {_COMMON_FIELDS},
    and {_SUPPRESSED}
 """
 
-# 2) Uj jeloltek. Cegenkent EGY kapcsolat (a domain lock miatt), a legjobb
-#    email-tipus nyer. A rendezes a signal_score szerint megy: a legidoszerubb
+# 2) Uj jeloltek. Cegenkent EGY kapcsolat (a domain lock miatt). Ha a
+#    felhasznalo kezzel valasztott kontaktot (`review --pick-contact`), az
+#    nyer minden mas szempont elott; kulonben a legjobb forras/email-tipus/
+#    validacio dont. A rendezes a signal_score szerint megy: a legidoszerubb
 #    leadek kerulnek ki eloszor, ha a `--limit` levagja a listat.
 SQL_NEW = f"""
 with usable as (
@@ -115,6 +117,8 @@ with usable as (
          row_number() over (
            partition by ct.company_id
            order by
+             case when ct.id = co.preferred_contact_id then 0 else 1 end,
+             case ct.source_kind when 'mailto' then 0 else 1 end,
              case ct.email_type
                when 'personal' then 0 when 'generic' then 1
                when 'role'     then 2 else 3 end,
@@ -124,6 +128,7 @@ with usable as (
              ct.created_at
          ) as rn
     from contacts ct
+    join companies co on co.id = ct.company_id
    where {_CONTACT_USABLE}
 )
 select {_COMMON_FIELDS},

@@ -600,6 +600,35 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/send/kontakt": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send Kontakt
+         * @description Cimzett-csere egy cegnel, majd a `leads.csv` ujrairasa.
+         *
+         *     MIERT INDIT EXPORTOT: a kuldo a `leads.csv`-bol dolgozik, nem a DB-bol.
+         *     A DB-ben elmentett valasztas onmagaban nem valtoztatna meg a mai tervet --
+         *     a fajlt is ujra kell irni. Az export ezert nem "extra" lepes, hanem a
+         *     csere befejezese.
+         *
+         *     A tokent ez SZANDEKOSAN ervenytelenne teszi: a terv tartalma megvaltozott,
+         *     tehat a felhasznalonak uj elonezetet kell kernie, es azt jova kell
+         *     hagynia. (Ugyanaz a kapu, mint a `/api/send/live`-nal.)
+         */
+        post: operations["send_kontakt_api_send_kontakt_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/send/live": {
         parameters: {
             query?: never;
@@ -1429,6 +1458,35 @@ export interface components {
             log_last_lines: string[];
         };
         /**
+         * SendKontakt
+         * @description Egy valaszthato cim egy ceghez. A `cserehetetlen` dontest NEM itt
+         *     hozzuk meg: a `valaszthato` szotar csak azoknal a cimzetteknel kap
+         *     bejegyzest, ahol a csere egyaltalan megengedett (lasd
+         *     `leadgen.send.CSEREHETO_FOK`).
+         */
+        SendKontakt: {
+            /** Email */
+            email: string;
+            /** Email Type */
+            email_type: string;
+            /** Source Kind */
+            source_kind: string;
+            /** Verify Result */
+            verify_result: string;
+            /** Preferred */
+            preferred: boolean;
+        };
+        /**
+         * SendKontaktBody
+         * @description Cimzett-csere egy cegnel, a kuldes elott.
+         */
+        SendKontaktBody: {
+            /** Regi Email */
+            regi_email: string;
+            /** Uj Email */
+            uj_email: string;
+        };
+        /**
          * SendLevel
          * @description Egy levele a mai tervnek, TELJES torzzsel -- nem az elso 400 karakter
          *     (WEBUI-TERV.md F7). A `fok` a `sender._stage_of` szerinti szekvencia-fok
@@ -1473,6 +1531,13 @@ export interface components {
             ablak_nyitva: boolean;
             /** Ablak Ok */
             ablak_ok: string;
+            /**
+             * Valaszthato
+             * @default {}
+             */
+            valaszthato: {
+                [key: string]: components["schemas"]["SendKontakt"][];
+            };
         };
         /** SendSampleBody */
         SendSampleBody: {
@@ -2519,6 +2584,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SendPreviewResponse"];
+                };
+            };
+        };
+    };
+    send_kontakt_api_send_kontakt_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SendKontaktBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

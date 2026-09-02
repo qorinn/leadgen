@@ -56,6 +56,7 @@ export type JobHistory = Schemas["JobHistoryResponse"];
 export type JobOutput = Schemas["JobOutputResponse"];
 export type SendPreview = Schemas["SendPreviewResponse"];
 export type SendLevel = Schemas["SendLevel"];
+export type SendKontakt = Schemas["SendKontakt"];
 export type SendSample = Schemas["SendSampleResponse"];
 
 /** A szerver hibauzenete (FastAPI `detail`) megorizve -- azt mutatjuk, amit
@@ -194,6 +195,10 @@ export const api = {
   // (WEBUI-TERV.md Invariansok #2).
   sendPreview: () => post<SendPreview>("/api/send/preview"),
   sendLive: (token: string) => post<JobResult>("/api/send/live", { token }),
+  // A cimzett-csere utan a szerver EXPORTOT indit (a kuldo a leads.csv-bol
+  // dolgozik, nem a DB-bol), es a valasz az a job, amit meg kell varni.
+  sendKontakt: (regi_email: string, uj_email: string) =>
+    post<JobResult>("/api/send/kontakt", { regi_email, uj_email }),
   sendSample: (cim: string, limit: number, fok: string) =>
     post<SendSample>("/api/send/sample", { cim, limit, fok }),
 };

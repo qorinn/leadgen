@@ -78,6 +78,19 @@ def _cmd_export(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_guards(_args: argparse.Namespace) -> int:
+    """A kuldo vedelmi kore: valaszok, leiratkozasok, bounce-ok beolvasasa
+    a postafiokbol a kuldo CSV-ibe. NEM KULD SEMMIT (lasd send.guards_futtat)."""
+    from . import send as send_modul
+    kod, kimenet = send_modul.guards_futtat()
+    if kimenet:
+        print(kimenet)
+    if kod != 0:
+        print(f"\n  A guards hibara futott (exit {kod}).")
+        print("  A kuldes elott ez UGYIS ujra lefut -- a `sender.py` elso lepese.")
+    return kod
+
+
 def _cmd_feedback(_args: argparse.Namespace) -> int:
     """Onalloan is futtathato -- pl. ha latsz egy valaszt a postafiokban,
     es azonnal at akarod vezetni a DB-be."""
@@ -115,6 +128,27 @@ def _cmd_ingest_maps(args: argparse.Namespace) -> int:
 
 
 def _cmd_enrich(args: argparse.Namespace) -> int:
+    if getattr(args, "rescan_contacts", False):
+        pipeline.rescan_contacts(limit=args.limit)
+        return 0
+    if getattr(args, "redo_errors", False):
+        n = pipeline.redo_errors(limit=args.limit)
+        print(f"{n} hibas ceg visszaallitva 'new' statuszba.")
+        print("  Kovetkezo lepes: leadgen enrich")
+        return 0
+    if getattr(args, "redo", None):
+        eredmeny = pipeline.redo(args.redo)
+        if not eredmeny.talalt:
+            print("Nincs ilyen ceg.")
+            return 1
+        if eredmeny.blocked:
+            print(f"{args.redo}: folyamatban levo (queued/sent) megkereses van rajta -- "
+                  f"eloszor zard le: leadgen review --reject {args.redo}")
+            return 1
+        print(f"{args.redo}: ujra 'new' statuszban "
+              f"(torolt regi/gyanus kontakt: {eredmeny.torolt_kapcsolat}).")
+        print("  Kovetkezo lepes: leadgen enrich")
+        return 0
     pipeline.run_enrich(limit=args.limit)
     return 0
 
@@ -316,6 +350,43 @@ def _cmd_review(args: argparse.Namespace) -> int:
     modulnak a docstringje adja az indoklast). Ez a fuggveny csak a
     parancssori bemenetet/kimenetet alakitja.
     """
+    if args.contacts:
+        rows = review.contacts_for(args.contacts)
+        if not rows:
+            print(f"Nincs ismert kontakt ehhez: {args.contacts}")
+            return 0
+        print(f"{args.contacts} -- {len(rows)} ismert cim:\n")
+        for r in rows:
+            jelzo = " <- JELENLEG EZ MEGY KIKULDESRE" if r["preferred"] else ""
+            print(f"  {r['email']:<38} tipus={r['email_type'] or '?':<9} "
+                  f"forras={r['source_kind'] or '(regi)':<7} "
+                  f"validacio={r['verify_result'] or 'unknown'}{jelzo}")
+        print(f"\nValasztas: leadgen review --pick-contact {args.contacts} <email>")
+        return 0
+
+    if args.pick_contact:
+        pdomain, pemail = args.pick_contact
+        eredmeny = review.pick_contact(pdomain, pemail)
+        if eredmeny.talalt:
+            print(f"Beallitva: {pdomain} mostantol {pemail} cimre kuld.")
+        else:
+            print("Nincs ilyen ceg+email par. Ellenorizd: "
+                  f"leadgen review --contacts {pdomain}")
+            return 1
+        return 0
+
+    if args.bounce_override:
+        eredmeny = review.bounce_override(args.bounce_override)
+        if not eredmeny.talalt:
+            print("Nincs hard bounce miatt kizart ceg ezen a domainen.")
+            return 1
+        print(f"{args.bounce_override}: a ceg visszahozva (status = 'new').")
+        if eredmeny.cim:
+            print(f"  A rossz cim ({eredmeny.cim}) TOVABBRA IS tiltva marad.")
+        print("  Uj cim kell hozza:  leadgen enrich --redo "
+              f"{args.bounce_override} && leadgen enrich")
+        return 0
+
     if args.approve:
         eredmeny = review.approve(args.approve)
         print(f"Jovahagyva: 1 ceg -> {eredmeny.uj_status}" if eredmeny.talalt else
@@ -384,6 +455,10 @@ def build_parser() -> argparse.ArgumentParser:
     exp.add_argument("--skip-feedback", action="store_true",
                      help="csak fejlesztes kozben: kihagyja a kotelezo feedback-importot")
     exp.set_defaults(func=_cmd_export)
+
+    gd = sub.add_parser("guards", help="valaszok/leiratkozasok/bounce-ok a postafiokbol "
+                                       "a kuldo CSV-ibe (NEM kuld)")
+    gd.set_defaults(func=_cmd_guards)
 
     fb = sub.add_parser("feedback", help="a kuldo CSV-inek beolvasasa a DB-be")
     fb.set_defaults(func=_cmd_feedback)
@@ -466,6 +541,13 @@ def build_parser() -> argparse.ArgumentParser:
                     help="a tiltas oka (alapertelmezes: manual_block)")
     rv.add_argument("--suppressed", action="store_true",
                     help="az AUTOMATIKUSAN kizart cegek (felulbirlhatod oket)")
+    rv.add_argument("--contacts", metavar="DOMAIN",
+                    help="a ceghez tartozo osszes ismert email, valasztashoz")
+    rv.add_argument("--pick-contact", metavar=("DOMAIN", "EMAIL"), nargs=2,
+                    help="ezt a cimet hasznalja a rendszer kikuldeskor, a rangsor helyett")
+    rv.add_argument("--bounce-override", metavar="DOMAIN",
+                    help="hard bounce miatt kizart ceg visszahozasa, ha a cim "
+                         "kinyerese volt hibas (a rossz cim tiltva marad)")
     rv.set_defaults(func=_cmd_review)
 
     ing = sub.add_parser("ingest", help="cegek betoltese egy forrasbol")
@@ -527,6 +609,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     en = sub.add_parser("enrich", help="weboldalak feldolgozasa (`new` -> `enriched`)")
     en.add_argument("--limit", type=int, default=25)
+    en.add_argument("--redo", metavar="DOMAIN",
+                    help="ceg visszaallitasa `new` statuszba, ujra-enrichmenthez "
+                         "(pl. az enrich.py egy javitasa utan)")
+    en.add_argument("--redo-errors", action="store_true",
+                    help="MINDEN `error` statuszu ceg ujraprobalasa (a --limit szabja meg, hany)")
+    en.add_argument("--rescan-contacts", action="store_true",
+                    help="tovabbi email-cimek gyujtese a mar feldolgozott cegekhez "
+                         "(CSAK hozzaad: nem torol, statuszt nem valtoztat)")
     en.set_defaults(func=_cmd_enrich)
     en_sub = en.add_subparsers(dest="action")
     dd = en_sub.add_parser("dead-dev",

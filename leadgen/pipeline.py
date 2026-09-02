@@ -10,6 +10,8 @@ Ettol lesz a rendszer ujraindithato: nincs allapot a folyamat memoriajaban.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from . import db, enrich, labels
 from .engines import EngineDef
 
@@ -75,15 +77,15 @@ def run_enrich(limit: int = 25, verbose: bool = True) -> dict:
                 stats["hiba"] += 1
                 continue
 
-            for email, email_type in enrich.pick_contacts(extract, domain):
+            for email, email_type, source_kind in enrich.pick_contacts(extract, domain):
                 cur.execute(
                     """
                     insert into contacts (company_id, email, email_type,
-                                          local_check, source_url)
-                         values (%s, %s, %s, 'pass', %s)
+                                          source_kind, local_check, source_url)
+                         values (%s, %s, %s, %s, 'pass', %s)
                     on conflict (email) do nothing
                     """,
-                    (row["id"], email, email_type, f"https://{domain}"),
+                    (row["id"], email, email_type, source_kind, f"https://{domain}"),
                 )
                 if cur.rowcount:
                     stats["kapcsolat"] += 1
@@ -130,6 +132,157 @@ def run_enrich(limit: int = 25, verbose: bool = True) -> dict:
         print(f"\n  feldolgozva={stats['feldolgozva']} sikeres={stats['sikeres']} "
               f"hiba={stats['hiba']} uj kapcsolat={stats['kapcsolat']}")
     return stats
+
+
+def rescan_contacts(limit: int = 25, verbose: bool = True) -> dict:
+    """Ujra megnezi a weboldalakat, es CSAK HOZZAAD cimeket. Nem torol, es a
+    ceg statuszahoz sem nyul.
+
+    MIERT NEM A `redo()` VALO ERRE: az `redo()` TOROL (a regi, gyanus
+    kontaktokat) es `new`-ra allitja a statuszt. Az helyes, ha egy konkret
+    ceg cime hibasnak bizonyult -- de rossz, ha csak TOBB cimet szeretnenk
+    osszegyujteni egy mar mukodo cegnel:
+
+      - a torles utan, ha a letoltes epp elszall, a ceg elveszti a MEGLEVO,
+        jo cimet is;
+      - a `new` statusz kiutne a folyamatban levo cegeket a tolcserbol.
+
+    Ez a fuggveny ezert kizarolag `insert ... on conflict do nothing`-ot
+    csinal. Ujrafuttathato, es a legrosszabb esetben nem talal semmit.
+
+    MIKOR KELL: ha az `enrich.py` kinyerese BOVULT (uj forras, pl. a
+    2026-09-02-i Cloudflare-visszafejtes es JSON-LD), es a mar feldolgozott
+    cegeknel utolag is meg akarjuk talalni, amit korabban nem lattunk.
+    """
+    stats = {"nezve": 0, "uj_kapcsolat": 0, "hiba": 0}
+    rows = db.query(
+        """
+        select id, company_name, normalized_domain, domain
+          from companies
+         where normalized_domain is not null
+           and status <> 'new'
+         order by signal_score desc nulls last, first_seen_at
+         limit %s
+        """,
+        (limit,))
+
+    for row in rows:
+        stats["nezve"] += 1
+        domain = row["normalized_domain"]
+        extract = enrich.fetch_site(domain, original_url=row.get("domain"), verbose=False)
+        if not extract.ok:
+            stats["hiba"] += 1
+            if verbose:
+                print(f"  -    {domain:34} {extract.error[:60]}")
+            continue
+
+        ujak = []
+        with db.connect() as conn, conn.cursor() as cur:
+            for email, email_type, source_kind in enrich.pick_contacts(extract, domain):
+                cur.execute(
+                    """
+                    insert into contacts (company_id, email, email_type,
+                                          source_kind, local_check, source_url)
+                         values (%s, %s, %s, %s, 'pass', %s)
+                    on conflict (email) do nothing
+                    """,
+                    (row["id"], email, email_type, source_kind, f"https://{domain}"))
+                if cur.rowcount:
+                    ujak.append(email)
+                    stats["uj_kapcsolat"] += 1
+            if ujak:
+                labels.clear_label(cur, row["id"], "contact_missing")
+        if verbose and ujak:
+            print(f"  + {len(ujak):2} {domain:34} {', '.join(ujak[:3])}"
+                  f"{' ...' if len(ujak) > 3 else ''}")
+
+    if verbose:
+        print(f"\n  megnezve={stats['nezve']} uj kapcsolat={stats['uj_kapcsolat']} "
+              f"elerhetetlen={stats['hiba']}")
+    return stats
+
+
+def redo_errors(limit: int = 50) -> int:
+    """A `status='error'` cegek visszaallitasa `new`-ra, ujraprobalasra.
+
+    MIERT KELL: egy `error` cegert SOHA semmi nem nyul ujra. A `run_enrich`
+    csak `new` statuszt olvas, tehat egy PILLANATNYI hiba -- timeout, egy
+    perces kiszolgalo-kimaradas, egy 403 -- veglegesen kiejti a ceget a
+    tolcserbol. Merve (2026-09-02): a kontakt nelkuli 61 cegbol 26 volt
+    `error`, es ebbol OT MAR UGYANABBAN A PERCBEN elerheto volt kezzel
+    probalva (allinagency.hu, publica.hu, chiro.hu, exaline.hu,
+    marketing-consulting.hu). Nem a weboldaluk volt rossz, hanem a
+    pillanat, amikor megneztuk.
+
+    A kontaktokhoz NEM nyul (ellentetben a `redo()`-val): itt nincs okunk
+    gyanakodni a meglevo cimekre, csak ujra meg akarjuk nezni az oldalt.
+    """
+    with db.connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            update companies set status = 'new', status_note = 'ujraprobalas (error)'
+             where id in (
+               select id from companies where status = 'error'
+                order by signal_score desc nulls last, first_seen_at
+                limit %s
+             )
+            """,
+            (limit,))
+        return cur.rowcount
+
+
+@dataclass
+class RedoResult:
+    talalt: bool
+    blocked: bool = False
+    torolt_kapcsolat: int = 0
+
+
+def redo(domain: str) -> RedoResult:
+    """Egy mar feldolgozott ceg ujra `new` statuszba allitasa, hogy a
+    kovetkezo `enrich` futas ujra letoltse es kinyerje a kontaktjait --
+    pl. az enrich.py egy javitasa (2026-09-02: HTML-attributumbol tevesen
+    kiolvasott placeholder-email) utan.
+
+    A `source_kind IS NULL` kontaktokat -- ezeket a JAVITAS ELOTTI kod irta,
+    tehat a HTML-attributumbol is szarmazhatnak -- torli, DE csak akkor, ha
+    semmilyen outreach sor nem hivatkozik rajuk (a kuldesi elozmenyt sosem
+    torli csendben). Ha egy ilyen cimre mar ment level, azt kezzel kell
+    atnezni (`review --contacts <domain>`).
+
+    Ha a cegnek FOLYAMATBAN levo (`queued`/`sent`) megkeresese van, a redo
+    NEM fut le -- eloszor `review --reject <domain>`-nel le kell zarni,
+    kulonben a domain lock alatt fel-ujraindulna a szekvencia.
+    """
+    with db.connect() as conn, conn.cursor() as cur:
+        cur.execute("select id from companies where normalized_domain = %s", (domain,))
+        hit = cur.fetchone()
+        if not hit:
+            return RedoResult(talalt=False)
+
+        cur.execute(
+            "select 1 from outreach where company_id = %s and status in ('queued','sent') limit 1",
+            (hit["id"],))
+        if cur.fetchone():
+            return RedoResult(talalt=True, blocked=True)
+
+        cur.execute(
+            """
+            delete from contacts
+             where company_id = %s
+               and source_kind is null
+               and not exists (
+                 select 1 from outreach where outreach.contact_id = contacts.id
+               )
+            """,
+            (hit["id"],))
+        torolt = cur.rowcount
+
+        cur.execute(
+            "update companies set status = 'new', status_note = 'ujra-enrichment' "
+            "where id = %s", (hit["id"],))
+
+    return RedoResult(talalt=True, torolt_kapcsolat=torolt)
 
 
 # ─── Minosites ─────────────────────────────────────────────────────────────

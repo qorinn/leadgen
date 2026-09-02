@@ -21,8 +21,8 @@ from fastapi import APIRouter, HTTPException
 from leadgen import send
 
 from .. import jobs
-from ..schemas import (JobResponse, SendLiveBody, SendPreviewResponse,
-                       SendSampleBody, SendSampleResponse)
+from ..schemas import (JobResponse, SendKontaktBody, SendLiveBody,
+                       SendPreviewResponse, SendSampleBody, SendSampleResponse)
 
 router = APIRouter()
 
@@ -55,6 +55,10 @@ def send_preview() -> dict:
     """
     terv = _terv()
     token, lejar = send.token_kiad(terv.levelek)
+    # A cimet CSAK a `cold` fokon szabad cserelni -- a szabaly es az indoka a
+    # `leadgen.send.CSEREHETO_FOK`-nal van. A szures itt tortenik, hogy a
+    # frontend ne ismerje a fok-neveket.
+    cserehetok = [lv.cimzett for lv in terv.levelek if lv.fok == send.CSEREHETO_FOK]
     return {
         "token": token,
         "lejar": lejar,
@@ -63,7 +67,39 @@ def send_preview() -> dict:
         "terv_meret": terv.terv_meret,
         "ablak_nyitva": terv.ablak_nyitva,
         "ablak_ok": terv.ablak_ok,
+        "valaszthato": send.kontakt_valasztek(cserehetok),
     }
+
+
+@router.post("/api/send/kontakt", response_model=JobResponse)
+def send_kontakt(body: SendKontaktBody) -> dict:
+    """Cimzett-csere egy cegnel, majd a `leads.csv` ujrairasa.
+
+    MIERT INDIT EXPORTOT: a kuldo a `leads.csv`-bol dolgozik, nem a DB-bol.
+    A DB-ben elmentett valasztas onmagaban nem valtoztatna meg a mai tervet --
+    a fajlt is ujra kell irni. Az export ezert nem "extra" lepes, hanem a
+    csere befejezese.
+
+    A tokent ez SZANDEKOSAN ervenytelenne teszi: a terv tartalma megvaltozott,
+    tehat a felhasznalonak uj elonezetet kell kernie, es azt jova kell
+    hagynia. (Ugyanaz a kapu, mint a `/api/send/live`-nal.)
+    """
+    futo = jobs.futo()
+    if futo is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"mar fut egy futas: {futo.cimke} -- eloszor varj meg",
+        )
+
+    eredmeny = send.kontakt_csere(body.regi_email, body.uj_email)
+    if not eredmeny.ok:
+        raise HTTPException(status_code=400, detail=eredmeny.hiba)
+
+    try:
+        job = jobs.indit("export")
+    except jobs.MarFut as exc:
+        raise HTTPException(status_code=409, detail=f"mar fut egy futas: {exc.job.cimke}")
+    return {"job": job.adat()}
 
 
 @router.post("/api/send/live", response_model=JobResponse)

@@ -147,6 +147,23 @@ def lepesek(limit: int = 0, skip_ingest: bool = False) -> list[Lepes]:
               "AI-minosites + evidence grounding"),
         Lepes("webshop", ["webshop-growth", "--limit", "50"],
               "8.3: dobozos webshop platform felismerese"),
+        # A GUARDS A FEEDBACK ELE KELL. A guards IRJA a `bounces.csv`-t es a
+        # `do-not-contact.csv`-t, a `feedback` pedig EZEKET olvassa -- forditva
+        # a feedback a tegnapi allapotot latna.
+        #
+        # MIERT KERULT BE (2026-09-02): a guards eddig CSAK a `sender.py`
+        # reszekent futott, tehat egy olyan napon, amikor nem kuldtel, a
+        # valaszok / leiratkozasok / visszapattanasok feldolgozatlanul
+        # maradtak. Eles eset: egy 08-31-en kikuldott level percekkel a kuldes
+        # UTAN pattant vissza -- a guards akkor mar lefutott, es ket napig
+        # senki nem vette eszre.
+        #
+        # NEM KOTELEZO: egy IMAP-kimaradas ne allitsa meg a lancot. A valodi
+        # kapu ugyis a kuldesnel van -- a `sender.py` elso lepese megint a
+        # guards, es ott a hiba MAR megallitja a kuldest (CLAUDE.md
+        # Invariansok #2). Itt a guards csak elorehozza a felismerest.
+        Lepes("guards", ["guards"],
+              "valaszok/leiratkozasok/bounce-ok a postafiokbol (NEM kuld)"),
         # A feedback KOTELEZO: enelkul az export ujra kikuldene annak, aki
         # tegnap nemet mondott. Az `export.run()` maga is kikenyszeriti, de
         # a lanc se kerulhesse meg.

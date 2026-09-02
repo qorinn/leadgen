@@ -52,7 +52,30 @@ mutatja, hogy fogy a sor:
 > Így soha nem fizetsz kétszer ugyanazokért a cégekért.
 | `enrich` | letölti a weboldalakat (`new` → `enriched`) |
 | `enrich --limit 10` | csak ennyit dolgoz fel egy futásban |
+| `enrich --redo bda.hu` | egy már feldolgozott cég visszaáll `new`-ra, újra lefut rajta az enrichment |
+| `enrich --redo-errors --limit 50` | **minden hibás (`error`) cég újrapróbálása** |
+| `enrich --rescan-contacts --limit 200` | további email-címek gyűjtése a már feldolgozott cégekhez |
 | `qualify` | minősít (`enriched` → `ready` / `review` / `suppressed`) |
+
+> Az `enrich --redo` a régi (2026-09-02 előtti) kódtól származó, gyanús
+> kontaktokat is törli — azokat, amiket még a nyers HTML-t is átregexelő
+> változat talált. Ha a cégnek **folyamatban lévő** (`queued`/`sent`)
+> megkeresése van, előbb zárd le: `review --reject <domain>`, különben az
+> `enrich --redo` visszautasítja.
+
+> **A `--rescan-contacts` és a `--redo` két különböző eszköz.** A `--redo`
+> **töröl** (a gyanús, régi címeket) és `new`-ra állítja a céget — ez akkor
+> helyes, ha egy konkrét cím hibásnak bizonyult. A `--rescan-contacts` viszont
+> **csak hozzáad**: nem töröl, és a cég állapotához sem nyúl. Ezt akkor
+> futtasd, ha az email-kinyerés bővült, és a már feldolgozott cégeknél is meg
+> akarod találni, amit korábban nem láttunk. Bármikor újrafuttatható.
+
+> **A `--redo-errors` azért kell, mert egy `error` céghez soha semmi nem nyúl
+> újra.** Egy pillanatnyi hiba (időtúllépés, egyperces kiszolgáló-kimaradás,
+> egy 403) különben véglegesen kiejtené a céget. Mérve 2026-09-02-án: 26
+> hibás cégből 11 másodszorra simán lefutott — nem a weboldaluk volt rossz,
+> hanem a pillanat, amikor megnéztük. A kontaktokhoz nem nyúl, csak újra
+> megnézi az oldalt. Havonta egyszer érdemes lefuttatni.
 
 ## Emberi döntés
 
@@ -64,6 +87,15 @@ mutatja, hogy fogy a sor:
 | `review --reject mito.group --reason competitor` | ugyanaz, megadott okkal |
 | `review --suppressed` | **amit a gép automatikusan kizárt** — indoklással |
 | `review --approve <domain>` | visszahozza az automatikusan kizártat is |
+| `review --contacts bda.hu` | a céghez tartozó **összes** ismert email, forrással és validációval |
+| `review --pick-contact bda.hu info@bda.hu` | kézzel kiválasztod, melyik cím menjen kikuldésre |
+| `review --bounce-override bda.hu` | visszahozza a hard bounce miatt kizárt céget (a rossz cím tiltva marad) |
+
+> A `--bounce-override` akkor való, ha a visszapattanást **nem a cég okozta,
+> hanem mi** — például egy hibásan kinyert cím miatt. A rossz cím ettől még
+> véglegesen tiltva marad; csak a cég lesz újra megkereshető, egy másik,
+> újra kinyert címen. A címke tartós: a `feedback` később sem teszi vissza
+> a céget tiltólistára ugyanabból a bounce-ból.
 
 > Az `--approve` `review`, `suppressed` és `rejected` állapotból is visszahoz.
 > Így a rendszer automatikus döntései **nem véglegesek** — bármikor felülbírálhatod.
@@ -78,6 +110,13 @@ mutatja, hogy fogy a sor:
 > A `--reason` értékei: `manual_block` (alapértelmezés), `competitor`,
 > `existing_client`, `negative_reply`, `unsubscribe`.
 
+> Ha egy cégnél **több valódi cím is van** (pl. `support@`, `info@`, konkrét
+> névvel jelölt cím), az `export` automatikusan a legjobbat választja
+> (valódi `mailto:` link előbb, mint sima szöveges találat; személynév előbb,
+> mint általános cím; ellenőrzött cím előbb, mint ellenőrizetlen). A
+> `--pick-contact` ezt bármikor felülbírálja — nézd meg előbb a
+> `review --contacts <domain>` listát.
+
 ## Átadás és visszacsatolás
 
 | Parancs | Mit csinál |
@@ -85,10 +124,15 @@ mutatja, hogy fogy a sor:
 | `export --dry` | megmutatja, mi menne a `leads.csv`-be — **nem ír** |
 | `export` | kiírja a `leads.csv`-t (domain lock + suppression + cooldown) |
 | `export --limit 20` | egyszerre csak ennyi ÚJ leadet ad ki (adagolás) |
+| `guards` | válaszok / leiratkozások / bounce-ok a postafiókból a küldő CSV-ibe |
 | `feedback` | a küldő eredménye (küldés, válasz, bounce) → DB |
 
 > Az `export` **mindig lefuttatja a `feedback`-et először**. Ha az hibára fut,
 > az export megáll, és a `leads.csv` érintetlen marad.
+
+> A `guards` **nem küld semmit** — csak a postafiókot olvassa, és a küldő két
+> védelmi fájlját írja. A `feedback` ezeket olvassa, ezért a sorrend kötött:
+> `guards` → `feedback`. A napi lánc 2026-09-02 óta magától elvégzi mindkettőt.
 
 ## Modell-összehasonlítás
 

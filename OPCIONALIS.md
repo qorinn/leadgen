@@ -278,3 +278,69 @@ előírásai napi 5000 levél felett **kötelezővé teszik** a
 `List-Unsubscribe` fejlécet. Ha valaha odáig nő a volumen (jelenleg
 elképzelhetetlenül távoli), a HTML kérdést is újra kell nyitni, mert addigra
 a bulk-jelek elkerülése amúgy sem lesz opció.
+
+---
+
+### C2. Scrapling mint scraper-keretrendszer — ÁTNÉZVE, most nem cseréljük
+
+**A felvetés** (2026-09-02): a saját crawler helyett a
+[Scrapling](https://scrapling.readthedocs.io/) (BSD-3, ingyenes, aktívan
+fejlesztett) átvenné-e hosszú távon a cégek weboldalának feldolgozását?
+
+**Amit tud, és nekünk mit érne** — a 2026-09-02-i hibavizsgálat hat oka
+alapján (ott mindegyiket megmértük):
+
+| A mi problémánk | Megoldotta volna? |
+|---|---|
+| Cloudflare email-obfuszkáció (16 domain) | ❌ nem — az visszafejtés, nem letöltés |
+| Üres attribútum → TypeError | ❌ nem (bár lxml-lel talán fel sem merül) |
+| Hibás link → ValueError | ❌ nem — az `urllib`, marad a miénk |
+| Hiányos HTTP-fejléc → 403 (3 domain) | ✅ igen — `stealthy_headers` alapból |
+| `error` cégek újrapróbálása (11 nyert) | ✅ igen — beépített `retries=3` |
+| JSON-LD-ből kiolvasás | ❌ nem |
+| **JS-ből felépülő oldalak (11 cég)** | ✅ **igen — `DynamicFetcher`** |
+
+Vagyis a hat okból kettőt előzött volna meg; a többi a mi saját logikánk,
+amit bármelyik könyvtár mellett magunknak kell megírni.
+
+**Amiért mégsem cseréljük le most:**
+
+1. **A fő eladási pontja ütközik a rendszer kimondott hozzáállásával.**
+   A Scrapling zászlóshajó-funkciói a botvédelem megkerülése: TLS-ujjlenyomat
+   hamisítás, „bypass all types of Cloudflare's Turnstile", fingerprint
+   spoofing. A mi crawlerünk ezzel szemben betartja a `robots.txt`-et,
+   önazonosító User-Agentet küld (`PaladiLeadBot`, `+https://paladi-web.hu`),
+   és 2026-09-02-én **tudatosan nem** változtattuk meg a UA-t, hogy átjussunk
+   a `kmumarketing.hu` tiltásán. Már az alap `Fetcher` is alapértelmezetten
+   böngészőnek adja ki magát. Ez nem technikai csere lenne, hanem
+   irányváltás — és a jogalapot (B2B jogos érdek, publikus forrásból) is
+   gyengíti, ha hozzáférés-védelmet kerülünk meg.
+2. **A fő újdonsága (adaptív parsing) nálunk nem hasznosul.** A
+   `find_similar()` azt a bajt orvosolja, hogy egy oldal-átalakítás eltöri a
+   konkrét szelektorokat. Nekünk nincsenek oldal-specifikus szelektoraink:
+   általánosakat használunk (`footer`, `nav`, `meta`, `a[href]`) plusz
+   regexet. Nincs mit adaptálni.
+3. **A sebességi funkciói (Spider, párhuzamosítás, AutoThrottle) sem
+   kellenek.** Szándékosan lassan megyünk (1 mp szünet, cégenként max 7
+   oldal), és nem a scrapelés a szűk keresztmetszet, hanem a napi küldési
+   keret (CLAUDE.md: „nem a leadhiány a szűk keresztmetszet, hanem a küldési
+   keret").
+4. **Függőség-fegyelem.** A `requirements.txt` szándékosan 8 csomag, és a
+   böngészős fetcherekhez Playwright-binárisok kellenének (~500 MB).
+
+**Mikor éri meg mégis megfontolni:** ha a **11 JS-ből felépülő oldal**
+(designter.hu, eazy.digital, klikkmarketing.hu, kontraszt.com, lokalitas.hu,
+marketing-store.hu, primetech.hu, zepnet.hu és társaik) valóban értékes
+leadeket rejt. Ilyenkor a helyes lépés **nem a teljes csere**, hanem egy
+szűk, kiegészítő tartalék: ha a letöltött oldal szövege ~500 karakternél
+kevesebb, akkor — és csak akkor — böngészővel is megnézzük. Ez a
+`DynamicFetcher` (sima Playwright-renderelés), **nem** a `StealthyFetcher`:
+a JavaScript lefuttatása nem álcázás, csak ugyanannak az oldalnak az
+elolvasása, ahogy egy böngésző tenné.
+
+**Mérőszám, mielőtt bárki nekiáll:** előbb nézz meg kézzel 3-4-et abból a
+11-ből. A 2026-09-02-i vizsgálatban két hasonló gyanús oldalról
+(omwings.hu, marketingkalkulator.hu) kiderült, hogy a kapcsolat-oldaluk
+**amúgy is üres** — csak űrlap van rajta. Ha a 11-ből is ez jön ki, a
+böngésző-réteg nulla leadet hozna, cserébe a rendszer nehezebb és lassabb
+lenne.

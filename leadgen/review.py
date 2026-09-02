@@ -71,6 +71,69 @@ def approve(domain: str) -> ApproveResult:
 
 
 @dataclass
+class BounceOverrideResult:
+    talalt: bool
+    cim: str | None = None
+
+
+def bounce_override(domain: str) -> BounceOverrideResult:
+    """Egy hard bounce miatt kizart ceg visszahozasa -- EMBERI dontes.
+
+    MIKOR JOGOS: ha a visszapattanast nem a ceg okozta, hanem MI. Valos eset
+    (2026-09-02): az enrichment egy urlap-placeholderbol
+    (`<input placeholder="x@y.hu">`) olvasott ki cimet, tehat a cim sosem
+    letezett. A konzervativ hard-bounce szabaly (feedback.py, 2026-08-20)
+    azt feltetelezi, hogy a cim egy ELAVULT FORRASBOL jott, es ezert a
+    masodik cim is rossz lenne -- ez itt nem all.
+
+    AMI NEM VALTOZIK: a CIM-szintu suppression marad. A rossz cimre soha tobbe
+    nem megy level; a ceg viszont megkeresheto egy masik, ujra kinyert cimen.
+    A `bounce_override` cimke tartos: a `feedback` ezt latva nem teszi vissza
+    a ceget suppressionbe, amikor a guards kesobb ujra beolvassa ugyanazt a
+    bounce-ot a postafiokbol.
+    """
+    with db.connect() as conn, conn.cursor() as cur:
+        # A FELTETEL A HARD BOUNCE LETE, NEM A CEG MAI ALLAPOTA. A ket eset,
+        # amiben ezt hivni kell, kulonbozo statuszban talalja a ceget:
+        #   - a guards mar lefutott  -> a ceg `suppressed`
+        #   - a guards MEG NEM futott -> a ceg meg `sent`/`queued`, es a
+        #     felulbiralas MEGELOZI a suppressiont (a cimke miatt a feedback
+        #     mar nem fogja kizarni, amikor a bounce-ot beolvassa)
+        # A masodik eset nelkul a parancsot csak azutan lehetne hasznalni,
+        # hogy a rendszer mar kizarta a ceget -- vagyis meg kellene varni egy
+        # olyan allapotot, amit epp meg akarunk elozni.
+        cur.execute(
+            """
+            select c.id,
+                   (select ct.email from contacts ct
+                     where ct.company_id = c.id and ct.bounce_state = 'hard_bounce'
+                     order by ct.updated_at desc limit 1) as bounced
+              from companies c
+             where c.normalized_domain = %s
+               and (
+                 exists (select 1 from contacts ct
+                          where ct.company_id = c.id
+                            and ct.bounce_state = 'hard_bounce')
+                 or c.status_note like 'hard bounce:%%'
+               )
+            """,
+            (domain,))
+        hit = cur.fetchone()
+        if not hit:
+            return BounceOverrideResult(talalt=False)
+
+        labels.set_label(cur, hit["id"], "bounce_override",
+                         {"reason": "a cim kinyerese volt hibas, nem a ceg"})
+        # A ceg visszaall feldolgozasra. A kontaktja (a rossz cim) tovabbra is
+        # `hard_bounce`, tehat az export nem veszi figyelembe -- uj cim kell.
+        cur.execute(
+            "update companies set status = 'new', "
+            "status_note = 'bounce felulbiralva -- uj cim kell' where id = %s",
+            (hit["id"],))
+    return BounceOverrideResult(talalt=True, cim=hit["bounced"])
+
+
+@dataclass
 class RejectResult:
     talalt: bool
 
@@ -116,6 +179,46 @@ def suppressed_competitors() -> list[dict]:
          where c.status = 'suppressed' and c.status_note like 'versenytars%'
          order by c.normalized_domain
     """)
+
+
+def contacts_for(domain: str) -> list[dict]:
+    """Egy ceghez tartozo OSSZES ismert kontakt, a `review --pick-contact`
+    valasztasahoz. Tobb valodi cim (support@, info@, szemelynevek) kozul
+    algoritmus nem tudja eldonteni, melyik a helyes -- ez emberi dontes."""
+    return db.query(
+        """
+        select ct.id, ct.email, ct.email_type, ct.source_kind, ct.verify_result,
+               ct.local_check, ct.bounce_state,
+               (c.preferred_contact_id = ct.id) as preferred
+          from contacts ct
+          join companies c on c.id = ct.company_id
+         where c.normalized_domain = %s
+         order by (c.preferred_contact_id = ct.id) desc, ct.created_at
+        """,
+        (domain,))
+
+
+@dataclass
+class PickContactResult:
+    talalt: bool
+
+
+def pick_contact(domain: str, email: str) -> PickContactResult:
+    """Kezi kivalasztas: ez a cim menjen kikuldesre, a rangsor helyett
+    (lasd export.SQL_NEW -- a `preferred_contact_id` mindent felulir)."""
+    with db.connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            update companies set preferred_contact_id = ct.id
+              from contacts ct
+             where companies.normalized_domain = %s
+               and ct.company_id = companies.id
+               and ct.email = %s
+            returning companies.id
+            """,
+            (domain, (email or "").strip().lower()))
+        hit = cur.fetchone()
+    return PickContactResult(talalt=bool(hit))
 
 
 def review_queue() -> list[dict]:

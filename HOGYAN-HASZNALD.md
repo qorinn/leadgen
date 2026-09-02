@@ -134,6 +134,19 @@ Nyisd meg a linket, nézd meg az oldalt, döntsd el. Kb. 20 másodperc cégenké
 > a gép magától zárt ki. Amit automatikusan kizárt:
 > `./leadgen.sh review --suppressed`
 
+### Ha egy cégnél több email-cím is előkerült
+
+Előfordul, hogy egy weboldalon több valódi cím is van (`support@`, `info@`,
+konkrét névvel jelölt cím) — ilyenkor a gép nem tudja eldönteni, melyikre
+menjen a levél, és nem is szabad ezt géppel eldöntetni. Automatikusan a
+legjobbnak tűnőt választja (valódi linkből származó cím, névvel jelölt cím,
+ellenőrzött cím előnyben), de bármikor felülbírálhatod:
+
+```bash
+./leadgen.sh review --contacts cegnev.hu              # az összes ismert cím
+./leadgen.sh review --pick-contact cegnev.hu info@cegnev.hu   # ez menjen
+```
+
 ---
 
 ## 3. folyamat — Levélküldés
@@ -166,6 +179,19 @@ cd .. && ./leadgen.sh review --reject cegnev.hu
 ```
 
 Ez akkor is működik, ha a cég már a `leads.csv`-ben van.
+
+### 3.2b Ha rossz címre menne — válts a felületen
+
+A felület Küldés oldalán az előnézetben minden levélnél látod a címzettet.
+Ha egy cégnél **több használható cím** is van, ott megjelenik egy legördülő
+lista — abból kiválaszthatod, melyikre menjen a levél. A rendszer elmenti a
+választást (onnantól ez a cég alapértelmezett címe), újraírja a listát, és
+új előnézetet kell kérned.
+
+> A választó **csak az első (cold) leveleknél** jelenik meg. Aki már kapott
+> levelet és follow-upra vár, annál a cím nem cserélhető: a rendszer a
+> címhez köti, hol tart a beszélgetés, tehát egy új címen újra a bemutatkozó
+> levelet kapná meg ugyanaz a cég.
 
 ### 3.3 Éles küldés
 
@@ -285,12 +311,77 @@ tönkreteszi. Ezért ellenőrizzük a címeket kiküldés előtt.
 | Beállítás | Mit csinál | Kerül pénzbe? |
 |---|---|---|
 | `off` | semmit — csak fejlesztéshez | nem |
-| **`local_only`** ← *jelenleg ez fut* | ingyenes ellenőrzés: formátum, létezik-e a domain postafiókja, eldobható cím-e | **nem** |
-| `full` | a fenti **plusz** Reoon: tényleg létezik-e a konkrét cím | igen, kb. **0,04 Ft / cím** |
+| `local_only` | ingyenes ellenőrzés: formátum, létezik-e a domain postafiókja, eldobható cím-e | **nem** |
+| **`full`** ← *2026-09-02 óta ez fut* | a fenti **plusz** Reoon: tényleg létezik-e a konkrét cím | igen, kb. **0,04 Ft / cím** |
 
 ```
-EMAIL_VALIDATION=local_only     # a gyökér .env-ben
+EMAIL_VALIDATION=full     # a gyökér .env-ben
 ```
+
+> ### ⚠️ Amit a fizetős ellenőrzés SEM tud
+>
+> Ha a cég **Gmailen / Google Workspace-en** van (a magyar kkv-k nagy része
+> ilyen), a Google nem engedi, hogy kívülről megkérdezzék, létezik-e egy
+> konkrét postafiók. Ilyenkor a Reoon „catch-all" választ ad: *nem tudom
+> megmondani*.
+>
+> Mérve (2026-09-02): egy biztosan **nem létező** címre és egy biztosan
+> **létező** címre is ugyanazt a választ adta. Tehát egy Google-ös cégnél a
+> fizetős ellenőrzés **nem véd** a rossz címtől — ott az számít, hogy a
+> rendszer eleve jó helyről szedje ki a címet (lásd a következő dobozt).
+
+### Honnan szedi a rendszer a címeket
+
+**Csak két helyről:** valódi kattintható email-linkből, és az oldal **látható
+szövegéből**. A weboldal rejtett részeit (űrlapmezők, kódba írt minták)
+szándékosan **nem** nézi.
+
+Ennek oka egy valós hiba (2026-08-31): egy hírlevél-feliratkozó űrlap
+*mintaszövegében* („így nézzen ki, amit beírsz") szerepelt egy cím, a rendszer
+azt valódinak vette, és arra ment ki a levél. Nem létezett, visszapattant.
+
+**A Cloudflare-rel elrejtett címeket is megtalálja** (2026-09-02 óta). Sok
+oldal a Cloudflare-en keresztül működik, ami spam-védelemből kicseréli a
+címeket a kiszolgált oldalban — a böngésződ visszafejti, a mi olvasónk viszont
+korábban nem látta. A visszafejtés egyértelmű, nem találgatás. Mérve: 16
+weboldalon volt így elrejtve a cím, és **9 cégnek emiatt nem volt egyetlen
+elérhetősége sem**, pedig volt.
+
+Ezen kívül kiolvassa a **JSON-LD** adatot is (amit a keresők olvasnak az
+oldalról) — volt olyan cég, ahol csak ott szerepelt a cím.
+
+### Amit viszont NEM tud megszerezni
+
+2026-09-02-án végignéztem az összes olyan céget, aminek nem volt elérhetősége,
+és addig kerestem az okokat, amíg új már nem jött elő. Ami maradt:
+
+| Ok | Hány cég | Lehet-e javítani? |
+|---|---|---|
+| **Csak űrlap van**, a cím sehol nincs kiírva | ~18 | ❌ nem — a cím a szerverükön van, nem a weboldalban |
+| **A weboldal JavaScripttel épül fel**, üresen érkezik | 11 | ⚠️ csak igazi böngészővel (lassú, törékeny) |
+| A weboldal **megszűnt vagy nem érhető el** | ~15 | ❌ nem rajtunk múlik |
+| A weboldal **kitiltja a robotunkat** | 1 | ❌ ezt tiszteletben tartjuk |
+
+Ez nem hiba, hanem határ. Az ilyen cégek „nincs elérhetőség" jelzést kapnak,
+és ha fontosak, kézzel kell utánanézni (pl. a cég közösségi oldalán vagy a
+cégjegyzékben). Jobb, mint egy kitalált cím.
+
+> **Ha egy cégnél átmeneti hiba volt** (időtúllépés, pillanatnyi kimaradás),
+> az újrapróbálás gyakran segít: `./leadgen.sh enrich --redo-errors --limit 50`,
+> majd `./leadgen.sh enrich`. Mérve: 26 hibás cégből 11 másodszorra lefutott.
+
+### Ha bővül az email-keresés
+
+Amikor a rendszer új helyről is meg tud találni címeket (mint 2026-09-02-én),
+a **már feldolgozott** cégeknél utólag is érdemes körbenézni:
+
+```bash
+./leadgen.sh enrich --rescan-contacts --limit 200
+```
+
+Ez **csak hozzáad** — nem töröl semmit, és a cégek állapotához sem nyúl, tehát
+bátran, bármikor futtatható. Így gyűlik össze cégenként az összes cím, amiből
+küldés előtt választhatsz (lásd „3.2b").
 
 **Az ingyenes fokozat már most is dolgozik.** Az exportnál látni fogod:
 
@@ -789,14 +880,21 @@ Reggel 7:30-kor sorban lefut:
 | 4. fejlesztő-keresés | ki készítette az oldalt, él-e még |
 | 5. AI-értékelés | ki a jó lead, és mi legyen a levél első mondata |
 | 6. webshop-vizsgálat | dobozos platformon van-e a boltjuk |
-| 7. visszajelzés | ki válaszolt, ki iratkozott le, mi pattant vissza |
-| 8. válasz-besorolás | az AI elolvassa az új válaszokat |
-| 9. átadás | megírja a `leads.csv`-t a küldőnek |
-| 10. ellenőrzés | van-e baj, amiről szólni kell |
+| 7. postafiók-olvasás | **válaszok, leiratkozások, visszapattanások behozása** |
+| 8. visszajelzés | mindez átvezetve az adatbázisba |
+| 9. válasz-besorolás | az AI elolvassa az új válaszokat |
+| 10. átadás | megírja a `leads.csv`-t a küldőnek |
+| 11. ellenőrzés | van-e baj, amiről szólni kell |
 
 > A 3. lépés (minősítés) 2026-08-31 óta része a láncnak — korábban csak
 > kézzel (`./leadgen.sh qualify`) lehetett elindítani, és enélkül a cégek
 > „feldolgozva" állapotban vártak a sorban, senki nem vitte őket tovább.
+
+> A 7. lépés (postafiók-olvasás) 2026-09-02 óta része a láncnak. Korábban ez
+> **csak akkor futott le, amikor küldtél** — tehát ha egy nap kimaradt a
+> küldés, a válaszok és a visszapattanások észrevétlenül álltak a
+> postafiókban. Valós eset: egy visszapattant levélről két napig nem tudott
+> a rendszer. Ez a lépés **nem küld semmit**, csak olvas.
 
 ### Amit szándékosan NEM csinál magától
 
@@ -964,6 +1062,7 @@ funkció ezen a listán.
 | `NINCS ILYEN CEG` az importnál | a sor nem párosítható | töltsd ki a `company_id` vagy a `normalized_domain` oszlopot |
 | `nincs letoltott oldal` a 8.3-nál | a cég weboldala még nincs feldolgozva | `./leadgen.sh enrich` |
 | `EMAIL_VALIDATION=full, de nincs REOON_API_KEY` | hiányzik a kulcs | csak az ingyenes szűrő fut, a küldés megy |
+| egy cím visszapattant, ami nem is tűnt valódinak | egy régebbi feldolgozás rossz helyről (pl. egy űrlap-mezőből) olvasta ki a címet | `./leadgen.sh review --reject <domain>` (ha volt aktív megkeresés), majd `enrich --redo <domain>` és `enrich` |
 
 **Ha elakadsz:** `./leadgen.sh report` szinte mindig megmondja, mi a következő
 lépés. Minden parancs újrafuttatható — egyik sem csinál kárt attól, hogy

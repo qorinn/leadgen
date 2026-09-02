@@ -741,3 +741,40 @@ eljutna a megerősítő dialógusig — jelenleg az `Elonezet` komponens csak
 FIGYELMEZTET az ablakra, de nem tiltja le a gombot (ez tudatos döntés
 volt F7-ben: a szerver úgyis elutasítja/ártalmatlanul kilép, a felület
 csak kényelem).
+
+---
+
+## 2026-09-02 — Címzett-választó a Küldés oldalon (F7 bővítés)
+
+**Mi épült:** ha egy cégnél több használható email-cím van, az előnézet
+minden `cold` levelénél megjelenik egy legördülő lista. A választás menti a
+cég alapértelmezett címét, átírja a még ki nem küldött (`queued`) outreach
+sort, és **exportot indít** — a küldő ugyanis a `leads.csv`-ből dolgozik,
+nem az adatbázisból.
+
+**Ütközés 1 — a Radix `onValueChange` `string | null`-t ad.** A telepített
+verzióban a callback paramétere nullable, nem `string`. A `tsc` ezt elkapta
+(`TS2345`); a meglévő `app/cegek/page.tsx` már `?? MINDEN` alakban kezelte,
+csak ez nem derült ki a kódot olvasva. Új Select-nél mindig futtass
+`npx tsc --noEmit`-et — a `next dev` ezt nem jelzi.
+
+**Ütközés 2 — a `npm run types` a FUTÓ szerverről generál.** A script a
+`http://127.0.0.1:8000/openapi.json`-t kéri le. Ha közben fut a felhasználó
+saját `./leadgen.sh ui`-ja, a port foglalt, az újonnan indított uvicorn
+csendben kilép, és a generálás a **régi** sémát tölti le — a hiba nem
+látszik, csak az hiányzik az `api-types.ts`-ből, amit épp hozzáadtál.
+Megoldás: a sémát közvetlenül az app objektumból írd fájlba
+(`app.openapi()`), és `npx openapi-typescript <fajl> -o lib/api-types.ts`.
+
+**Mit tesztelj később:**
+
+1. **Több címes cég a valódi tervben.** A jelenlegi adatbázisban minden
+   exportált cégnek egy címe van, tehát a select élesben még nem jelent meg.
+   Amint az első ilyen cég bekerül, nézd meg: tényleg a kiválasztott címre
+   megy-e ki a levél (`sender.py --dry` kimenete a váltás után).
+2. **A váltás közbeni job-ütközés.** A csere exportot indít; ha közben már
+   fut valami, a szerver 409-cel elutasít. A felület ilyenkor a hibaszöveget
+   mutatja — nézd meg, hogy érthető-e.
+3. **A follow-up sorok.** Ott szándékosan NINCS select (a szekvencia a
+   címhez kötődik). Ellenőrizd, hogy egy follow-up melletti cégnél tényleg
+   nem jelenik meg a legördülő.

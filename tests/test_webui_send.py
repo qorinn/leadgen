@@ -175,3 +175,36 @@ def test_a_kuldes_router_ujra_lekerdezi_a_tervet():
     assert "_terv()" in forras, "nem kerdezi ujra a tervet a kuldotol"
     # A token beallitasa ELOTT nem indulhat folyamat.
     assert forras.index("token_beval") < forras.index("indit_kuldes")
+
+
+# ─── Cimzett-csere a kuldes elott (2026-09-02) ─────────────────────────────
+
+
+def test_cimet_csak_a_cold_fokon_lehet_cserelni():
+    """A `sent.csv` a szekvencia-fok igazsagforrasa, EMAIL-CIM SZERINT.
+
+    A `sender._stage_of` a leadhez tartozo `sent.csv` sorokbol vezeti le,
+    hol tart a szekvencia -- a kulcs a CIM. Ha egy follow-upra varo lead
+    cimet kicserelnenk, az uj cimnek nem lenne elozmenye a `sent.csv`-ben,
+    tehat a kuldo ujra `cold` fokrol indulna: ugyanaz a ceg masodszor is
+    bemutatkozo levelet kapna. Ez nem dobna hibat -- csendben tortenne.
+
+    Ezert a csere CSAK a `cold` fokon megengedett, es ezt a szerver dolga
+    eldonteni (a frontend a `valaszthato` szotarbol tudja, hol van select).
+    """
+    assert send.CSEREHETO_FOK == "cold"
+
+
+def test_a_csere_nem_irja_at_a_mar_kikuldott_sort():
+    """A `kontakt_csere` csak `queued` outreach sort modosithat.
+
+    Egy `sent` sor cimenek atirasa ketto dolgot rontana el egyszerre: a
+    `sent.csv`-vel valo parositast (lasd a fenti tesztet), es az elozmenyt
+    arrol, hogy KINEK mit kuldtunk ki valojaban.
+    """
+    import inspect
+    forras = inspect.getsource(send.kontakt_csere)
+    assert "status = 'queued'" in forras, \
+        "a csere csak a MEG KI NEM KULDOTT (queued) sort erintheti"
+    assert "'sent'" not in forras.split("update outreach")[1], \
+        "a mar kikuldott sort a csere nem irhatja at"

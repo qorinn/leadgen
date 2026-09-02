@@ -572,6 +572,24 @@ class SendLevel(BaseModel):
     torzs: str
 
 
+class SendKontakt(BaseModel):
+    """Egy valaszthato cim egy ceghez. A `cserehetetlen` dontest NEM itt
+    hozzuk meg: a `valaszthato` szotar csak azoknal a cimzetteknel kap
+    bejegyzest, ahol a csere egyaltalan megengedett (lasd
+    `leadgen.send.CSEREHETO_FOK`)."""
+    email: str
+    email_type: str
+    source_kind: str
+    verify_result: str
+    preferred: bool
+
+
+class SendKontaktBody(BaseModel):
+    """Cimzett-csere egy cegnel, a kuldes elott."""
+    regi_email: str
+    uj_email: str
+
+
 class SendPreviewResponse(BaseModel):
     # A terv tartalmi hash-ehez kotott, 10 percig ervenyes, EGYSZER
     # hasznalhato token. A frontend szamara atlatszatlan string.
@@ -586,6 +604,10 @@ class SendPreviewResponse(BaseModel):
     # (felhasznaloi dontes, 2026-08-30 -- lasd WEBUI-TESZTELENDO.md).
     ablak_nyitva: bool
     ablak_ok: str
+    # cimzett email -> a valaszthato cimek. CSAK ott van bejegyzes, ahol tobb
+    # hasznalhato cim van ES a fok engedi a cseret (`cold`). A frontend ebbol
+    # tudja, hol jelenjen meg a select -- nem sajat szabalybol.
+    valaszthato: dict[str, list[SendKontakt]] = {}
 
 
 class SendLiveBody(BaseModel):

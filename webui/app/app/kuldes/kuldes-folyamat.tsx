@@ -5,12 +5,26 @@ import { AlertTriangle, Eye, Send } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Betoltes } from "@/components/betoltes";
 import { HibaAllapot } from "@/components/hiba-allapot";
 import { MegerositoDialog } from "@/components/megerosito-dialog";
 import { UresAllapot } from "@/components/ures-allapot";
 import { EloNaplo } from "@/app/futtatas/elo-naplo";
-import { api, ApiError, type JobItem, type SendLevel, type SendPreview } from "@/lib/api";
+import {
+  api,
+  ApiError,
+  type JobItem,
+  type SendKontakt,
+  type SendLevel,
+  type SendPreview,
+} from "@/lib/api";
 
 /**
  * A ketlepcsos kuldes (WEBUI-TERV.md F7).
@@ -67,6 +81,26 @@ export function KuldesFolyamat() {
     }
   }
 
+  /**
+   * Cimzett-csere egy cegnel. A szerver menti a valasztast ES ujrairja a
+   * `leads.csv`-t (export job) -- a kuldo ugyanis a fajlbol dolgozik.
+   *
+   * Az elonezetet UTANA eldobjuk: a terv tartalma megvaltozott, tehat a
+   * korabbi token ervenytelen. Ez nem kenyelmi dontes -- a szerver a
+   * `/api/send/live`-nal ujra hasheli a tervet, es a regi tokent elutasitana.
+   * Igy a felulet azt mutatja, ami igaz: uj elonezet kell, uj jovahagyassal.
+   */
+  async function kontaktCsere(regiEmail: string, ujEmail: string) {
+    setHiba(null);
+    try {
+      const valasz = await api.sendKontakt(regiEmail, ujEmail);
+      setJob(valasz.job);
+      setElonezet(null);
+    } catch (err) {
+      setHiba(err instanceof ApiError ? err.message : "Ismeretlen hiba");
+    }
+  }
+
   const jobValtozas = useCallback((frissitett: JobItem) => setJob(frissitett), []);
 
   return (
@@ -100,7 +134,12 @@ export function KuldesFolyamat() {
 
       {betoltes && <Betoltes sorok={4} />}
       {elonezet && (
-        <Elonezet adat={elonezet} tiltva={job?.fut ?? false} onKuld={kuld} />
+        <Elonezet
+          adat={elonezet}
+          tiltva={job?.fut ?? false}
+          onKuld={kuld}
+          onKontaktCsere={kontaktCsere}
+        />
       )}
     </div>
   );
@@ -110,10 +149,12 @@ function Elonezet({
   adat,
   tiltva,
   onKuld,
+  onKontaktCsere,
 }: {
   adat: SendPreview;
   tiltva: boolean;
   onKuld: () => void | Promise<void>;
+  onKontaktCsere: (regi: string, uj: string) => void | Promise<void>;
 }) {
   if (adat.terv_meret === 0) {
     return (
@@ -163,7 +204,17 @@ function Elonezet({
 
       <div className="flex flex-col gap-4">
         {adat.levelek.map((lv, i) => (
-          <LevelKartya key={`${lv.cimzett}-${i}`} level={lv} sorszam={i + 1} />
+          <LevelKartya
+            key={`${lv.cimzett}-${i}`}
+            level={lv}
+            sorszam={i + 1}
+            /* A `valaszthato` szotarban CSAK ott van bejegyzes, ahol tobb
+               hasznalhato cim van ES a szerver engedi a cseret. A feltetelt
+               tehat nem itt dontjuk el. */
+            valaszthato={adat.valaszthato?.[lv.cimzett] ?? []}
+            tiltva={tiltva}
+            onKontaktCsere={onKontaktCsere}
+          />
         ))}
       </div>
 
@@ -200,7 +251,19 @@ function Elonezet({
   );
 }
 
-function LevelKartya({ level, sorszam }: { level: SendLevel; sorszam: number }) {
+function LevelKartya({
+  level,
+  sorszam,
+  valaszthato,
+  tiltva,
+  onKontaktCsere,
+}: {
+  level: SendLevel;
+  sorszam: number;
+  valaszthato: SendKontakt[];
+  tiltva: boolean;
+  onKontaktCsere: (regi: string, uj: string) => void | Promise<void>;
+}) {
   return (
     <div className="flex flex-col gap-2 rounded-lg border p-4">
       <div className="flex flex-wrap items-center gap-2">
@@ -211,6 +274,39 @@ function LevelKartya({ level, sorszam }: { level: SendLevel; sorszam: number }) 
             bedrotozott lista arrol, milyen fokok leteznek. */}
         <Badge variant="outline">{level.fok}</Badge>
       </div>
+
+      {valaszthato.length > 1 && (
+        <div className="flex flex-wrap items-center gap-2 rounded-md border border-dashed p-2">
+          <span className="text-xs text-muted-foreground">
+            Ennél a cégnél {valaszthato.length} használható cím van:
+          </span>
+          <Select
+            value={level.cimzett}
+            disabled={tiltva}
+            onValueChange={(uj) => {
+              if (uj && uj !== level.cimzett) void onKontaktCsere(level.cimzett, uj);
+            }}
+          >
+            <SelectTrigger className="h-8 w-auto min-w-[16rem] text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {valaszthato.map((k) => (
+                <SelectItem key={k.email} value={k.email} className="text-xs">
+                  {k.email}
+                  {/* A jelzok a szervertol jonnek, nem TS-ben szamoljuk. */}
+                  {k.email_type ? ` · ${k.email_type}` : ""}
+                  {k.source_kind ? ` · ${k.source_kind}` : ""}
+                  {k.preferred ? " · kézzel választott" : ""}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <span className="text-xs text-muted-foreground">
+            Váltáskor a rendszer újraírja a listát, és új előnézetet kell kérned.
+          </span>
+        </div>
+      )}
       <div className="text-sm">
         <span className="text-muted-foreground">Tárgy: </span>
         <strong>{level.targy}</strong>

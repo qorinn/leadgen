@@ -247,6 +247,17 @@ def _import_dnc(cur, rows: list[dict], stats: FeedbackStats) -> None:
                     "update outreach set status = 'stopped' where contact_id = %s and status in ('queued','sent')",
                     (contact["id"],),
                 )
+                # A `bounce_override` cimke EMBERI dontes: "ezen a cegen a
+                # visszapattanas nem a ceg hibaja volt". Valos eset
+                # (2026-09-02): az enrichment egy urlap-placeholderbol olvasott
+                # ki cimet (`<input placeholder="x@y.hu">`), tehat a cim SOSEM
+                # letezett. A fenti konzervativ szabaly indoka -- "a masodik
+                # cim ugyanabbol az elavult forrasbol jon" -- ilyenkor nem all:
+                # nem a forras volt elavult, hanem a kinyeres volt hibas.
+                #
+                # A CIM-SZINTU suppression ettol fuggetlenul MEGMARAD (fent,
+                # `_suppress`): a rossz cimre soha tobbe nem megy level. Csak a
+                # CEG marad megkeresheto -- egy masik, ujra kinyert cimen.
                 cur.execute(
                     """
                     update companies
@@ -254,6 +265,11 @@ def _import_dnc(cur, rows: list[dict], stats: FeedbackStats) -> None:
                            status_note = 'hard bounce: ' || %s
                                          || ' -- ujraprobalas kikapcsolva (reputacio-vedelem)'
                      where id = %s and status <> all(%s)
+                       and not exists (
+                         select 1 from company_labels cl
+                          where cl.company_id = companies.id
+                            and cl.label = 'bounce_override'
+                       )
                     """,
                     (email, contact["company_id"], list(_TERMINAL)),
                 )
