@@ -53,7 +53,7 @@ def _greeting(lead: dict) -> str:
         return f"Kedves {name}!"
     if company:
         return f"Tisztelt {company} Csapata!"
-    return "Tisztelt Cím!"
+    return "Üdvözlet!"
 
 
 def _greeting_informal(lead: dict) -> str:
@@ -92,7 +92,7 @@ def _signature_lines(greeting: str) -> str:
     lines = [
         greeting,
         config.FROM_NAME or "<A TE NEVED>",
-        config.REPLY_TO or "<EMAIL>",
+        # config.REPLY_TO or "<EMAIL>",
     ]
     if config.SIGNATURE_PHONE:
         lines.append(config.SIGNATURE_PHONE)
@@ -171,17 +171,16 @@ def agency_cold(lead: dict) -> dict:
     """
     body = f"""{_greeting_informal(lead)}
 
-Fejlesztő vagyok, és sokat dolgozom ügynökségek mögött alvállalkozóként — ők viszik a stratégiát, a hirdetést, a kreatívot, én meg a kódot.
+Szoftverfejlesztő vagyok, és gyakran ügynökségek mögött dolgozom alvállalkozóként. Ők viszik a stratégiát, a hirdetést, a kreatívot, én meg a kódot.
 
-{_personalization(lead, "Körülnéztem nálatok, és a hirdetéskezelés meg a stratégia a fő erősségetek — fejlesztést viszont nem láttam a szolgáltatások közt.")}
+{_personalization(lead, "Körülnéztem nálatok, és úgy látom a hirdetéskezelés meg a stratégia a fő erősségetek, de a fejlesztést nem találtam a szolgáltatások közt.")}
 
-Szóval inkább csak rákérdeznék: van most olyan fejlesztő partneretek, akit be tudtok vonni, ha egy ügyfélnek weboldal vagy egyedi rendszer kell?
-
-{_unsubscribe(lead)}
+Ezért csak rá szeretnék kérdezni, hogy van-e olyan fejlesztő partneretek, akit be tudtok vonni, ha egy ügyfélnek szoftverre is szüksége van, mint például weboldal vagy alkalmazás?
 
 {_signature_informal()}"""
-    return {"subject": "Kivel fejlesztetek?", "body": body, "template": "cold"}
+    return {"subject": "Gyors kérdés a fejlesztésről", "body": body, "template": "cold"}
 
+# {_unsubscribe(lead)}
 
 def agency_follow_up_1(lead: dict) -> dict:
     """2. level, az eredeti utan FU1_DELAY_DAYS nappal.
