@@ -136,11 +136,19 @@ Nyisd meg a linket, nézd meg az oldalt, döntsd el. Kb. 20 másodperc cégenké
 
 ### Ha egy cégnél több email-cím is előkerült
 
-Előfordul, hogy egy weboldalon több valódi cím is van (`support@`, `info@`,
-konkrét névvel jelölt cím) — ilyenkor a gép nem tudja eldönteni, melyikre
-menjen a levél, és nem is szabad ezt géppel eldöntetni. Automatikusan a
-legjobbnak tűnőt választja (valódi linkből származó cím, névvel jelölt cím,
-ellenőrzött cím előnyben), de bármikor felülbírálhatod:
+Előfordul, hogy egy weboldalon több valódi cím is van (`info@`, `sales@`,
+konkrét névvel jelölt cím). A rendszer **ebben a sorrendben** választ:
+
+| Sorrend | Típus | Példa | Miért |
+|---|---|---|---|
+| 1. | **központi** | `info@`, `hello@`, `iroda@`, `hi@` | ezt a cég **azért teszi ki**, hogy megkeressék rajta |
+| 2. | személyes | `nagy.eszter@` | lehet jó, de lehet könyvelő vagy távozó kolléga is |
+| 3. | értékesítés | `sales@` | ott a cég **ad el**, nem ajánlatot fogad |
+| 4. | szerepkör | `noreply@`, `karrier@` | oda hiába írsz |
+
+A központi címeken belül az `info@` és a `hello@` az első.
+
+Ezt bármikor felülbírálhatod — a te választásod mindig erősebb a gépénél:
 
 ```bash
 ./leadgen.sh review --contacts cegnev.hu              # az összes ismert cím

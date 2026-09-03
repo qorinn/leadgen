@@ -128,6 +128,9 @@ def _cmd_ingest_maps(args: argparse.Namespace) -> int:
 
 
 def _cmd_enrich(args: argparse.Namespace) -> int:
+    if getattr(args, "reclassify", False):
+        pipeline.reclassify_contacts()
+        return 0
     if getattr(args, "rescan_contacts", False):
         pipeline.rescan_contacts(limit=args.limit)
         return 0
@@ -614,6 +617,9 @@ def build_parser() -> argparse.ArgumentParser:
                          "(pl. az enrich.py egy javitasa utan)")
     en.add_argument("--redo-errors", action="store_true",
                     help="MINDEN `error` statuszu ceg ujraprobalasa (a --limit szabja meg, hany)")
+    en.add_argument("--reclassify", action="store_true",
+                    help="a tarolt email-tipusok (generic/personal/sales/role) "
+                         "ujraszamolasa a mai szabalyok szerint")
     en.add_argument("--rescan-contacts", action="store_true",
                     help="tovabbi email-cimek gyujtese a mar feldolgozott cegekhez "
                          "(CSAK hozzaad: nem torol, statuszt nem valtoztat)")

@@ -35,7 +35,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from . import config, db, feedback, validate
+from . import config, db, enrich, feedback, validate
 from .contract import APPROVED_CAMPAIGNS, LEADS_HEADER
 
 # A suppression a lead kiadasanak LEGELSO lepese, nem az utolso (SCRAPER-PLAN 0.4).
@@ -118,10 +118,9 @@ with usable as (
            partition by ct.company_id
            order by
              case when ct.id = co.preferred_contact_id then 0 else 1 end,
+             {enrich.email_type_rang_sql()},
+             {enrich.generic_rang_sql()},
              case ct.source_kind when 'mailto' then 0 else 1 end,
-             case ct.email_type
-               when 'personal' then 0 when 'generic' then 1
-               when 'role'     then 2 else 3 end,
              case ct.verify_result
                when 'valid' then 0 when 'catch_all' then 1
                when 'unknown' then 2 else 3 end,

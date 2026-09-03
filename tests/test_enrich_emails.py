@@ -240,3 +240,74 @@ def test_a_rescan_nem_torol_es_nem_valtoztat_statuszt():
     assert "delete from contacts" not in forras, "a rescan SOHA nem torolhet kontaktot"
     assert "on conflict (email) do nothing" in forras
     assert "set status" not in forras, "a rescan nem valtoztathat ceg-statuszt"
+
+
+# ─── A cimvalasztas rangsora (2026-09-03) ──────────────────────────────────
+
+
+def test_a_generic_cim_veri_a_szemelyeset():
+    """Felhasznaloi dontes (2026-09-03): a kozponti cim az alapertelmezes.
+
+    Egy `info@` / `iroda@` cimet a ceg AZERT tesz ki, hogy megkeressek rajta.
+    Egy talalomra kiszedett szemelyes cim lehet egy konyvelo, egy gyakornok
+    vagy egy epp tavozo kollega. Eles eset: a pticom.hu-nal a rendszer a
+    `panovics.andras@`-t valasztotta, holott volt `iroda@` is.
+    """
+    sorrend = enrich.EMAIL_TYPE_SORREND
+    assert sorrend.index("generic") < sorrend.index("personal"), \
+        "a generic cimnek MEG KELL ELOZNIE a szemelyeset"
+    assert sorrend.index("personal") < sorrend.index("sales")
+    assert sorrend.index("sales") < sorrend.index("role")
+
+
+def test_a_sales_cim_sajat_tipus_es_nem_generic():
+    """A `sales@` az a cim, ahol A CEG ad el -- nem ahol ajanlatot FOGAD.
+
+    Amig `generic`-nek szamitott, egy `sales@` megelozhetett egy `info@`-t
+    (a tipuson belul csak a letrehozas ideje dontott), es a megkereses a
+    kimeno ertekesitesi folyamatban veszett volna el.
+    """
+    assert enrich.classify_email("sales@ceg.hu") == "sales"
+    assert enrich.classify_email("ertekesites@ceg.hu") == "sales"
+    assert enrich.classify_email("info@ceg.hu") == "generic"
+
+
+def test_a_hi_cim_generic_es_nem_szemelyes():
+    """A `hi@` kimaradt a GENERIC_PREFIXES-bol, ezert `personal`-nak minosult.
+
+    Eles eset: a `hi@hiagency.hu` szemelyes cimkent szerepelt, es igy a
+    rangsorban rossz helyre kerult. A tipust a KINYERESKOR mentjuk el, tehat
+    egy ilyen hianyzo elotag csendben, visszamenoleg is hat.
+    """
+    for cim in ("hi@ceg.hu", "hello@ceg.hu", "iroda@ceg.hu", "office@ceg.hu"):
+        assert enrich.classify_email(cim) == "generic", cim
+
+
+def test_a_generic_cimeken_belul_az_info_es_a_hello_az_elso():
+    """Tobb kozponti cim is lehet egyszerre (`info@` ES `marketing@`)."""
+    s = enrich.GENERIC_SORREND
+    assert s[0] == "info" and s[1] == "hello"
+    assert s.index("iroda") < s.index("marketing")
+    # Amit a GENERIC_PREFIXES ismer, annak a sorrendben is helye kell legyen,
+    # kulonben csendben a lista vegere (a "minden mas" agra) esne.
+    assert set(enrich.GENERIC_PREFIXES) == set(s), \
+        "a GENERIC_PREFIXES es a GENERIC_SORREND elcsuszott egymastol"
+
+
+def test_a_rangsor_egyetlen_forrasbol_jon():
+    """Korabban az export SAJAT, bedrotozott `case`-t hasznalt, a riport meg
+    egy masik listat -- ket hely dontott maskepp ugyanarrol a kerdesrol.
+
+    Most mindenki az `enrich` fuggvenyeit hivja. Ha valaki visszair egy
+    bedrotozott sorrendet az export SQL-jebe, ez a teszt bukjon el.
+    """
+    import inspect
+    from leadgen import export, report
+    export_sql = export.SQL_NEW
+    assert enrich.email_type_rang_sql() in export_sql, \
+        "az export nem a kozos rangsort hasznalja"
+    assert "when 'personal' then 0" not in export_sql, \
+        "bedrotozott rangsor kerult vissza az exportba"
+    # A riport megjelenitesi sorrendje ugyanabbol a listabol szarmazik.
+    assert report._CONTACT_TYPE_ORDER[:len(enrich.EMAIL_TYPE_SORREND)] == \
+        enrich.EMAIL_TYPE_SORREND

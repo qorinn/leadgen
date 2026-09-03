@@ -164,14 +164,16 @@ def kontakt_valasztek(cimzettek: list[str]) -> dict[str, list[dict]]:
     (egynel tobb hasznalhato cim) -- egyetlen cim mellett a select csak zajt
     adna a felulethez.
     """
-    from . import db
+    from . import db, enrich
 
     cimek = [(e or "").strip().lower() for e in cimzettek if e]
     if not cimek:
         return {}
 
+    # UGYANAZ a rangsor, amit az export hasznal (`enrich.EMAIL_TYPE_SORREND`):
+    # a legordulo elso eleme az legyen, amit a rendszer amugy is valasztana.
     rows = db.query(
-        """
+        f"""
         select alap.email                as cimzett,
                tars.email                as email,
                tars.email_type           as email_type,
@@ -185,7 +187,11 @@ def kontakt_valasztek(cimzettek: list[str]) -> dict[str, list[dict]]:
            and tars.local_check is distinct from 'fail'
            and coalesce(tars.verify_result, '') <> 'invalid'
            and coalesce(tars.bounce_state, '') <> 'hard_bounce'
-         order by alap.email, tars.created_at
+         order by alap.email,
+                  {enrich.email_type_rang_sql('tars.email_type')},
+                  {enrich.generic_rang_sql('tars.email')},
+                  case tars.source_kind when 'mailto' then 0 else 1 end,
+                  tars.created_at
         """,
         (cimek,),
     )

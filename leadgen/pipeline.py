@@ -134,6 +134,35 @@ def run_enrich(limit: int = 25, verbose: bool = True) -> dict:
     return stats
 
 
+def reclassify_contacts(verbose: bool = True) -> dict:
+    """A tarolt `email_type` ujraszamolasa a MAI szabalyok szerint.
+
+    A tipus a cim helyi reszebol szamolhato (`enrich.classify_email`), tehat
+    tiszta ujraszamolas: nincs halozat, nincs koltseg, barmikor futtathato.
+
+    MIERT KELL: a tipus a KINYERES pillanataban dol el es beleirodik a
+    `contacts.email_type`-ba. Ha a szabaly kesobb valtozik -- uj tipus
+    (`sales`), vagy egy hianyzo elotag potlasa (`hi@`) --, a MAR TAROLT sorok
+    a regi szabaly szerint maradnak, es az export csendben a regi rangsor
+    szerint valaszt. A hiba nema: a level kimegy, csak nem a legjobb cimre.
+    """
+    rows = db.query("select id, email, email_type from contacts")
+    valtozott: list[tuple[str, str, str]] = []
+    with db.connect() as conn, conn.cursor() as cur:
+        for r in rows:
+            uj = enrich.classify_email(r["email"])
+            if uj != (r["email_type"] or ""):
+                cur.execute("update contacts set email_type = %s where id = %s",
+                            (uj, r["id"]))
+                valtozott.append((r["email"], r["email_type"] or "(nincs)", uj))
+
+    if verbose:
+        for email, regi, uj in valtozott:
+            print(f"  {email:38} {regi} -> {uj}")
+        print(f"\n  megnezve={len(rows)} atsorolva={len(valtozott)}")
+    return {"nezve": len(rows), "valtozott": len(valtozott)}
+
+
 def rescan_contacts(limit: int = 25, verbose: bool = True) -> dict:
     """Ujra megnezi a weboldalakat, es CSAK HOZZAAD cimeket. Nem torol, es a
     ceg statuszahoz sem nyul.

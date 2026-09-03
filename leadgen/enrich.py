@@ -498,17 +498,65 @@ ROLE_PREFIXES = {
     "press", "sajto", "media", "pr", "kommunikacio",
     "karrier", "career", "allas", "jobs", "job", "hr", "toborzas",
 }
-GENERIC_PREFIXES = {
-    "info", "hello", "kapcsolat", "iroda", "office", "contact", "mail",
-    "sales", "ertekesites", "marketing", "ugyfelszolgalat", "titkarsag",
+# ERTEKESITESI cimek. KULON TIPUS, NEM `generic` (felhasznaloi dontes,
+# 2026-09-03): a `sales@` az a cim, ahol A CEG ad el -- nem az, ahol ajanlatot
+# FOGAD. Egy alvallalkozoi megkereses ott a legjobb esetben elvesz a kimeno
+# ertekesitesi folyamatban.
+SALES_PREFIXES = {
+    "sales", "ertekesites", "uzletfejlesztes", "uzletkotes", "bd",
 }
+GENERIC_PREFIXES = {
+    "info", "hello", "hi", "kapcsolat", "iroda", "office", "contact", "mail",
+    "marketing", "ugyfelszolgalat", "titkarsag",
+}
+
+# ─── A CIMVALASZTAS RANGSORA -- EZ AZ EGYETLEN FORRAS ──────────────────────
+#
+# Minden hely, ahol "melyik cim a legjobb ehhez a ceghez" kerdes felmerul,
+# EZT hasznalja: az export (`SQL_NEW`), a kuldes elotti valaszto
+# (`send.kontakt_valasztek`), a cegek listaja (`webui .../companies.py`) es a
+# riport. Korabban az export SAJAT, bedrotozott sorrendet hasznalt -- igy ket
+# hely dontott maskepp ugyanarrol.
+#
+# MIERT A `generic` AZ ELSO (felhasznaloi dontes, 2026-09-03):
+# egy `info@` / `iroda@` cimet a ceg AZERT tesz ki, hogy megkeressek rajta.
+# Egy talalomra kiszedett szemelyes cim (`panovics.andras@...`) lehet egy
+# konyvelo, egy gyakornok vagy egy epp tavozo kollega -- a megkereses ott
+# nagyobb esellyel hal el, mint a kozponti cimen. Eles eset: a pticom.hu-nal
+# a rendszer egy szemelyes cimet valasztott, holott volt `iroda@` is.
+EMAIL_TYPE_SORREND = ("generic", "personal", "sales", "role")
+
+# A `generic` cimeken BELULI sorrend. Tobb kozponti cim is lehet egyszerre
+# (`info@` es `marketing@`); a lista eleje a "biztosan olvassak" vege.
+GENERIC_SORREND = (
+    "info", "hello", "iroda", "hi", "office", "kapcsolat", "contact",
+    "mail", "titkarsag", "ugyfelszolgalat", "marketing",
+)
+
+
+def _rang_case(oszlop: str, ertekek: tuple[str, ...]) -> str:
+    """SQL `case` kifejezes egy Python-sorrendbol. Igy a rangsor egyetlen
+    helyen (fent) van leirva, es nem masolodik be SQL-szovegekbe."""
+    agak = " ".join(f"when '{e}' then {i}" for i, e in enumerate(ertekek))
+    return f"case {oszlop} {agak} else {len(ertekek)} end"
+
+
+def email_type_rang_sql(oszlop: str = "ct.email_type") -> str:
+    return _rang_case(f"coalesce({oszlop}, 'unknown')", EMAIL_TYPE_SORREND)
+
+
+def generic_rang_sql(oszlop: str = "ct.email") -> str:
+    """A helyi resz (a `@` elotti darab) rangja a GENERIC_SORREND szerint."""
+    return _rang_case(f"split_part({oszlop}, '@', 1)", GENERIC_SORREND)
 
 
 def classify_email(addr: str) -> str:
-    """personal | generic | role -- az export ebben a sorrendben valaszt cimet."""
+    """generic | personal | sales | role -- lasd EMAIL_TYPE_SORREND."""
     local = normalize.strip_accents((addr or "").split("@")[0].lower())
     if local in ROLE_PREFIXES:
         return "role"
+    if local in SALES_PREFIXES:
+        return "sales"
     if local in GENERIC_PREFIXES:
         return "generic"
     # "nagy.eszter", "peter", "oliver" -> szemelynek tuno cim

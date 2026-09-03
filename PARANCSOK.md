@@ -55,6 +55,7 @@ mutatja, hogy fogy a sor:
 | `enrich --redo bda.hu` | egy már feldolgozott cég visszaáll `new`-ra, újra lefut rajta az enrichment |
 | `enrich --redo-errors --limit 50` | **minden hibás (`error`) cég újrapróbálása** |
 | `enrich --rescan-contacts --limit 200` | további email-címek gyűjtése a már feldolgozott cégekhez |
+| `enrich --reclassify` | az email-típusok (generic/personal/sales/role) újraszámolása |
 | `qualify` | minősít (`enriched` → `ready` / `review` / `suppressed`) |
 
 > Az `enrich --redo` a régi (2026-09-02 előtti) kódtól származó, gyanús
@@ -110,12 +111,18 @@ mutatja, hogy fogy a sor:
 > A `--reason` értékei: `manual_block` (alapértelmezés), `competitor`,
 > `existing_client`, `negative_reply`, `unsubscribe`.
 
-> Ha egy cégnél **több valódi cím is van** (pl. `support@`, `info@`, konkrét
-> névvel jelölt cím), az `export` automatikusan a legjobbat választja
-> (valódi `mailto:` link előbb, mint sima szöveges találat; személynév előbb,
-> mint általános cím; ellenőrzött cím előbb, mint ellenőrizetlen). A
-> `--pick-contact` ezt bármikor felülbírálja — nézd meg előbb a
-> `review --contacts <domain>` listát.
+> Ha egy cégnél **több valódi cím is van**, az `export` ebben a sorrendben
+> választ (`leadgen/enrich.py` — `EMAIL_TYPE_SORREND`, ez az **egyetlen**
+> forrás, az export, a küldés-választó és a riport is ezt használja):
+>
+> 1. **központi** (`info@`, `hello@`, `iroda@`, `hi@`) — ezen belül `info@`, majd `hello@`
+> 2. **személyes** (`nagy.eszter@`)
+> 3. **értékesítés** (`sales@`) — ott a cég ad el, nem ajánlatot fogad
+> 4. **szerepkör** (`noreply@`, `karrier@`)
+>
+> Azonos típuson belül a valódi `mailto:` linkből származó cím előzi a szöveges
+> találatot, az ellenőrzött az ellenőrizetlent. A `--pick-contact` (és a
+> felület legördülője) ezt bármikor felülbírálja — az mindig erősebb.
 
 ## Átadás és visszacsatolás
 

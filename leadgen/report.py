@@ -40,7 +40,7 @@ import json
 import subprocess
 from dataclasses import dataclass
 
-from . import config, db, validate
+from . import config, db, enrich, validate
 
 # A `companies.status` eletciklus sorrendben. A riport ebben a sorrendben ir,
 # nem darabszam szerint: igy latszik, hol AKAD EL a tolcser.
@@ -75,13 +75,15 @@ ACTIONABLE = {
     "ready": "./leadgen.sh export",
 }
 
-# Kontaktus email_type ertekek megjelenitesi sorrendje. A negyedik (nincs
-# tipus) a DB-ben NULL -- az adat oldalon 'unknown', a CLI-n (regi szoveg,
-# ne valtozzon) 'ismeretlen'.
-_CONTACT_TYPE_ORDER = ("personal", "generic", "role", "unknown")
+# Kontaktus email_type ertekek megjelenitesi sorrendje. Az `enrich`-bol jon,
+# hogy a megjelenites UGYANAZT a rangsort mutassa, amit az export hasznal
+# (korabban ket kulon lista volt, es szet is csusztak). Az utolso ertek a
+# DB-ben NULL -- az adat oldalon 'unknown', a CLI-n (regi szoveg, ne
+# valtozzon) 'ismeretlen'.
+_CONTACT_TYPE_ORDER = enrich.EMAIL_TYPE_SORREND + ("unknown",)
 _CONTACT_TYPE_CLI_LABEL = {
-    "personal": "personal", "generic": "generic", "role": "role",
-    "unknown": "ismeretlen",
+    "generic": "generic", "personal": "personal", "sales": "sales",
+    "role": "role", "unknown": "ismeretlen",
 }
 
 
