@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from leadgen import config, db, engines, report
+from leadgen import config, db, engines, report, review
 from leadgen.contract import APPROVED_CAMPAIGNS
 
 from ..schemas import MetaResponse
@@ -26,7 +26,10 @@ router = APIRouter()
 @router.get("/api/meta", response_model=MetaResponse)
 def meta() -> dict:
     statuszok = [
-        {"kulcs": s, "cimke": report.STATUS_LABEL.get(s, s), "sorrend": i}
+        {"kulcs": s, "cimke": report.STATUS_LABEL.get(s, s), "sorrend": i,
+         # A felulet ebbol tudja, hol mutasson jovahagyas/elutasitas gombot --
+         # nem sajat, TypeScriptbe masolt statuszlistabol.
+         "dontesre_var": s in review.DONTESRE_VARO_STATUSZOK}
         for i, s in enumerate(report.STATUS_ORDER)
     ]
 

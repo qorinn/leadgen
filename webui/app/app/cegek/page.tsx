@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import type { ColumnDef, SortingState } from "@tanstack/react-table";
+import { ExternalLink } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -21,6 +22,7 @@ import { UresAllapot } from "@/components/ures-allapot";
 import { useMeta } from "@/lib/use-meta";
 import { api, ApiError, type CompanyListItem } from "@/lib/api";
 import { formatDatum } from "@/lib/format";
+import { ReviewActions } from "./[id]/review-actions";
 import { SuppressedLista } from "./suppressed-lista";
 
 // A gazdasagi ertek (LOW/MEDIUM/HIGH) NEM a /api/meta-bol jon: ez egy fix,
@@ -32,6 +34,18 @@ import { SuppressedLista } from "./suppressed-lista";
 const GAZDASAGI_ERTEKEK = ["LOW", "MEDIUM", "HIGH"] as const;
 
 const MINDEN = "__minden__";
+
+/** A ceg weboldalanak megnyithato cime.
+ *
+ *  A szerver az EREDETI URL-t adja (`website`), mert a forras tudja a
+ *  legjobban, hol el az oldal -- de az nem mindig tartalmaz semat, es
+ *  hianyozhat is. Sema nelkul a bongeszo relativ utkent ertelmezne, es a
+ *  felulet sajat oldalara navigalna. */
+function weboldalUrl(sor: CompanyListItem): string | null {
+  const nyers = (sor.website || sor.normalized_domain || "").trim();
+  if (!nyers) return null;
+  return /^https?:\/\//i.test(nyers) ? nyers : `https://${nyers}`;
+}
 
 const OSZLOPOK: ColumnDef<CompanyListItem, unknown>[] = [
   {
@@ -47,9 +61,27 @@ const OSZLOPOK: ColumnDef<CompanyListItem, unknown>[] = [
   {
     id: "normalized_domain",
     accessorKey: "normalized_domain",
-    header: "Domain",
+    header: "Weboldal",
     enableSorting: false,
-    cell: ({ row }) => row.original.normalized_domain || "—",
+    cell: ({ row }) => {
+      const url = weboldalUrl(row.original);
+      if (!url) return "—";
+      return (
+        // `noopener`: a megnyitott oldal ne ferjen hozza a felulethez.
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1 hover:underline"
+          // A sor kattintasa a reszletes oldalra vinne -- itt a KULSO
+          // oldalra megyunk, tehat a buborekolast megallitjuk.
+          onClick={(e) => e.stopPropagation()}
+        >
+          {row.original.normalized_domain || url}
+          <ExternalLink className="size-3 shrink-0 text-muted-foreground" />
+        </a>
+      );
+    },
   },
   {
     id: "status",
@@ -132,6 +164,54 @@ function CegLista() {
   const [osszesen, setOsszesen] = useState(0);
   const [betoltes, setBetoltes] = useState(true);
   const [hiba, setHiba] = useState<string | null>(null);
+  // Ujratoltes-szamlalo. NEM a szurot piszkaljuk egy dontes utan: az
+  // visszaugrana az elso oldalra, es egy hosszu atnezes kozben elveszne,
+  // hol tartottal.
+  const [frissites, setFrissites] = useState(0);
+  const frissit = useCallback(() => setFrissites((n) => n + 1), []);
+
+  // MELYIK statusznal van hatra emberi dontes, azt a SZERVER mondja meg
+  // (`/api/meta` -> `dontesre_var`, forrasa a leadgen/review.py
+  // DONTESRE_VARO_STATUSZOK). Itt nincs bedrotozott statuszlista
+  // (WEBUI-TERV.md Invariansok #1).
+  const reviewMod = useMemo(
+    () =>
+      (meta?.statuszok ?? []).some(
+        (s) => s.dontesre_var && s.kulcs === szurok.status
+      ),
+    [meta, szurok.status]
+  );
+
+  // A dontesi oszlopok CSAK az emberi dontesre varo listaban jelennek meg:
+  // mashol a `status_note` nem kizaro ok, a gombok pedig ertelmetlenek
+  // lennenek (a szerver ugyis 409-cel utasitana el).
+  const oszlopok = useMemo<ColumnDef<CompanyListItem, unknown>[]>(() => {
+    if (!reviewMod) return OSZLOPOK;
+    return [
+      ...OSZLOPOK,
+      {
+        id: "status_note",
+        accessorKey: "status_note",
+        header: "Kizáró ok",
+        enableSorting: false,
+        cell: ({ row }) => (
+          <span className="text-xs text-muted-foreground">
+            {row.original.status_note || "—"}
+          </span>
+        ),
+      },
+      {
+        id: "dontes",
+        header: "Döntés",
+        enableSorting: false,
+        cell: ({ row }) => (
+          <div onClick={(e) => e.stopPropagation()}>
+            <ReviewActions companyId={String(row.original.id)} onKesz={frissit} />
+          </div>
+        ),
+      },
+    ];
+  }, [reviewMod, frissit]);
 
   // A /cegek?status=review linket (Irányítópult "Rád vár") csak EGYSZER,
   // induláskor olvassuk be -- utána a felhasználó szűrése az igazság.
@@ -185,7 +265,7 @@ function CegLista() {
         setHiba(err instanceof ApiError ? err.message : "Ismeretlen hiba");
       })
       .finally(() => setBetoltes(false));
-  }, [lekerdezes, kezdoSzurokBetoltve]);
+  }, [lekerdezes, kezdoSzurokBetoltve, frissites]);
 
   return (
     <div className="flex flex-col gap-4">
@@ -199,7 +279,7 @@ function CegLista() {
 
         <TabsContent value="cegek">
           <AdatTabla
-            oszlopok={OSZLOPOK}
+            oszlopok={oszlopok}
             adat={items}
             oldal={oldal}
             oldalMeret={50}

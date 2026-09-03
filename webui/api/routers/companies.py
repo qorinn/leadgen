@@ -10,7 +10,7 @@ from __future__ import annotations
 import psycopg
 from fastapi import APIRouter, HTTPException, Query
 
-from leadgen import db
+from leadgen import db, enrich
 from leadgen.report import _CONTACT_TYPE_ORDER
 
 from ..schemas import CompanyDetailResponse, CompanyListResponse
@@ -86,13 +86,22 @@ def list_companies(
         f"""
         select c.id, c.company_name, c.normalized_domain, c.status, c.campaign,
                c.economic_value, c.signal_score, c.city, c.industry,
-               c.best_offer, c.updated_at, legjobb_kontakt.email
+               c.best_offer, c.updated_at, legjobb_kontakt.email,
+               -- A kizaro ok. A `review` statuszu cegeknel EZ a dontesi alap:
+               -- e nelkul minden egyes ceghez meg kellene nyitni a reszletes
+               -- oldalt, hogy egyaltalan lasd, mirol kell donteni.
+               c.status_note,
+               -- Az EREDETI URL (a forras tudja, hol el az oldal), a
+               -- normalizalt domain csak fallback -- ugyanaz a sorrend, mint
+               -- az `export._COMMON_FIELDS` `website` mezojeben.
+               coalesce(c.domain, c.platform_url) as website
           from companies c
           left join lateral (
             select ct.email
               from contacts ct
              where ct.company_id = c.id
           order by case coalesce(ct.email_type, 'unknown') {_KONTAKT_RANG_CASE} end,
+                   {enrich.generic_rang_sql()},
                    ct.created_at desc
              limit 1
           ) legjobb_kontakt on true

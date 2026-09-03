@@ -62,6 +62,10 @@ class StatuszMeta(BaseModel):
     kulcs: str
     cimke: str
     sorrend: int
+    # Var-e emberi dontes ezen a statuszon (leadgen/review.py
+    # DONTESRE_VARO_STATUSZOK). A felulet ebbol tudja, hol adjon
+    # jovahagyas/elutasitas gombot -- sajat statuszlista nelkul.
+    dontesre_var: bool
 
 
 class KampanyMeta(BaseModel):
@@ -258,6 +262,11 @@ class CompanyListItem(BaseModel):
     # A cegnek tobb kontaktusa is lehet -- ez a "legjobb" (report.py
     # _CONTACT_TYPE_ORDER szerinti) email, a reszletnezetben mind lathato.
     email: str | None
+    # A kizaro/allapot indoklasa. A `review` statuszu cegeknel ez a dontesi
+    # alap -- a lista enelkul nem hasznalhato atnezesre.
+    status_note: str | None
+    # A ceg weboldala, EREDETI URL-kent (a normalizalt domain csak fallback).
+    website: str | None
 
 
 class CompanyListResponse(BaseModel):

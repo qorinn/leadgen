@@ -20,6 +20,16 @@ from dataclasses import dataclass
 
 from . import db, labels
 
+# Azok a `companies.status` ertekek, ahol a dontes MEG HATRAVAN: itt varunk
+# embert, es itt van ertelme a jovahagyas/elutasitas parosnak.
+#
+# MIERT ITT VAN, ES MIERT KERUL AT A `/api/meta`-ba: a webui listajaban a
+# dontesi gombok csak ezeknel a statuszoknal jelennek meg. Ha a frontend a
+# `"review"` stringet irna le sajat maganak, ket helyen kellene karbantartani
+# ugyanazt az uzleti listat -- pontosan az, amit a WEBUI-TERV Invariansok #1
+# tilt, es amit a `test_a_frontend_nem_drotoz_be_uzleti_listat` teszt fog is.
+DONTESRE_VARO_STATUSZOK = ("review",)
+
 
 @dataclass
 class ApproveResult:

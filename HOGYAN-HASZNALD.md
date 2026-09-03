@@ -130,6 +130,12 @@ gép nem dönt, hanem megkérdez.
 
 Nyisd meg a linket, nézd meg az oldalt, döntsd el. Kb. 20 másodperc cégenként.
 
+**A felületen ez gyorsabb:** a Cégek oldalon állítsd a Státusz szűrőt
+„emberi döntésre vár"-ra. Ilyenkor a táblázat két plusz oszlopot mutat — a
+**kizáró okot** és a **Jóváhagyás / Elutasítás gombokat** —, tehát nem kell
+minden céghez külön megnyitni a részletes oldalt. A weboldal a Weboldal
+oszlopból egy kattintással nyílik, új lapon.
+
 > **A gép döntései sem véglegesek.** Az `--approve` visszahozza azt is, amit
 > a gép magától zárt ki. Amit automatikusan kizárt:
 > `./leadgen.sh review --suppressed`

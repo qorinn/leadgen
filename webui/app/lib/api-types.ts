@@ -858,6 +858,10 @@ export interface components {
             updated_at: string | null;
             /** Email */
             email: string | null;
+            /** Status Note */
+            status_note: string | null;
+            /** Website */
+            website: string | null;
         };
         /** CompanyListResponse */
         CompanyListResponse: {
@@ -1663,6 +1667,8 @@ export interface components {
             cimke: string;
             /** Sorrend */
             sorrend: number;
+            /** Dontesre Var */
+            dontesre_var: boolean;
         };
         /** SuppressedCompanyItem */
         SuppressedCompanyItem: {
