@@ -128,6 +128,67 @@ def _bounced_address(msg: dict) -> tuple[str, str] | None:
     return None
 
 
+# Kozismert freemail-szolgaltatok. A DOMAIN-alapu parositas ezeknel NEM
+# ervenyes: ha egy leadnek `valaki@gmail.com` cimere kuldtunk, attol meg egy
+# TETSZOLEGES gmail-cimrol jovo level nem az o valasza.
+_FREEMAIL = {
+    "gmail.com", "googlemail.com", "outlook.com", "outlook.hu", "hotmail.com",
+    "hotmail.hu", "yahoo.com", "yahoo.hu", "icloud.com", "freemail.hu",
+    "citromail.hu", "t-online.hu", "upcmail.hu", "vipmail.hu", "indamail.hu",
+    "chello.hu", "externet.hu", "invitel.hu", "protonmail.com", "gmx.com", "gmx.net",
+}
+
+# A valasz-targy jellegzetes elotagjai. A DOMAIN-alapu parositasnal kotelezo:
+# e nelkul egy ceges hirlevel (`hirlevel@ceg.hu`) is "valasznak" szamitana, es
+# csendben tiltolistara tenne egy jo leadet.
+#
+# NEM A TARGY ELEJEHEZ KOTVE (`search`, nem `match`): az automatikus
+# tavollet-valaszok ele sajat szoveget tesznek. Valos pelda a postafiokbol:
+# "Szabadsagon vagyok Re: Gyors kerdes a fejlesztesrol". Ha csak a targy
+# elejen keresnenk, pont ezek maradnanak ki -- pedig ezeket erdemes a
+# LEGJOBBAN elkapni: nem elutasitas, hanem "most nem er ra", amire a
+# valasz-osztalyozo 14 napos cooldownt ad, follow-up helyett.
+#
+# A `\s*:` miatt a szo utan KOZVETLENUL kettospont kell, tehat egy
+# "Regisztralj most:" targyu hirlevel nem illeszkedik.
+_VALASZ_TARGY = re.compile(
+    r"(?:^|\s)(re|válasz|valasz|aw|fwd?|továbbítás|tovabbitas)\s*:",
+    re.IGNORECASE)
+
+
+def _is_reply_from_lead(sender: str, msg: dict, contacted: set[str],
+                        contacted_domains: set[str]) -> bool:
+    """Ez a level egy megkeresett lead valasza-e?
+
+    KET UTON ISMERUNK FEL EGY VALASZT, es a masodik nelkul valaszok vesznek el:
+
+    1. PONTOS CIM-EGYEZES. Arrol a cimrol jott, amire irtunk. Ez a biztos eset,
+       itt nem kerunk semmilyen tovabbi jelet.
+
+    2. AZONOS CEG-DOMAIN, "Re:" targgyal. Az ember ritkan arrol a cimrol
+       valaszol, amire irtunk: az `info@ceg.hu`-ra kuldott levelre a sajat
+       cimerol jon a valasz. Merve (2026-09-03): ket valodi valasz --
+       koztuk egy erdeklodo -- maradt lathatatlan pontosan emiatt, es a
+       rendszer 2 nap mulva follow-upot kuldott volna nekik.
+
+    A 2. ut KET SZUKITESSEL biztonsagos:
+      - freemail domain KIZARVA (egy tetszoleges gmail-cim nem a lead valasza)
+      - a targynak valasz-elotaggal kell kezdodnie (kulonben egy ceges
+        hirlevel is tiltolistara tenne egy jo leadet)
+
+    A tevedes iranya itt szandekosan az ovatossag fele dol: egy hamis talalat
+    annyit jelent, hogy nem kuldunk tovabbi levelet valakinek. Egy KIMARADT
+    valasz viszont azt, hogy follow-upot kuldunk annak, aki mar valaszolt.
+    """
+    if sender in contacted:
+        return True
+
+    domain = sender.split("@")[-1].strip().lower()
+    if not domain or domain in _FREEMAIL or domain not in contacted_domains:
+        return False
+    return bool(_VALASZ_TARGY.search(msg.get("subject") or ""))
+
+
 def run(days: int = 14) -> dict:
     """Vegigmegy a postafiokokon. Visszaadja az osszesitest.
 
@@ -145,6 +206,7 @@ def run(days: int = 14) -> dict:
         raise RuntimeError("Nincs beallitva SMTP_ACCOUNTS.")
 
     contacted = store.already_contacted()
+    contacted_domains = store.contacted_domains()
 
     for acc in accounts:
         messages = mailer.fetch_recent(acc, days=days)  # hiba eseten dob
@@ -164,7 +226,8 @@ def run(days: int = 14) -> dict:
                 continue
 
             sender = _extract_email(msg.get("from", ""))
-            if not sender or sender not in contacted:
+            if not sender or not _is_reply_from_lead(sender, msg, contacted,
+                                                     contacted_domains):
                 continue
 
             replied.add(sender)

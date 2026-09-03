@@ -36,7 +36,8 @@ from pathlib import Path
 from typing import Any
 
 from . import config, db, labels
-from .normalize import normalize_email
+from .enrich import FREEMAIL_DOMAINS as _FREEMAIL
+from .normalize import email_domain, normalize_email
 
 # A cegek allapota, amit a feedback NEM irhat felul. Ha valaki mar valaszolt
 # vagy tiltva van, egy kesobb feldolgozott sent.csv sor ne huzza vissza
@@ -118,6 +119,43 @@ def _contact(cur, email: str) -> dict | None:
     return cur.fetchone()
 
 
+def _valaszolo_cege(cur, email: str) -> dict | None:
+    """A VALASZOLO cege, ha a cime nem ismert kontakt -- domain szerint.
+
+    MIERT KELL: az ember ritkan arrol a cimrol valaszol, amire irtunk. Az
+    `info@ceg.hu`-ra kuldott levelre a sajat cimerol jon a valasz
+    (`nagy.eszter@ceg.hu`). A `_contact()` pontos cim-egyezest keres, tehat
+    ilyenkor `None`-t ad -- es akkor a ceg NEM kerul `replied` allapotba, az
+    outreach sora NYITVA marad, es a rendszer follow-upot kuld annak, aki
+    mar valaszolt.
+
+    Merve (2026-09-03): ket valodi valasz erkezett, mindketto szemelyes
+    cimrol, es mindket ceg `sent` allapotban maradt -- ket nap mulva
+    megkaptak volna a kovetkezo levelet.
+
+    A `guards.py` ugyanezt a parositast vegzi a kuldo oldalan
+    (`_is_reply_from_lead`); ez itt a DB-oldali parja. FREEMAIL DOMAINT
+    SZANDEKOSAN NEM parositunk: egy tetszoleges gmail-cimrol jovo level nem
+    annak a leadnek a valasza, akinek `valaki@gmail.com` cimere irtunk.
+    """
+    domain = email_domain(email)
+    if not domain or domain in _FREEMAIL:
+        return None
+    cur.execute(
+        """
+        select ct.id, ct.company_id
+          from contacts ct
+          join companies c on c.id = ct.company_id
+          join outreach o on o.company_id = c.id and o.contact_id = ct.id
+         where c.normalized_domain = %s
+           and o.status in ('queued', 'sent')
+         order by o.queued_at desc
+         limit 1
+        """,
+        (domain,))
+    return cur.fetchone()
+
+
 # ─── sent.csv ──────────────────────────────────────────────────────────────
 
 def _import_sent(cur, rows: list[dict], stats: FeedbackStats) -> None:
@@ -189,6 +227,12 @@ def _import_dnc(cur, rows: list[dict], stats: FeedbackStats) -> None:
         if reason == "replied":
             # NEM suppression. A valaszolo forro lead lehet -- csak EMBER
             # valaszoljon neki, ne a robot. (INTEGRATION-PLAN 4. ellentmondas.)
+            #
+            # Ha a valasz nem a megkeresett cimrol jott, domain szerint
+            # keressuk meg a ceget -- kulonben az outreach sora nyitva
+            # maradna, es follow-upot kuldenenk annak, aki mar valaszolt
+            # (lasd `_valaszolo_cege`).
+            contact = contact or _valaszolo_cege(cur, email)
             stats.replied += 1
             if contact:
                 cur.execute(

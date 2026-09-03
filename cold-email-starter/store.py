@@ -180,6 +180,20 @@ def already_contacted() -> set[str]:
     return {(r.get("email") or "").strip().lower() for r in sent_rows()}
 
 
+def contacted_domains() -> set[str]:
+    """Minden CEG-domain, ahova valaha kuldtunk levelet.
+
+    MIERT KELL A CIMEK MELLE A DOMAIN IS: az ember ritkan arrol a cimrol
+    valaszol, amire irtunk. Egy `info@ceg.hu`-ra kuldott levelre tipikusan a
+    sajat cimerol jon a valasz (`nagy.eszter@ceg.hu`) -- a `guards` viszont
+    pontos cim-egyezest keresett, tehat az ilyen valaszt NEM LATTA.
+    Kovetkezmeny: a rendszer follow-upot kuldott volna annak, aki mar
+    valaszolt (merve 2026-09-03: ket valodi valasz maradt eszreveletlen).
+    """
+    return {(r.get("domain") or "").strip().lower()
+            for r in sent_rows() if (r.get("domain") or "").strip()}
+
+
 # ─── Suppression (DNC) ─────────────────────────────────────────────────────
 
 def dnc_emails() -> set[str]:
