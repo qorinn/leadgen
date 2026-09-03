@@ -1062,6 +1062,7 @@ funkció ezen a listán.
 | `NINCS ILYEN CEG` az importnál | a sor nem párosítható | töltsd ki a `company_id` vagy a `normalized_domain` oszlopot |
 | `nincs letoltott oldal` a 8.3-nál | a cég weboldala még nincs feldolgozva | `./leadgen.sh enrich` |
 | `EMAIL_VALIDATION=full, de nincs REOON_API_KEY` | hiányzik a kulcs | csak az ingyenes szűrő fut, a küldés megy |
+| `A(z) ingest lepes hibara futott` a napi naplóban | nem jöttek be új cégek aznap | ha **több napon át** ismétlődik, a lead-utánpótlás elfogy — nézd meg: `./leadgen.sh report` |
 | egy cím visszapattant, ami nem is tűnt valódinak | egy régebbi feldolgozás rossz helyről (pl. egy űrlap-mezőből) olvasta ki a címet | `./leadgen.sh review --reject <domain>` (ha volt aktív megkeresés), majd `enrich --redo <domain>` és `enrich` |
 
 **Ha elakadsz:** `./leadgen.sh report` szinte mindig megmondja, mi a következő
